@@ -18,10 +18,11 @@
 //!   country. A view should render it only when it differs from the name.
 //!
 //! Two entries of the web app's list are `http://` (`ftp.dk.xemacs.org`,
-//! `ftp.debian.ru`). They are not ported: [`crate::probe::check_probe_url`]
-//! refuses plain HTTP before a request is made, exactly as the web app does, so
-//! those two could never report a latency — they would sit in the list as
-//! permanent failures. Everything in [`MIRRORS`] is `https://`.
+//! `ftp.debian.ru`). They are kept, in place, because the web app keeps them and
+//! shows the resulting error in the UI: [`crate::probe::check_probe_url`] refuses
+//! plain HTTP before a request is made, so those rows always end as
+//! `ProbeError::PlainHttp` and never report a latency. They are the live case the
+//! Mirrors view has to render; the other 32 entries are `https://`.
 //!
 //! The web app's `tier` (1 or 2) is not carried: the native view has no tier
 //! column, and a field nothing reads would only invite drift.
@@ -196,6 +197,12 @@ pub const MIRRORS: &[MirrorInfo] = &[
     },
     MirrorInfo {
         name: "Denmark",
+        url: "http://ftp.dk.xemacs.org/voidlinux/",
+        region: Region::Eu,
+        country: "Denmark",
+    },
+    MirrorInfo {
+        name: "Denmark",
         url: "https://mirrors.dotsrc.org/voidlinux/",
         region: Region::Eu,
         country: "Denmark",
@@ -223,6 +230,12 @@ pub const MIRRORS: &[MirrorInfo] = &[
         url: "https://void.sakamoto.pl/",
         region: Region::Eu,
         country: "Poland",
+    },
+    MirrorInfo {
+        name: "Russia",
+        url: "http://ftp.debian.ru/mirrors/voidlinux/",
+        region: Region::Eu,
+        country: "Russia",
     },
     MirrorInfo {
         name: "Russia",
@@ -297,12 +310,11 @@ mod tests {
     use std::collections::HashSet;
 
     use super::*;
-    use crate::probe::check_probe_url;
+    use crate::probe::{ProbeError, check_probe_url};
 
     /// The web app's list, transcribed independently: one mirror per line as
-    /// `name|url|region|country`, same order, with the two `http://` entries
-    /// left out (see the module documentation). Any edit to [`MIRRORS`] that
-    /// drifts from `mirrors.ts` fails here.
+    /// `name|url|region|country`, same order. Any edit to [`MIRRORS`] that drifts
+    /// from `mirrors.ts` fails here.
     const WEB_LIST: &str = "\
 Default redirect|https://repo-default.voidlinux.org/|World|
 Helsinki|https://repo-fi.voidlinux.org/|EU|Finland
@@ -320,11 +332,13 @@ Singapore|https://mirror.freedif.org/voidlinux/|AS|Singapore
 South Korea|https://mirror.heigou.pe.kr/voidlinux/|AS|South Korea
 Hanoi|https://mirror.meowsmp.net/voidlinux/|AS|Vietnam
 Belgium|https://voidlinux.mirror-services.net/voidlinux/|EU|Belgium
+Denmark|http://ftp.dk.xemacs.org/voidlinux/|EU|Denmark
 Denmark|https://mirrors.dotsrc.org/voidlinux/|EU|Denmark
 Nuremberg|https://void.mirror.lynnfra.net/|EU|Germany
 Greece|https://ftp.cc.uoc.gr/mirrors/linux/voidlinux/|EU|Greece
 Italy|https://voidlinux.mirror.garr.it/|EU|Italy
 Warsaw|https://void.sakamoto.pl/|EU|Poland
+Russia|http://ftp.debian.ru/mirrors/voidlinux/|EU|Russia
 Russia|https://mirror.yandex.ru/mirrors/voidlinux/|EU|Russia
 Sweden|https://ftp.lysator.liu.se/pub/voidlinux/|EU|Sweden
 Sweden|https://mirror.accum.se/mirror/voidlinux/|EU|Sweden
@@ -359,7 +373,7 @@ Quito|https://mirror.linux.ec/voidlinux/|SA|Ecuador
     #[test]
     fn list_is_not_empty() {
         assert!(!MIRRORS.is_empty());
-        assert_eq!(MIRRORS.len(), 32);
+        assert_eq!(MIRRORS.len(), 34);
         assert_eq!(MIRRORS.len(), web_list().len());
     }
 
@@ -381,11 +395,11 @@ Quito|https://mirror.linux.ec/voidlinux/|SA|Ecuador
     }
 
     #[test]
-    fn every_url_is_https_and_ends_with_a_slash() {
+    fn every_url_uses_http_or_https_and_ends_with_a_slash() {
         for mirror in MIRRORS {
             assert!(
-                mirror.url.starts_with("https://"),
-                "{} is not https",
+                mirror.url.starts_with("https://") || mirror.url.starts_with("http://"),
+                "{} is not http(s)",
                 mirror.url
             );
             assert!(
@@ -397,9 +411,35 @@ Quito|https://mirror.linux.ec/voidlinux/|SA|Ecuador
     }
 
     #[test]
-    fn every_url_passes_the_probe_rules() {
+    fn plain_http_mirrors_are_rejected_by_the_probe_rule() {
+        let plain: Vec<&str> = MIRRORS
+            .iter()
+            .map(|m| m.url)
+            .filter(|url| url.starts_with("http://"))
+            .collect();
+        // The two entries the web app carries and the Mirrors view must show as
+        // a plain-HTTP error.
+        assert_eq!(
+            plain,
+            [
+                "http://ftp.dk.xemacs.org/voidlinux/",
+                "http://ftp.debian.ru/mirrors/voidlinux/",
+            ]
+        );
+        for url in plain {
+            assert_eq!(check_probe_url(url), Err(ProbeError::PlainHttp), "{url}");
+        }
+    }
+
+    #[test]
+    fn probe_rule_verdict_matches_the_scheme_of_every_mirror() {
         for mirror in MIRRORS {
-            assert_eq!(check_probe_url(mirror.url), Ok(()), "{}", mirror.url);
+            let expected = if mirror.url.starts_with("http://") {
+                Err(ProbeError::PlainHttp)
+            } else {
+                Ok(())
+            };
+            assert_eq!(check_probe_url(mirror.url), expected, "{}", mirror.url);
         }
     }
 
