@@ -133,6 +133,18 @@ mod tests {
     }
 
     #[test]
+    fn values_are_rounded_like_to_fixed() {
+        // 170_000 / 1024 = 166.015625, printed with no decimals.
+        assert_eq!(format_bytes(170_000), (166.0, ByteUnit::KiB));
+        // 1600 / 1024 = 1.5625, printed with one decimal below 10 KiB.
+        assert_eq!(format_bytes(1600), (1.6, ByteUnit::KiB));
+        // 1_700_000 / 1024^2 = 1.621246337890625, printed with one decimal.
+        assert_eq!(format_bytes(1_700_000), (1.6, ByteUnit::MiB));
+        // 1_700_000_000 / 1024^3 = 1.583238..., printed with two decimals.
+        assert_eq!(format_bytes(1_700_000_000), (1.58, ByteUnit::GiB));
+    }
+
+    #[test]
     fn negative_sizes_keep_their_sign() {
         assert_eq!(format_bytes(-1536), (-1.5, ByteUnit::KiB));
         assert_eq!(format_bytes(-2 * 1024 * 1024), (-2.0, ByteUnit::MiB));

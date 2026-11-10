@@ -128,11 +128,16 @@ pub fn plan_install(
         if inst.held {
             continue;
         }
-        let pkg = validate_installable(catalog, installed, repos, &item.name)?;
-        // An up-to-date package is not an update at all.
-        if inst.version == pkg.version {
+        // An up-to-date package is not an update at all, and must not be
+        // validated: `planUpdates` drops it from `todo` before `planInstall`
+        // runs, so a dependency from a disabled repository never surfaces.
+        if catalog
+            .by_name(&item.name)
+            .is_some_and(|pkg| inst.version == pkg.version)
+        {
             continue;
         }
+        let pkg = validate_installable(catalog, installed, repos, &item.name)?;
         selection.push_like(catalog, installed, pkg, PlanReason::Requested, true);
     }
 
@@ -964,6 +969,24 @@ mod tests {
         )
         .expect_err("vim is not installed");
         assert_eq!(error, EngineError::NotInstalled(vec!["vim".to_string()]));
+    }
+
+    #[test]
+    fn update_queue_skips_up_to_date_packages_before_validation() {
+        let catalog = catalog();
+        // `mesa-32bit` is installed at the catalog version, and its `glibc-32bit`
+        // dependency lives in the disabled multilib repository. `planUpdates`
+        // drops the up-to-date name before `planInstall` runs, so nothing is
+        // validated and the plan is empty.
+        let installed = installed(&[("mesa-32bit", inst("25.2.4_1", true, false))]);
+        let plan = plan_install(
+            &catalog,
+            &installed,
+            &Repos::default(),
+            &queue(&[("mesa-32bit", QueueAction::Update)]),
+        )
+        .expect("an up-to-date package is not validated");
+        assert!(plan.is_empty());
     }
 
     #[test]
