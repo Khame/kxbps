@@ -1,5 +1,5 @@
 [package]
-name = "qxbps-core"
+name = "khaxbps-core"
 version.workspace = true
 edition.workspace = true
 

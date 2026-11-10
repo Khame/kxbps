@@ -1,9 +1,9 @@
-# Polish translation for QXBPS.
-# Copyright (C) 2026 QXBPS contributors
-# This file is distributed under the same license as the QXBPS package.
+# Polish translation for Khaxbps.
+# Copyright (C) 2026 Khaxbps contributors
+# This file is distributed under the same license as the Khaxbps package.
 msgid ""
 msgstr ""
-"Project-Id-Version: qxbps 0.1.0\n"
+"Project-Id-Version: khaxbps 0.1.0\n"
 "Language-Team: Polish\n"
 "Language: pl\n"
 "MIME-Version: 1.0\n"

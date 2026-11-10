@@ -1,6 +1,6 @@
 [workspace]
 resolver = "2"
-members = ["qxbps-core", "qxbps-qt"]
+members = ["khaxbps-core", "khaxbps-qt"]
 
 [workspace.package]
 version = "0.1.0"

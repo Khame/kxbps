@@ -1,8 +1,8 @@
-//! QML-facing bridge for QXBPS.
+//! QML-facing bridge for Khaxbps.
 //!
-//! The QML module `org.kde.qxbps` is declared in `build.rs`; every `#[qml_element]`
+//! The QML module `org.kde.khaxbps` is declared in `build.rs`; every `#[qml_element]`
 //! QObject in this file is registered into that module by `qmltyperegistrar`, so QML
-//! only needs `import org.kde.qxbps`.
+//! only needs `import org.kde.khaxbps`.
 
 // Keep the Quick Controls extras crate in the link graph: its initializer archive is
 // only pulled in by the linker when some Rust code references the crate.
@@ -43,10 +43,10 @@ impl qobject::AppBackend {
     }
 }
 
-/// Registers the `org.kde.qxbps` QML module (types and QML resources).
+/// Registers the `org.kde.khaxbps` QML module (types and QML resources).
 ///
 /// Must run before a `QQmlApplicationEngine` resolves any `qrc:/qt/qml/...` URL.
 /// In CXX-Qt 0.10 this macro replaces the `qml_register_type` call of the 0.7-0.9 API.
 pub fn init() {
-    cxx_qt::init_qml_module!("org.kde.qxbps");
+    cxx_qt::init_qml_module!("org.kde.khaxbps");
 }
