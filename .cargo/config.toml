@@ -1,0 +1,5 @@
+[env]
+# Void Linux ships the Qt 6 tools in /usr/lib/qt6/bin, which is not in PATH.
+# cxx-qt-build discovers Qt through qmake, so point it at the system Qt explicitly.
+# `force = false` keeps an explicitly exported QMAKE working (e.g. a custom Qt).
+QMAKE = { value = "/usr/lib/qt6/bin/qmake6", force = false }

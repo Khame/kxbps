@@ -1,0 +1,7 @@
+target/
+build/
+screenshots/
+*.mo
+*.pot~
+.qmlls.ini
+qmlls.ini

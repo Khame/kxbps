@@ -1,0 +1,20 @@
+[package]
+name = "qxbps-qt"
+version.workspace = true
+edition.workspace = true
+build = "build.rs"
+
+[[bin]]
+name = "qxbps"
+path = "src/main.rs"
+
+[dependencies]
+cxx = "1.0.176"
+cxx-qt = "0.10"
+cxx-qt-lib = { version = "0.10", features = ["qt_gui", "qt_qml", "qt_quickcontrols"] }
+cxx-qt-lib-extras = "0.10"
+qxbps-core = { path = "../qxbps-core" }
+serde_json = { workspace = true }
+
+[build-dependencies]
+cxx-qt-build = "0.10"
