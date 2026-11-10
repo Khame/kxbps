@@ -16,12 +16,51 @@ Kirigami.ApplicationWindow {
         id: appBackend
     }
 
+    // Owns the package model (`packages`) and the query helpers.
+    CatalogBackend {
+        id: catalogBackend
+    }
+
     pageStack.initialPage: Kirigami.Page {
         title: i18nd("khaxbps", "Packages")
+
         ColumnLayout {
-            anchors.centerIn: parent
+            anchors.fill: parent
+
             QQC2.Label { text: i18nd("khaxbps", "Version %1", appBackend.version()) }
             QQC2.Label { text: i18nd("khaxbps", "Updates: %1", appBackend.updateCount) }
+
+            // A catalog that failed to load must be visible, not silent.
+            QQC2.Label {
+                Layout.fillWidth: true
+                visible: catalogBackend.error.length > 0
+                color: Kirigami.Theme.negativeTextColor
+                text: i18nd("khaxbps", "Could not load the package catalog: %1", catalogBackend.error)
+                wrapMode: Text.WordWrap
+            }
+
+            QQC2.Label {
+                text: i18nd("khaxbps", "%1 packages", catalogBackend.packages ? catalogBackend.packages.count : 0)
+            }
+
+            // No styling yet: Task 10 replaces this with PackageDelegate.
+            ListView {
+                id: packageList
+                Layout.fillWidth: true
+                Layout.fillHeight: true
+                clip: true
+                model: catalogBackend.packages
+                delegate: QQC2.ItemDelegate {
+                    width: ListView.view.width
+                    contentItem: RowLayout {
+                        spacing: Kirigami.Units.smallSpacing
+                        QQC2.Label { text: model.name }
+                        QQC2.Label { text: model.version; opacity: 0.7 }
+                        Item { Layout.fillWidth: true }
+                        QQC2.Label { text: model.repo; opacity: 0.7 }
+                    }
+                }
+            }
         }
     }
 }

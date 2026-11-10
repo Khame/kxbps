@@ -11,6 +11,9 @@ use cxx_qt_lib_extras as _;
 
 use std::pin::Pin;
 
+pub mod catalog_backend;
+pub mod package_model;
+
 #[cxx_qt::bridge]
 pub mod qobject {
     unsafe extern "C++" {

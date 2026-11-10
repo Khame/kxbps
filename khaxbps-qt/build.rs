@@ -5,12 +5,21 @@ fn main() {
         cxx_qt_build::QmlModule::new("org.kde.khaxbps").qml_file("qml/Main.qml"),
     )
     .qt_module("Network")
-    .files(["src/lib.rs"])
+    // Every file with a `#[cxx_qt::bridge]` module: the app backend, the
+    // package model and the catalog backend.
+    .files([
+        "src/lib.rs",
+        "src/package_model.rs",
+        "src/catalog_backend.rs",
+    ])
     // The package catalog is generated from the web app by `scripts/gen-catalog.mjs`.
     // Because the builder knows the QML module URI, the file lands in the module's
     // import path as `:/qt/qml/org/kde/khaxbps/resources/catalog.json`.
     .qrc_resources(["resources/catalog.json"])
-    .cpp_file("src/k18n_shim.cpp");
+    // `QFile` access to the catalog resource plus the protected
+    // `QAbstractItemModel` members the Rust model cannot reach.
+    .cpp_file("src/k18n_shim.cpp")
+    .cpp_file("src/model_shim.cpp");
 
     // `cxx-qt-build` has no `include_path` helper, so add the KI18n header
     // directory through the underlying `cc::Build`. The crate's own `src` dir is
