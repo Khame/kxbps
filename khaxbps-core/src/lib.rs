@@ -6,6 +6,8 @@
 pub mod catalog;
 pub mod engine;
 pub mod format;
+pub mod mirrors;
+pub mod probe;
 pub mod store;
 pub mod types;
 
@@ -15,7 +17,9 @@ pub use engine::{
     plan_queue, plan_remove, plan_system, plan_totals, repos_from_installed, update_signature,
 };
 pub use format::{ByteUnit, action_key, byte_decimals, format_bytes, reason_key};
-pub use store::{DEFAULT_MIRROR, SEED_AT, Store, StoreError, data_dir, fresh_install};
+pub use mirrors::{DEFAULT_MIRROR, MIRRORS, MirrorInfo, Region};
+pub use probe::{PROBE_TIMEOUT, PROBE_TIMEOUT_MS, ProbeError, check_probe_url, measure};
+pub use store::{SEED_AT, Store, StoreError, data_dir, fresh_install};
 pub use types::{
     Blocked, Category, DialogState, Inst, InstalledMap, Job, ListFilter, Pkg, PlanAction, PlanItem,
     PlanReason, Prefs, ProbeState, QueryMode, QueueAction, QueueItem, RepoId, Repos, UpdateInfo,

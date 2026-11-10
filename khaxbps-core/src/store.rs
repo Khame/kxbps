@@ -35,9 +35,11 @@ use crate::catalog::Catalog;
 use crate::engine::{Plan, apply_installed};
 use crate::types::{Inst, InstalledMap, Prefs, QueueAction, QueueItem};
 
-/// Mirror used until the user picks another one (`DEFAULT_MIRROR` in the web
-/// app's `mirrors.ts`).
-pub const DEFAULT_MIRROR: &str = "https://repo-default.voidlinux.org/";
+/// Mirror used until the user picks another one.
+///
+/// Defined once in [`crate::mirrors`] and re-exported here so the store and the
+/// mirror list cannot disagree about the default.
+pub use crate::mirrors::DEFAULT_MIRROR;
 
 /// Install timestamp of every package in the seed image, in epoch
 /// milliseconds: `Date.UTC(2026, 9, 2, 8, 0, 0)` in `catalog.ts`.
