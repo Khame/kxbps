@@ -11,7 +11,10 @@ fn main() {
     khaxbps_qt::init();
 
     let mut engine = QQmlApplicationEngine::new();
-    if let Some(engine) = engine.as_mut() {
+    if let Some(mut engine) = engine.as_mut() {
+        // Root context must carry KI18n's `KLocalizedContext` before the QML file
+        // is compiled, or every `i18nd()` call is a `ReferenceError`.
+        khaxbps_qt::setup_i18n(engine.as_mut());
         engine.load(&QUrl::from("qrc:/qt/qml/org/kde/khaxbps/qml/Main.qml"));
     }
     if let Some(app) = app.as_mut() {

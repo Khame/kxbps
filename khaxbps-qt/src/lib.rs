@@ -9,11 +9,26 @@
 #[allow(unused_imports)]
 use cxx_qt_lib_extras as _;
 
+use std::pin::Pin;
+
 #[cxx_qt::bridge]
 pub mod qobject {
     unsafe extern "C++" {
         include!("cxx-qt-lib/qstring.h");
         type QString = cxx_qt_lib::QString;
+    }
+
+    unsafe extern "C++" {
+        include!("cxx-qt-lib/qqmlengine.h");
+        type QQmlEngine = cxx_qt_lib::QQmlEngine;
+
+        // Implemented in `src/k18n_shim.cpp`; `Pin<&mut T>` is passed as `T&`.
+        // Without this the QML `i18nd()` helpers are undefined: they are
+        // `Q_INVOKABLE` members of the `KLocalizedContext` root context object.
+        include!("k18n_shim.h");
+
+        #[cxx_name = "khaxbps_setup_i18n"]
+        fn setup_i18n(engine: Pin<&mut QQmlEngine>);
     }
 
     // `auto_cxx_name` turns `update_count` into the QML-facing `updateCount`;
@@ -56,4 +71,16 @@ pub const CATALOG_RESOURCE_PATH: &str = ":/qt/qml/org/kde/khaxbps/resources/cata
 /// In CXX-Qt 0.10 this macro replaces the `qml_register_type` call of the 0.7-0.9 API.
 pub fn init() {
     cxx_qt::init_qml_module!("org.kde.khaxbps");
+}
+
+/// Installs the KI18n `KLocalizedContext` on the engine's root context so QML
+/// can call `i18nd()` / `i18n()`.
+///
+/// Must run before `QQmlApplicationEngine::load`, otherwise the QML file is
+/// compiled against a root context without the translation helpers and every
+/// `i18nd(...)` call raises `ReferenceError`.
+pub fn setup_i18n(engine: Pin<&mut cxx_qt_lib::QQmlApplicationEngine>) {
+    use cxx_qt::casting::Upcast;
+
+    qobject::setup_i18n(Upcast::<cxx_qt_lib::QQmlEngine>::upcast_pin(engine));
 }
