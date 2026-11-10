@@ -43,6 +43,13 @@ impl qobject::AppBackend {
     }
 }
 
+/// Location of the generated package catalog inside the QML module's resources.
+///
+/// `build.rs` embeds `khaxbps-qt/resources/catalog.json` under the module's
+/// import path, so the Qt layer can read it with `QFile` and hand the contents
+/// to [`khaxbps_core::Catalog::load_from_str`].
+pub const CATALOG_RESOURCE_PATH: &str = ":/qt/qml/org/kde/khaxbps/resources/catalog.json";
+
 /// Registers the `org.kde.khaxbps` QML module (types and QML resources).
 ///
 /// Must run before a `QQmlApplicationEngine` resolves any `qrc:/qt/qml/...` URL.

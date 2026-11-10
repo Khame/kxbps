@@ -4,6 +4,10 @@ fn main() {
     )
     .qt_module("Network")
     .files(["src/lib.rs"])
+    // The package catalog is generated from the web app by `scripts/gen-catalog.mjs`.
+    // Because the builder knows the QML module URI, the file lands in the module's
+    // import path as `:/qt/qml/org/kde/khaxbps/resources/catalog.json`.
+    .qrc_resources(["resources/catalog.json"])
     .build();
 
     // The C++ archive generated for this crate carries the QML module registration
