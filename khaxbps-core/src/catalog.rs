@@ -117,14 +117,33 @@ impl Catalog {
             QueryMode::L | QueryMode::M | QueryMode::Orphans | QueryMode::H | QueryMode::RepoL => {
                 self.sorted_by_name()
             }
-            // Everything else takes a single package name: `-R`, `show`, `-x`,
-            // `-X`, `-f`, `-p`.
-            QueryMode::R
-            | QueryMode::Show
-            | QueryMode::X
-            | QueryMode::RevX
-            | QueryMode::F
-            | QueryMode::P => self.match_package(pattern).into_iter().collect(),
+            // `-x` expands to the package plus its dependencies, `-X` to the
+            // package plus its reverse dependencies, exactly like the web app.
+            QueryMode::X | QueryMode::RevX => {
+                let Some(pkg) = self.match_package(pattern) else {
+                    return Vec::new();
+                };
+                let related: Vec<&Pkg> = if mode == QueryMode::X {
+                    pkg.depends
+                        .iter()
+                        .filter_map(|dep| self.by_name(dep))
+                        .collect()
+                } else {
+                    self.revdeps(&pkg.name)
+                };
+                let mut out = vec![pkg];
+                for candidate in related {
+                    if !out.iter().any(|seen| seen.name == candidate.name) {
+                        out.push(candidate);
+                    }
+                }
+                out
+            }
+            // Everything else takes a single package name: `-R`, `show`, `-f`,
+            // `-p`.
+            QueryMode::R | QueryMode::Show | QueryMode::F | QueryMode::P => {
+                self.match_package(pattern).into_iter().collect()
+            }
         }
     }
 
@@ -345,7 +364,14 @@ mod tests {
         // `[` cannot be compiled as a regex, so the substring path runs and
         // nothing matches — the important part is that it does not panic.
         assert!(catalog.search("[", QueryMode::Rs, "name").is_empty());
-        assert!(names(&catalog.search("(vim", QueryMode::Rs, "name")).is_empty());
+        // `Rust (` is invalid as a regex (unclosed group) but a literal
+        // substring of rust's short description, "Kompilator Rust (rustc,
+        // cargo)". This fails if the `Err(_)` branch ever stops matching
+        // instead of only returning an empty list.
+        assert_eq!(
+            names(&catalog.search("Rust (", QueryMode::Rs, "name")),
+            vec!["rust"]
+        );
     }
 
     #[test]
@@ -366,14 +392,7 @@ mod tests {
     #[test]
     fn single_package_modes_resolve_names() {
         let catalog = catalog();
-        for mode in [
-            QueryMode::R,
-            QueryMode::Show,
-            QueryMode::X,
-            QueryMode::RevX,
-            QueryMode::F,
-            QueryMode::P,
-        ] {
+        for mode in [QueryMode::R, QueryMode::Show, QueryMode::F, QueryMode::P] {
             assert_eq!(
                 names(&catalog.search("vim", mode, "pkgver")),
                 vec!["vim"],
@@ -393,6 +412,48 @@ mod tests {
             catalog
                 .search("nope-not-a-package", QueryMode::R, "")
                 .is_empty()
+        );
+    }
+
+    #[test]
+    fn search_x_expands_dependencies() {
+        let catalog = catalog();
+        let vim = catalog.by_name("vim").expect("vim exists");
+        let hits = catalog.search("vim", QueryMode::X, "");
+        let hit_names = names(&hits);
+
+        // The package comes first, then its dependencies in catalog order.
+        let expected: Vec<&str> = std::iter::once(vim.name.as_str())
+            .chain(vim.depends.iter().map(String::as_str))
+            .collect();
+        assert_eq!(hit_names, expected);
+
+        // Deduplicated, and the same as a version-suffixed argument.
+        let mut unique = hit_names.clone();
+        unique.sort_unstable();
+        unique.dedup();
+        assert_eq!(unique.len(), hit_names.len(), "duplicate hits");
+        assert_eq!(
+            names(&catalog.search("vim-9.1.1700_1", QueryMode::X, "")),
+            hit_names
+        );
+    }
+
+    #[test]
+    fn search_revx_expands_reverse_dependencies() {
+        let catalog = catalog();
+        let hits = catalog.search("ncurses", QueryMode::RevX, "");
+        let hit_names = names(&hits);
+
+        assert_eq!(hit_names[0], "ncurses", "package must come first");
+        assert_eq!(&hit_names[1..], names(&catalog.revdeps("ncurses")));
+        assert!(hit_names.contains(&"vim"));
+        assert!(!hit_names[1..].contains(&"ncurses"));
+
+        // A package nobody depends on still lists itself, like the web app.
+        assert_eq!(
+            names(&catalog.search("vim", QueryMode::RevX, "")),
+            vec!["vim"]
         );
     }
 
