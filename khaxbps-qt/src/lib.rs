@@ -12,13 +12,28 @@ use cxx_qt_lib_extras as _;
 use std::pin::Pin;
 
 pub mod catalog_backend;
+pub mod installed_backend;
+pub mod job_backend;
+pub mod log_model;
 pub mod package_model;
+pub mod plan_backend;
+pub mod queue_model;
 
 #[cxx_qt::bridge]
 pub mod qobject {
     unsafe extern "C++" {
         include!("cxx-qt-lib/qstring.h");
         type QString = cxx_qt_lib::QString;
+    }
+
+    unsafe extern "C++" {
+        // Shared by every backend that needs the embedded catalog; cxx cannot
+        // declare one extern function in two bridges, so the crate-root bridge
+        // owns the only declaration and the others call it from Rust.
+        include!("model_shim.h");
+
+        #[cxx_name = "khaxbps_read_resource"]
+        fn read_resource(path: &QString) -> QString;
     }
 
     unsafe extern "C++" {

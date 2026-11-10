@@ -1,11 +1,14 @@
-//! Catalog façade for QML: the package model plus the query helpers.
+//! Catalog façade for QML: the query helpers over the embedded catalog.
+//!
+//! The package *model* is owned by [`crate::installed_backend::InstalledBackend`],
+//! because it needs the store's installed and queue snapshots; this object only
+//! answers `search()` / `get()` and reports a catalog that failed to load.
 
 use std::pin::Pin;
 use std::sync::Arc;
 
 use cxx_qt::CxxQtType;
-use cxx_qt::casting::Upcast;
-use cxx_qt_lib::{QList, QMap, QMapPair_QString_QVariant, QObjectMutPtr, QString, QVariant};
+use cxx_qt_lib::{QList, QMap, QMapPair_QString_QVariant, QString, QVariant};
 use khaxbps_core::{Catalog, QueryMode};
 
 use crate::package_model::{self, RowView};
@@ -13,9 +16,6 @@ use crate::package_model::{self, RowView};
 #[cxx_qt::bridge]
 pub mod qobject {
     unsafe extern "C++" {
-        include!("cxx-qt-lib/qobjectmutptr.h");
-        type QObjectMutPtr = cxx_qt_lib::QObjectMutPtr;
-
         include!("cxx-qt-lib/core/qlist/qlist_QVariant.h");
         type QList_QVariant = cxx_qt_lib::QList<cxx_qt_lib::QVariant>;
 
@@ -28,24 +28,12 @@ pub mod qobject {
         include!("cxx-qt-lib/qvariant.h");
         type QVariant = cxx_qt_lib::QVariant;
 
-        include!("model_shim.h");
-
-        #[cxx_name = "khaxbps_read_resource"]
-        fn read_resource(path: &QString) -> QString;
-
-        #[cxx_name = "khaxbps_create_package_model"]
-        fn create_package_model(
-            parent: QObjectMutPtr,
-            catalog_json: &QString,
-            installed_json: &QString,
-        ) -> QObjectMutPtr;
     }
 
     #[auto_cxx_name]
     unsafe extern "RustQt" {
         #[qobject]
         #[qml_element]
-        #[qproperty(QObjectMutPtr, packages, READ, CONSTANT)]
         #[qproperty(QString, error, READ, CONSTANT)]
         type CatalogBackend = super::CatalogBackendRust;
 
@@ -69,24 +57,13 @@ pub mod qobject {
 
 /// Rust side of [`qobject::CatalogBackend`].
 pub struct CatalogBackendRust {
-    /// The child model, created in [`cxx_qt::Initialize::initialize`] with this
-    /// object as its parent. Rust never dereferences the pointer: Qt owns the
-    /// model and destroys it together with the backend.
-    packages: QObjectMutPtr,
     error: QString,
-    /// Parsed catalog for `search` / `get`.
-    ///
-    /// The model parses the same JSON for its rows; sharing the value across the
-    /// C++ object boundary is not possible without unsafe casts, and one extra
-    /// parse of a 44 kB resource at startup is cheaper than that.
     catalog: Arc<Catalog>,
 }
 
 impl Default for CatalogBackendRust {
-    /// Only used before `initialize` runs; `packages` stays null until then.
     fn default() -> Self {
         Self {
-            packages: unsafe { QObjectMutPtr::from_raw(std::ptr::null_mut()) },
             error: QString::from(""),
             catalog: Arc::default(),
         }
@@ -94,24 +71,12 @@ impl Default for CatalogBackendRust {
 }
 
 impl cxx_qt::Initialize for qobject::CatalogBackend {
-    /// Reads the embedded catalog and creates the package model as a child.
-    ///
-    /// A missing or malformed resource must not abort the app: it becomes the
-    /// `error` string QML shows in a banner, and the model starts empty.
+    /// Reads the embedded catalog. A missing or malformed resource must not
+    /// abort the app: it becomes the `error` string QML shows in a banner.
     fn initialize(mut self: Pin<&mut Self>) {
-        let json = qobject::read_resource(&QString::from(crate::CATALOG_RESOURCE_PATH));
-        let (catalog, error, model_json) = load_catalog(&json);
-
-        let parent = unsafe {
-            QObjectMutPtr::from_raw(
-                <qobject::CatalogBackend as Upcast<cxx_qt::QObject>>::upcast_ptr(&*self).cast_mut(),
-            )
-        };
-        // Task 7 replaces this empty snapshot with the store's installed map.
-        let packages = qobject::create_package_model(parent, &model_json, &QString::from("{}"));
-
+        let json = crate::qobject::read_resource(&QString::from(crate::CATALOG_RESOURCE_PATH));
+        let (catalog, error, _) = load_catalog(&json);
         let backend = Pin::get_mut(self.as_mut().rust_mut());
-        backend.packages = packages;
         backend.error = QString::from(error.as_str());
         backend.catalog = Arc::new(catalog);
     }
@@ -120,9 +85,9 @@ impl cxx_qt::Initialize for qobject::CatalogBackend {
 /// Turns the catalog resource into `(catalog, error, json for the model)`.
 ///
 /// `error` is empty on success and a short technical reason otherwise; the
-/// sentence around it belongs to QML's `i18nd`. The model always receives valid
-/// JSON, so it never has to guess why it is empty.
-fn load_catalog(resource: &QString) -> (Catalog, String, QString) {
+/// sentence around it belongs to QML's `i18nd`. The third element is the JSON a
+/// package model can parse, so a caller never has to guess why it is empty.
+pub(crate) fn load_catalog(resource: &QString) -> (Catalog, String, QString) {
     if resource.is_empty() {
         return (
             Catalog::default(),
@@ -171,8 +136,11 @@ impl qobject::CatalogBackend {
 
 impl CatalogBackendRust {
     /// One package as a `QVariantMap`, keyed exactly like the model's roles plus
-    /// `files`. Task 6 has no installed snapshot, so the installed-derived keys
-    /// are empty/false here; Task 7 fills them.
+    /// `files`.
+    ///
+    /// The installed-derived keys are empty/false: this object has no store, and
+    /// the installed snapshot belongs to `InstalledBackend`. A query view that
+    /// needs them can read the model's row instead.
     fn map_for(&self, pkg: &khaxbps_core::Pkg) -> QMap<QMapPair_QString_QVariant> {
         let row = RowView {
             pkg,

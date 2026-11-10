@@ -353,6 +353,7 @@ dependencies = [
  "cxx-qt-lib",
  "cxx-qt-lib-extras",
  "khaxbps-core",
+ "serde",
  "serde_json",
 ]
 

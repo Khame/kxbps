@@ -13,8 +13,8 @@ use cxx_qt::CxxQtType;
 use cxx_qt::casting::Upcast;
 use cxx_qt_lib::{QByteArray, QString, QVariant};
 use khaxbps_core::{
-    Catalog, Category, Inst, InstalledMap, Pkg, QueueAction, RepoId, byte_decimals, format_bytes,
-    repos_from_installed,
+    Catalog, Category, Inst, InstalledMap, Pkg, QueueAction, QueueItem, RepoId, byte_decimals,
+    format_bytes, repos_from_installed,
 };
 use qobject::{QHash_i32_QByteArray, QObjectMutPtr};
 
@@ -52,6 +52,10 @@ pub mod qobject {
 
         #[cxx_name = "khaxbps_model_create_index"]
         fn model_create_index(model: &QAbstractItemModel, row: i32, column: i32) -> QModelIndex;
+
+        // `dataChanged` is a signal and cannot be emitted from Rust.
+        #[cxx_name = "khaxbps_model_data_changed"]
+        fn model_data_changed(model: Pin<&mut QAbstractItemModel>, first: i32, last: i32);
     }
 
     // `auto_cxx_name` makes the properties and the overridden model methods
@@ -95,10 +99,14 @@ pub mod qobject {
         fn set_filter(self: Pin<&mut PackageModel>, value: QString);
         fn set_search(self: Pin<&mut PackageModel>, value: QString);
         fn set_category(self: Pin<&mut PackageModel>, value: QString);
+
+        // Pushes a new installed/queue snapshot; called by the installed backend
+        // through `khaxbps_package_model_set_state`.
+        fn set_state(self: Pin<&mut PackageModel>, installed_json: &QString, queue_json: &QString);
     }
 
-    // QML never creates the model: `CatalogBackend` owns it and hands it out as
-    // a `QObject*`. The constructor takes the catalog JSON and the installed
+    // QML never creates the model: `InstalledBackend` owns it and hands it out
+    // as a `QObject*`. The constructor takes the catalog JSON and the installed
     // snapshot so a fresh model is fully populated before it is visible.
     impl
         cxx_qt::Constructor<
@@ -345,6 +353,56 @@ impl PackageModelRust {
         true
     }
 
+    /// Everything the installed/queue snapshot feeds one row.
+    fn fingerprint(&self, pkg: &Pkg) -> (Option<Inst>, Option<QueueAction>, Option<String>) {
+        (
+            self.installed.get(&pkg.name).cloned(),
+            self.queue.get(&pkg.name).copied(),
+            self.update_to.get(&pkg.name).cloned(),
+        )
+    }
+
+    /// Replaces the installed and queue snapshots.
+    ///
+    /// Returns `(rows_changed, new_rows, affected_rows)`. When the visible set
+    /// moved (a filter gained or lost a row) the caller resets the model; when
+    /// it did not, only the rows whose fingerprint changed are reported, so the
+    /// caller can emit `dataChanged` for those instead of rebuilding every
+    /// delegate.
+    fn snapshot(
+        &mut self,
+        installed: InstalledMap,
+        queue: Vec<QueueItem>,
+    ) -> (bool, Vec<u32>, Vec<i32>) {
+        let before: Vec<(Option<Inst>, Option<QueueAction>, Option<String>)> = self
+            .rows
+            .iter()
+            .map(|index| self.fingerprint(&self.catalog.packages()[*index as usize]))
+            .collect();
+
+        self.installed = installed;
+        self.queue = queue
+            .into_iter()
+            .map(|item| (item.name, item.action))
+            .collect();
+        self.refresh_derived();
+
+        let rows = self.compute_rows();
+        if rows != self.rows {
+            return (true, rows, Vec::new());
+        }
+        let affected = self
+            .rows
+            .iter()
+            .enumerate()
+            .filter(|(row, index)| {
+                before[*row] != self.fingerprint(&self.catalog.packages()[**index as usize])
+            })
+            .map(|(row, _)| i32::try_from(row).unwrap_or(i32::MAX))
+            .collect();
+        (false, rows, affected)
+    }
+
     fn matches(&self, pkg: &Pkg, filter: &str, category: &str, search: &str) -> bool {
         if category != "all" && category_key(pkg.category) != category {
             return false;
@@ -452,6 +510,53 @@ impl qobject::PackageModel {
         apply_change(self.as_mut(), |model| model.category = value);
         self.as_mut().category_changed();
     }
+
+    /// Replaces the installed and queue snapshots after a store mutation.
+    ///
+    /// A visible-set change resets the model (the `installed` filter gains or
+    /// loses a row); otherwise only the affected rows get `dataChanged`, so
+    /// selection, scroll position and the other delegates survive a transaction.
+    fn set_state(
+        mut self: Pin<&mut Self>,
+        installed_json: &cxx_qt_lib::QString,
+        queue_json: &cxx_qt_lib::QString,
+    ) {
+        let installed: InstalledMap =
+            serde_json::from_str(&installed_json.to_string()).unwrap_or_default();
+        let queue: Vec<QueueItem> =
+            serde_json::from_str(&queue_json.to_string()).unwrap_or_default();
+
+        let (rows_changed, rows, affected) = {
+            let data = Pin::get_mut(self.as_mut().rust_mut());
+            data.snapshot(installed, queue)
+        };
+
+        if rows_changed {
+            qobject::model_begin_reset(base(self.as_mut()));
+            {
+                let data = Pin::get_mut(self.as_mut().rust_mut());
+                data.assign_rows(rows);
+            }
+            qobject::model_end_reset(base(self.as_mut()));
+            self.as_mut().count_changed();
+            return;
+        }
+        for (first, last) in ranges(&affected) {
+            qobject::model_data_changed(base(self.as_mut()), first, last);
+        }
+    }
+}
+
+/// Groups ascending row ids into inclusive `[first, last]` ranges.
+fn ranges(rows: &[i32]) -> Vec<(i32, i32)> {
+    let mut ranges: Vec<(i32, i32)> = Vec::new();
+    for &row in rows {
+        match ranges.last_mut() {
+            Some((_, last)) if *last + 1 == row => *last = row,
+            _ => ranges.push((row, row)),
+        }
+    }
+    ranges
 }
 
 /// Applies a property change and resets the model only if the visible set moved.
@@ -505,7 +610,7 @@ fn integer(value: u64) -> QVariant {
 }
 
 /// `4.0 MiB`, using the core's thresholds and the web app's decimal count.
-fn format_size(bytes: u64) -> String {
+pub(crate) fn format_size(bytes: u64) -> String {
     let bytes = i64::try_from(bytes).unwrap_or(i64::MAX);
     let (value, unit) = format_bytes(bytes);
     format!(
@@ -540,7 +645,8 @@ fn category_key(category: Category) -> &'static str {
     }
 }
 
-fn queue_key(action: QueueAction) -> &'static str {
+/// Wire key of a queue action, the same spelling the store persists.
+pub(crate) fn queue_key(action: QueueAction) -> &'static str {
     match action {
         QueueAction::Install => "install",
         QueueAction::Remove => "remove",
@@ -840,5 +946,103 @@ mod tests {
                 .is_empty(),
             "unknown role"
         );
+    }
+
+    fn installed_with_ark() -> InstalledMap {
+        let mut installed = Store::fresh(&catalog()).installed;
+        installed.insert(
+            "ark".to_string(),
+            Inst {
+                version: "25.08.0_1".into(),
+                explicit: true,
+                held: false,
+                at: 0,
+            },
+        );
+        installed
+    }
+
+    #[test]
+    fn snapshot_reports_only_the_rows_that_moved() {
+        let store = Store::fresh(&catalog());
+        let mut model = model_with(store.installed.clone());
+        let before = model.rows.clone();
+
+        let (rows_changed, rows, affected) = model.snapshot(installed_with_ark(), Vec::new());
+        assert!(!rows_changed, "the `all` filter keeps every row");
+        assert_eq!(rows, before);
+        assert_eq!(affected.len(), 1, "only ark moved");
+        let row = affected[0] as usize;
+        assert_eq!(
+            model.catalog.packages()[model.rows[row] as usize].name,
+            "ark"
+        );
+    }
+
+    #[test]
+    fn snapshot_resets_when_the_installed_filter_gains_a_row() {
+        let store = Store::fresh(&catalog());
+        let mut model = model_with(store.installed.clone());
+        set_filter(&mut model, "installed");
+        assert_eq!(model.count, 56);
+
+        let (rows_changed, rows, affected) = model.snapshot(installed_with_ark(), Vec::new());
+        assert!(rows_changed, "the installed filter gained a row");
+        assert_eq!(rows.len(), 57);
+        assert!(affected.is_empty(), "a reset does not need dataChanged");
+    }
+
+    #[test]
+    fn queue_snapshot_marks_the_queued_row() {
+        let store = Store::fresh(&catalog());
+        let mut model = model_with(store.installed.clone());
+        let queue = vec![QueueItem {
+            name: "vim".into(),
+            action: QueueAction::Install,
+        }];
+
+        let (rows_changed, _, affected) = model.snapshot(store.installed.clone(), queue);
+        assert!(!rows_changed);
+        assert_eq!(affected.len(), 1);
+        assert_eq!(
+            model.catalog.packages()[model.rows[affected[0] as usize] as usize].name,
+            "vim"
+        );
+    }
+
+    #[test]
+    fn queue_snapshot_drives_the_queued_filter_and_role() {
+        let store = Store::fresh(&catalog());
+        let mut model = model_with(store.installed.clone());
+        set_filter(&mut model, "queued");
+        assert_eq!(model.rows.len(), 0);
+
+        // The store's own wire format: `[{name, action}]`, not a map.
+        let queue = vec![QueueItem {
+            name: "ark".into(),
+            action: QueueAction::Install,
+        }];
+        let (rows_changed, rows, _) = model.snapshot(store.installed.clone(), queue);
+        assert!(rows_changed, "the queued filter gains a row");
+        assert_eq!(rows.len(), 1);
+        model.assign_rows(rows);
+        assert_eq!(visible_names(&model), vec!["ark"]);
+
+        let pkg = model.catalog.by_name("ark").unwrap();
+        let row = model.row_view(pkg);
+        assert_eq!(
+            role_value(role::QUEUED_ACTION, &row)
+                .value::<QString>()
+                .unwrap()
+                .to_string(),
+            "install"
+        );
+    }
+
+    #[test]
+    fn ranges_group_consecutive_rows() {
+        assert_eq!(ranges(&[]), Vec::new());
+        assert_eq!(ranges(&[3]), vec![(3, 3)]);
+        assert_eq!(ranges(&[1, 2, 3, 7, 9, 10]), vec![(1, 3), (7, 7), (9, 10)]);
     }
 }

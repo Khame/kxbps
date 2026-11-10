@@ -6,11 +6,17 @@ fn main() {
     )
     .qt_module("Network")
     // Every file with a `#[cxx_qt::bridge]` module: the app backend, the
-    // package model and the catalog backend.
+    // package/queue/log models, the plan/job dialogs and the installed backend.
+    // All of them must live flat in `src/` (cxx-qt-build 0.10 panics otherwise).
     .files([
         "src/lib.rs",
         "src/package_model.rs",
         "src/catalog_backend.rs",
+        "src/installed_backend.rs",
+        "src/plan_backend.rs",
+        "src/job_backend.rs",
+        "src/queue_model.rs",
+        "src/log_model.rs",
     ])
     // The package catalog is generated from the web app by `scripts/gen-catalog.mjs`.
     // Because the builder knows the QML module URI, the file lands in the module's
@@ -19,7 +25,10 @@ fn main() {
     // `QFile` access to the catalog resource plus the protected
     // `QAbstractItemModel` members the Rust model cannot reach.
     .cpp_file("src/k18n_shim.cpp")
-    .cpp_file("src/model_shim.cpp");
+    .cpp_file("src/model_shim.cpp")
+    // Child-object factories and the forwarders that let Rust reach a generated
+    // method on a `QObject*` it only holds as a pointer.
+    .cpp_file("src/backend_shim.cpp");
 
     // `cxx-qt-build` has no `include_path` helper, so add the KI18n header
     // directory through the underlying `cc::Build`. The crate's own `src` dir is

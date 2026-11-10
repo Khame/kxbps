@@ -16,10 +16,16 @@ Kirigami.ApplicationWindow {
         id: appBackend
     }
 
-    // Owns the package model (`packages`) and the query helpers.
+    // Query helpers over the catalog (`search`, `get`).
     CatalogBackend {
         id: catalogBackend
     }
+
+    // Owns the store: the package model, the queue, planning and applying.
+    InstalledBackend {
+        id: installedBackend
+    }
+
 
     pageStack.initialPage: Kirigami.Page {
         title: i18nd("khaxbps", "Packages")
@@ -28,7 +34,7 @@ Kirigami.ApplicationWindow {
             anchors.fill: parent
 
             QQC2.Label { text: i18nd("khaxbps", "Version %1", appBackend.version()) }
-            QQC2.Label { text: i18nd("khaxbps", "Updates: %1", appBackend.updateCount) }
+            QQC2.Label { text: i18nd("khaxbps", "Updates: %1", installedBackend.updatesCount) }
 
             // A catalog that failed to load must be visible, not silent.
             QQC2.Label {
@@ -39,8 +45,43 @@ Kirigami.ApplicationWindow {
                 wrapMode: Text.WordWrap
             }
 
+            // A store that could not be loaded or saved keeps the session going
+            // in memory; the reason is technical and wrapped here.
             QQC2.Label {
-                text: i18nd("khaxbps", "%1 packages", catalogBackend.packages ? catalogBackend.packages.count : 0)
+                Layout.fillWidth: true
+                visible: installedBackend.error.length > 0
+                color: Kirigami.Theme.neutralTextColor
+                text: i18nd("khaxbps", "Could not save the system state: %1", installedBackend.error)
+                wrapMode: Text.WordWrap
+            }
+
+            QQC2.Label {
+                text: i18nd("khaxbps", "%1 packages installed, %2 queued",
+                            installedBackend.installedCount, installedBackend.queueCount)
+            }
+
+            // Proof of the plan API; Task 10 replaces this with the real toolbar.
+            RowLayout {
+                QQC2.Button {
+                    text: i18nd("khaxbps", "System plan")
+                    onClicked: {
+                        const plan = installedBackend.openSystemPlan()
+                        if (!plan) {
+                            systemPlanLabel.text = i18nd("khaxbps", "Nothing to do.")
+                        } else {
+                            systemPlanLabel.text = i18nd("khaxbps", "%1 packages, %2 to download",
+                                                         plan.count, plan.downloadText)
+                        }
+                    }
+                }
+                QQC2.Label {
+                    id: systemPlanLabel
+                    text: i18nd("khaxbps", "No plan opened yet.")
+                }
+            }
+
+            QQC2.Label {
+                text: i18nd("khaxbps", "%1 packages", installedBackend.packages.count)
             }
 
             // No styling yet: Task 10 replaces this with PackageDelegate.
@@ -49,7 +90,7 @@ Kirigami.ApplicationWindow {
                 Layout.fillWidth: true
                 Layout.fillHeight: true
                 clip: true
-                model: catalogBackend.packages
+                model: installedBackend.packages
                 delegate: QQC2.ItemDelegate {
                     width: ListView.view.width
                     contentItem: RowLayout {

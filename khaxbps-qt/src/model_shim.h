@@ -3,7 +3,8 @@
 // Three things are missing from `cxx-qt-lib` 0.10 and are provided here:
 //
 //  * `QFile` — reading the embedded catalog resource needs `QIODevice`.
-//  * `beginResetModel` / `endResetModel` / `createIndex` — protected members of
+//  * `beginResetModel` / `endResetModel` / `createIndex` / `dataChanged` /
+//    `beginInsertRows` / `endInsertRows` — protected members of
 //    `QAbstractItemModel`, unreachable from a Rust impl block.
 //  * a factory for the package model — CXX-Qt cannot construct a QObject from
 //    Rust, so the backend asks C++ to `new` the child model for it.
@@ -28,8 +29,27 @@ void khaxbps_model_end_reset(QAbstractItemModel &model);
 // A valid index for `row`/`column`, built with the model's own `createIndex`.
 QModelIndex khaxbps_model_create_index(const QAbstractItemModel &model, int row, int column);
 
+// `dataChanged` for the inclusive row range `[first, last]` and every role.
+// Used after an in-place installed/queue snapshot update: the delegates of the
+// affected rows re-read their data, while selection and scroll position stay.
+void khaxbps_model_data_changed(QAbstractItemModel &model, int first, int last);
+
 // Creates the package model as a child of `parent`, seeding it with the catalog
 // JSON and the installed snapshot (a JSON object of name -> Inst).
 QObject *khaxbps_create_package_model(QObject *parent,
                                       const QString &catalogJson,
                                       const QString &installedJson);
+
+// The queue and log models need the same protected members, but cxx cannot
+// declare one extern function in two bridges, so each model has its own name.
+void khaxbps_queue_model_begin_reset(QAbstractItemModel &model);
+void khaxbps_queue_model_end_reset(QAbstractItemModel &model);
+QModelIndex khaxbps_queue_model_create_index(const QAbstractItemModel &model,
+                                             int row,
+                                             int column);
+
+QModelIndex khaxbps_log_model_create_index(const QAbstractItemModel &model,
+                                           int row,
+                                           int column);
+void khaxbps_log_model_begin_insert_rows(QAbstractItemModel &model, int first, int last);
+void khaxbps_log_model_end_insert_rows(QAbstractItemModel &model);
