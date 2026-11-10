@@ -111,23 +111,33 @@ pub mod qobject {
 }
 
 /// Role ids handed to `data()`; QML reads the names from [`ROLES`].
+///
+/// Every id starts at `Qt::UserRole` (256). Ids 0-255 belong to Qt
+/// (`DisplayRole` 0, `EditRole` 2, `CheckStateRole` 10, `SizeHintRole` 13 …):
+/// reusing them would feed a package name into a stock view's display role and
+/// break any proxy model that reads the built-in roles.
 pub mod role {
-    pub const NAME: i32 = 0;
-    pub const VERSION: i32 = 1;
-    pub const REPO: i32 = 2;
-    pub const CATEGORY: i32 = 3;
-    pub const SIZE: i32 = 4;
-    pub const DOWNLOAD: i32 = 5;
-    pub const SHORT: i32 = 6;
-    pub const HOMEPAGE: i32 = 7;
-    pub const LICENSE: i32 = 8;
-    pub const DEPENDS: i32 = 9;
-    pub const INSTALLED_VERSION: i32 = 10;
-    pub const EXPLICIT: i32 = 11;
-    pub const HELD: i32 = 12;
-    pub const QUEUED_ACTION: i32 = 13;
-    pub const IS_UPDATE: i32 = 14;
-    pub const UPDATE_VERSION: i32 = 15;
+    /// `Qt::UserRole`.
+    const USER_ROLE: i32 = 256;
+
+    pub const NAME: i32 = USER_ROLE;
+    pub const VERSION: i32 = USER_ROLE + 1;
+    pub const REPO: i32 = USER_ROLE + 2;
+    pub const CATEGORY: i32 = USER_ROLE + 3;
+    pub const SIZE: i32 = USER_ROLE + 4;
+    pub const DOWNLOAD: i32 = USER_ROLE + 5;
+    pub const SHORT: i32 = USER_ROLE + 6;
+    pub const HOMEPAGE: i32 = USER_ROLE + 7;
+    pub const LICENSE: i32 = USER_ROLE + 8;
+    pub const DEPENDS: i32 = USER_ROLE + 9;
+    pub const INSTALLED_VERSION: i32 = USER_ROLE + 10;
+    pub const EXPLICIT: i32 = USER_ROLE + 11;
+    pub const HELD: i32 = USER_ROLE + 12;
+    pub const QUEUED_ACTION: i32 = USER_ROLE + 13;
+    pub const IS_UPDATE: i32 = USER_ROLE + 14;
+    pub const UPDATE_VERSION: i32 = USER_ROLE + 15;
+    pub const SIZE_BYTES: i32 = USER_ROLE + 16;
+    pub const DOWNLOAD_BYTES: i32 = USER_ROLE + 17;
 }
 
 /// Role ids and the names QML sees, in declaration order.
@@ -135,7 +145,7 @@ pub mod role {
 /// `data()` and the `QVariantMap`s built by `CatalogBackend` share this table, so
 /// a delegate reading `model.installedVersion` and a query result reading
 /// `result.installedVersion` always agree.
-pub const ROLES: [(i32, &str); 16] = [
+pub const ROLES: [(i32, &str); 18] = [
     (role::NAME, "name"),
     (role::VERSION, "version"),
     (role::REPO, "repo"),
@@ -152,6 +162,8 @@ pub const ROLES: [(i32, &str); 16] = [
     (role::QUEUED_ACTION, "queuedAction"),
     (role::IS_UPDATE, "isUpdate"),
     (role::UPDATE_VERSION, "updateVersion"),
+    (role::SIZE_BYTES, "sizeBytes"),
+    (role::DOWNLOAD_BYTES, "downloadBytes"),
 ];
 
 /// Everything one row needs beyond the package itself.
@@ -182,6 +194,8 @@ pub fn role_value(role: i32, row: &RowView<'_>) -> QVariant {
         role::QUEUED_ACTION => text(row.queued.map_or("", queue_key)),
         role::IS_UPDATE => boolean(row.update_to.is_some()),
         role::UPDATE_VERSION => text(row.update_to.unwrap_or("")),
+        role::SIZE_BYTES => integer(pkg.size),
+        role::DOWNLOAD_BYTES => integer(pkg.download),
         _ => QVariant::default(),
     }
 }
@@ -296,8 +310,12 @@ impl PackageModelRust {
             .collect();
     }
 
-    /// Recomputes `rows` and `count`; returns whether the visible set changed.
-    fn rebuild(&mut self) -> bool {
+    /// Visible catalog indices for the current filter, search and category.
+    ///
+    /// Built into a fresh vector so a caller can compare before committing: a
+    /// keystroke in the search field that does not change the visible set must
+    /// not reset the model, or QML loses the scroll position and selection.
+    fn compute_rows(&self) -> Vec<u32> {
         let filter = self.filter.to_string();
         let category = self.category.to_string();
         let search = self.search.to_string().to_lowercase();
@@ -308,11 +326,22 @@ impl PackageModelRust {
                 rows.push(catalog_index);
             }
         }
+        rows
+    }
+
+    /// Commits `rows` as the visible set and keeps `count` in step.
+    fn assign_rows(&mut self, rows: Vec<u32>) {
+        self.count = i32::try_from(rows.len()).unwrap_or(i32::MAX);
+        self.rows = rows;
+    }
+
+    /// Recomputes `rows` and `count`; returns whether the visible set changed.
+    fn rebuild(&mut self) -> bool {
+        let rows = self.compute_rows();
         if rows == self.rows {
             return false;
         }
-        self.count = i32::try_from(rows.len()).unwrap_or(i32::MAX);
-        self.rows = rows;
+        self.assign_rows(rows);
         true
     }
 
@@ -425,19 +454,33 @@ impl qobject::PackageModel {
     }
 }
 
-/// Applies a property change, rebuilds the visible rows and resets the model.
+/// Applies a property change and resets the model only if the visible set moved.
 ///
-/// The reset is unconditional: every caller checked that the property really
-/// changed, and a reset is what tells QML the row set and the count moved.
+/// The new rows are computed before anything is committed, so a search keystroke
+/// that matches exactly the same packages costs one comparison instead of a full
+/// `beginResetModel`/`endResetModel` cycle (which would rebuild every delegate
+/// and drop the scroll position and selection).
 fn apply_change(
     mut model: Pin<&mut qobject::PackageModel>,
     mutate: impl FnOnce(&mut PackageModelRust),
 ) {
+    let rows = {
+        let data = Pin::get_mut(model.as_mut().rust_mut());
+        mutate(data);
+        data.compute_rows()
+    };
+    let unchanged = {
+        let data = Pin::get_mut(model.as_mut().rust_mut());
+        data.rows == rows
+    };
+    if unchanged {
+        return;
+    }
+
     qobject::model_begin_reset(base(model.as_mut()));
     {
         let data = Pin::get_mut(model.as_mut().rust_mut());
-        mutate(data);
-        data.rebuild();
+        data.assign_rows(rows);
     }
     qobject::model_end_reset(base(model.as_mut()));
     model.count_changed();
@@ -453,6 +496,12 @@ fn text(value: &str) -> QVariant {
 
 fn boolean(value: bool) -> QVariant {
     QVariant::from(&value)
+}
+
+/// Raw byte count, for sorting and arithmetic in QML; the formatted `size` /
+/// `download` roles are what the delegate displays.
+fn integer(value: u64) -> QVariant {
+    QVariant::from(&i64::try_from(value).unwrap_or(i64::MAX))
 }
 
 /// `4.0 MiB`, using the core's thresholds and the web app's decimal count.
@@ -605,17 +654,41 @@ mod tests {
         let pkg = model.catalog.by_name("linux").unwrap();
         let row = model.row_view(pkg);
         assert!(
-            role_value(14, &row).value::<bool>().unwrap(),
+            role_value(role::IS_UPDATE, &row).value::<bool>().unwrap(),
             "linux has an update"
         );
         assert_eq!(
-            role_value(15, &row).value::<QString>().unwrap().to_string(),
+            role_value(role::UPDATE_VERSION, &row)
+                .value::<QString>()
+                .unwrap()
+                .to_string(),
             pkg.version
         );
         assert_ne!(
-            role_value(10, &row).value::<QString>().unwrap().to_string(),
+            role_value(role::INSTALLED_VERSION, &row)
+                .value::<QString>()
+                .unwrap()
+                .to_string(),
             pkg.version
         );
+    }
+
+    #[test]
+    fn rebuild_reports_no_change_when_the_visible_set_is_identical() {
+        let mut model = model_with(InstalledMap::new());
+        model.search = QString::from("vim");
+        assert!(model.rebuild(), "first narrowing changes the rows");
+        let before = model.rows.clone();
+
+        // Same matches, different spelling: QML must not reset the model.
+        model.search = QString::from("VIM");
+        assert!(!model.rebuild(), "same visible set, no reset");
+        assert_eq!(model.rows, before);
+        assert_eq!(model.count, i32::try_from(before.len()).unwrap());
+
+        model.search = QString::from("vim-spell");
+        assert!(model.rebuild(), "a narrower query changes the rows");
+        assert!(model.rows.len() < before.len());
     }
 
     #[test]
@@ -669,7 +742,7 @@ mod tests {
 
     #[test]
     fn roles_cover_every_documented_name() {
-        assert_eq!(ROLES.len(), 16);
+        assert_eq!(ROLES.len(), 18);
         let names: Vec<&str> = ROLES.iter().map(|(_, name)| *name).collect();
         assert_eq!(
             names,
@@ -690,8 +763,25 @@ mod tests {
                 "queuedAction",
                 "isUpdate",
                 "updateVersion",
+                "sizeBytes",
+                "downloadBytes",
             ]
         );
+    }
+
+    #[test]
+    fn role_ids_start_at_user_role_and_are_unique() {
+        // Qt owns 0-255 (`DisplayRole`, `EditRole`, `CheckStateRole`, …).
+        let mut ids: Vec<i32> = ROLES.iter().map(|(id, _)| *id).collect();
+        assert!(
+            ids.iter().all(|id| *id >= 256),
+            "ids must be >= Qt::UserRole"
+        );
+        ids.sort_unstable();
+        let unique = ids.len();
+        ids.dedup();
+        assert_eq!(ids.len(), unique, "role ids are unique");
+        assert_eq!(role::NAME, 256);
     }
 
     #[test]
@@ -701,26 +791,54 @@ mod tests {
         let pkg = model.catalog.by_name("vim").unwrap();
         let row = model.row_view(pkg);
         assert_eq!(
-            role_value(0, &row).value::<QString>().unwrap().to_string(),
+            role_value(role::NAME, &row)
+                .value::<QString>()
+                .unwrap()
+                .to_string(),
             "vim"
         );
         assert_eq!(
-            role_value(2, &row).value::<QString>().unwrap().to_string(),
+            role_value(role::REPO, &row)
+                .value::<QString>()
+                .unwrap()
+                .to_string(),
             "current"
         );
         assert_eq!(
-            role_value(10, &row).value::<QString>().unwrap().to_string(),
+            role_value(role::INSTALLED_VERSION, &row)
+                .value::<QString>()
+                .unwrap()
+                .to_string(),
             store.installed["vim"].version
         );
         assert!(
-            role_value(11, &row).value::<bool>().unwrap(),
+            role_value(role::EXPLICIT, &row).value::<bool>().unwrap(),
             "vim is explicit"
         );
         assert_eq!(
-            role_value(4, &row).value::<QString>().unwrap().to_string(),
+            role_value(role::SIZE, &row)
+                .value::<QString>()
+                .unwrap()
+                .to_string(),
             "4.0 MiB"
         );
-        assert!(!role_value(14, &row).value::<bool>().unwrap());
-        assert!(role_value(99, &row).type_name().is_empty(), "unknown role");
+        assert_eq!(
+            role_value(role::SIZE_BYTES, &row).value::<i64>().unwrap(),
+            4_194_304,
+            "raw bytes for sorting"
+        );
+        assert_eq!(
+            role_value(role::DOWNLOAD_BYTES, &row)
+                .value::<i64>()
+                .unwrap(),
+            1_468_006
+        );
+        assert!(!role_value(role::IS_UPDATE, &row).value::<bool>().unwrap());
+        assert!(
+            role_value(role::DOWNLOAD_BYTES + 1, &row)
+                .type_name()
+                .is_empty(),
+            "unknown role"
+        );
     }
 }
