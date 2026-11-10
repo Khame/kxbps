@@ -445,18 +445,22 @@ impl Store {
     }
 }
 
-/// Creates `dir` with mode 0700 if it does not exist yet.
+/// Creates `dir` if it does not exist yet and makes sure it is private (0700).
+///
+/// The mode is enforced on every load and save, not only when the directory is
+/// created: a `~/.local/share/khaxbps` left behind by an older run, restored
+/// from a backup or created by hand can be 0755, and the state files written
+/// into it would then be world-readable. `create_dir_all` is subject to the
+/// umask as well, so the explicit `set_permissions` covers both paths.
 fn ensure_dir(dir: &Path) -> Result<(), StoreError> {
-    if dir.is_dir() {
-        return Ok(());
+    if !dir.is_dir() {
+        fs::create_dir_all(dir).map_err(|source| StoreError::Io {
+            path: dir.to_path_buf(),
+            source,
+        })?;
     }
-    fs::create_dir_all(dir).map_err(|source| StoreError::Io {
-        path: dir.to_path_buf(),
-        source,
-    })?;
-    // `create_dir_all` is subject to the umask; force the private mode a state
-    // directory deserves. Failing to tighten it is not worth an error: the
-    // files are ours either way.
+    // Failing to tighten a directory we do not own is not worth an error: the
+    // save below reports the real problem if the directory is unusable.
     let _ = fs::set_permissions(dir, fs::Permissions::from_mode(0o700));
     Ok(())
 }
@@ -797,6 +801,26 @@ mod tests {
             .mode()
             & 0o777;
         assert_eq!(mode, 0o700, "state directory is private");
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn pre_existing_permissive_directory_is_tightened_to_0700() {
+        let dir = TempDir::new("tighten");
+        let target = dir.path().join("khaxbps");
+        fs::create_dir(&target).expect("pre-create dir");
+        fs::set_permissions(&target, fs::Permissions::from_mode(0o755)).expect("loosen");
+        let mode = |path: &Path| fs::metadata(path).expect("metadata").permissions().mode() & 0o777;
+        assert_eq!(mode(&target), 0o755, "precondition: world-readable");
+
+        // Loading is enough: the directory is tightened before anything is read.
+        let mut store = Store::load_at(&target, &catalog()).expect("load");
+        assert_eq!(mode(&target), 0o700, "load_at tightens an existing dir");
+
+        // Saving tightens it again if something loosened it in the meantime.
+        fs::set_permissions(&target, fs::Permissions::from_mode(0o750)).expect("loosen again");
+        store.save_at(&target).expect("save");
+        assert_eq!(mode(&target), 0o700, "save_at tightens an existing dir");
     }
 
     #[test]
