@@ -2,7 +2,18 @@ fn main() {
     // Hand-written C++ shim that installs KI18n's `KLocalizedContext` on the QML
     // engine's root context, which is what makes `i18nd()` callable in QML.
     let builder = cxx_qt_build::CxxQtBuilder::new_qml_module(
-        cxx_qt_build::QmlModule::new("org.kde.khaxbps").qml_file("qml/Main.qml"),
+        cxx_qt_build::QmlModule::new("org.kde.khaxbps")
+            .qml_file("qml/Main.qml")
+            .qml_file("qml/views/PackagesView.qml")
+            .qml_file("qml/views/QueryView.qml")
+            .qml_file("qml/views/MirrorsView.qml")
+            .qml_file("qml/components/NavItem.qml")
+            .qml_file("qml/components/PackageDelegate.qml")
+            .qml_file("qml/components/QueryDelegate.qml")
+            .qml_file("qml/components/MirrorDelegate.qml")
+            .qml_file("qml/components/DetailsPane.qml")
+            .qml_file("qml/components/StatusStrip.qml")
+            .qml_file("qml/components/LogDrawer.qml"),
     )
     .qt_module("Network")
     // Every file with a `#[cxx_qt::bridge]` module: the app backend, the
