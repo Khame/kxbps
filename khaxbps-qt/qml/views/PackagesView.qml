@@ -27,17 +27,20 @@ Item {
     // name and the details pane reads it back through `catalogBackend.get()`.
     property string selectedName: ""
 
-    // Fixed column widths, shared by the header and the delegates.
-    readonly property real versionWidth: Kirigami.Units.gridUnit * 9.5
-    readonly property real sizeWidth: Kirigami.Units.gridUnit * 4.5
-    readonly property real stateWidth: Kirigami.Units.gridUnit * 9
-    readonly property real actionsWidth: Kirigami.Units.gridUnit * 5
+    // Fixed column widths, shared by the header and the delegates. The actions
+    // are an overlay on the row's right edge, so they do not get a column.
+    readonly property real versionWidth: Kirigami.Units.gridUnit * 7.5
+    readonly property real sizeWidth: Kirigami.Units.gridUnit * 3.5
+    readonly property real stateWidth: Kirigami.Units.gridUnit * 7
 
-    // The pane needs 20 gridUnits and the five fixed columns plus their spacing
-    // need ~31; below 52 the table would be clipped, so the details open over
-    // the list instead of beside it. (The spec's 44 was measured without the
-    // column spacing; see the report.)
-    readonly property bool wide: width >= Kirigami.Units.gridUnit * 52
+    // The pane is 14 gridUnits, but never narrower than 280 px (a fact grid
+    // below that starts eliding its labels).
+    readonly property real paneWidth: Math.max(Kirigami.Units.gridUnit * 14, 280)
+
+    // The fixed columns plus their gaps need ~20; at 40 the name column still
+    // has room for the longest package name, so the pane appears at the default
+    // window size instead of being dead code.
+    readonly property bool wide: width >= Kirigami.Units.gridUnit * 40
 
     // Derived from the catalog, not a hardcoded list: a category the catalog
     // does not use is not a category this app may offer.
@@ -209,9 +212,11 @@ Item {
 
                         RowLayout {
                             anchors.fill: parent
-                            anchors.leftMargin: Kirigami.Units.largeSpacing
-                            anchors.rightMargin: Kirigami.Units.largeSpacing
-                            spacing: Kirigami.Units.largeSpacing
+                            // Must match the delegate's row padding and column
+                            // spacing, or the header drifts off its columns.
+                            anchors.leftMargin: Kirigami.Units.mediumSpacing
+                            anchors.rightMargin: Kirigami.Units.mediumSpacing
+                            spacing: Kirigami.Units.smallSpacing
 
                             QQC2.Label {
                                 Layout.fillWidth: true
@@ -248,12 +253,6 @@ Item {
                                 font.bold: true
                                 color: Kirigami.Theme.disabledTextColor
                             }
-
-                            Item {
-                                Layout.preferredWidth: view.actionsWidth
-                                Layout.minimumWidth: view.actionsWidth
-                                Layout.maximumWidth: view.actionsWidth
-                            }
                         }
                     }
 
@@ -263,7 +262,6 @@ Item {
                         versionWidth: view.versionWidth
                         sizeWidth: view.sizeWidth
                         stateWidth: view.stateWidth
-                        actionsWidth: view.actionsWidth
                         selected: view.selectedName === model.name
                         onClicked: {
                             view.selectedName = model.name
@@ -295,8 +293,8 @@ Item {
                 // Pinned, not just preferred: the pane's labels have huge
                 // implicit widths (a full "required by" list), and a RowLayout
                 // would otherwise hand them the whole row.
-                Layout.minimumWidth: Kirigami.Units.gridUnit * 20
-                Layout.maximumWidth: Kirigami.Units.gridUnit * 20
+                Layout.minimumWidth: view.paneWidth
+                Layout.maximumWidth: view.paneWidth
                 Layout.fillHeight: true
                 catalogBackend: view.catalogBackend
                 installedBackend: view.installedBackend

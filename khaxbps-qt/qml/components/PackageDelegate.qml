@@ -21,7 +21,6 @@ Kirigami.SwipeListItem {
     property real versionWidth
     property real sizeWidth
     property real stateWidth
-    property real actionsWidth
     // Driven by the selected name, not `ListView.currentIndex`: a filter change
     // resets the model and would drop the current index, while the details pane
     // keeps showing the same package.
@@ -36,8 +35,8 @@ Kirigami.SwipeListItem {
 
     height: Kirigami.Units.gridUnit * 2.4
     implicitHeight: height
-    leftPadding: Kirigami.Units.largeSpacing
-    rightPadding: Kirigami.Units.largeSpacing
+    leftPadding: Kirigami.Units.mediumSpacing
+    rightPadding: Kirigami.Units.mediumSpacing
     topPadding: 0
     bottomPadding: 0
     // The current index covers keyboard navigation; the selected name keeps the
@@ -95,7 +94,9 @@ Kirigami.SwipeListItem {
     }
 
     contentItem: RowLayout {
-        spacing: Kirigami.Units.largeSpacing
+        // Tight gaps: at the 56 gridUnit default the name column has ~150 px
+        // for the longest name, and largeSpacing would cost 12 px of it.
+        spacing: Kirigami.Units.smallSpacing
 
         ColumnLayout {
             Layout.fillWidth: true
@@ -196,55 +197,74 @@ Kirigami.SwipeListItem {
                 spacing: Kirigami.Units.smallSpacing
 
                 Pill {
+                    id: heldPill
                     visible: model.held
                     text: i18nd("khaxbps", "Held")
                 }
 
+                // A second pill only appears when it fits; the row height is
+                // fixed, so an overflowing pill is hidden instead of growing it.
                 Pill {
+                    id: explicitPill
                     visible: model.explicit
+                             && (!heldPill.visible
+                                 || heldPill.implicitWidth + Kirigami.Units.smallSpacing
+                                    + explicitPill.implicitWidth <= delegate.stateWidth)
                     text: i18nd("khaxbps", "Explicit")
                 }
 
                 Pill {
+                    id: queuedPill
                     visible: delegate.queued
+                             && (heldPill.visible ? heldPill.implicitWidth + Kirigami.Units.smallSpacing : 0)
+                                + (explicitPill.visible ? explicitPill.implicitWidth + Kirigami.Units.smallSpacing : 0)
+                                + queuedPill.implicitWidth <= delegate.stateWidth
                     text: delegate.queueActionLabel(model.queuedAction)
                     textColor: Kirigami.Theme.highlightColor
                 }
             }
         }
 
-        // The actions slot is always reserved: the row must not widen when the
-        // buttons appear under the pointer.
-        Item {
-            Layout.preferredWidth: delegate.actionsWidth
-            Layout.minimumWidth: delegate.actionsWidth
-            Layout.maximumWidth: delegate.actionsWidth
-            Layout.fillHeight: true
+    }
 
-            RowLayout {
-                anchors.right: parent.right
-                anchors.verticalCenter: parent.verticalCenter
-                spacing: Kirigami.Units.smallSpacing
-                visible: delegate.hovered || delegate.activeFocus
+    // The two row actions sit on top of the row's right edge instead of owning a
+    // column: they are only useful under the pointer, and the name needs the
+    // room. The solid background keeps the cells behind them from showing
+    // through.
+    Rectangle {
+        id: actionsOverlay
 
-                QQC2.ToolButton {
-                    display: QQC2.AbstractButton.IconOnly
-                    icon.name: delegate.queued ? "list-remove"
-                              : (model.isUpdate ? "view-refresh"
-                                                : (delegate.installed ? "list-remove" : "list-add"))
-                    text: delegate.queueActionLabel(delegate.queued ? "unqueued" : delegate.queueToken)
-                    Accessible.name: text
-                    onClicked: delegate.toggleQueue()
-                }
+        anchors.right: parent.right
+        anchors.rightMargin: delegate.rightPadding
+        anchors.verticalCenter: parent.verticalCenter
+        width: actionsRow.implicitWidth + Kirigami.Units.smallSpacing * 2
+        height: delegate.height
+        visible: delegate.hovered || delegate.activeFocus || delegate.highlighted
+        z: 2
+        color: delegate.highlighted ? Kirigami.Theme.highlightColor : Kirigami.Theme.backgroundColor
 
-                QQC2.ToolButton {
-                    display: QQC2.AbstractButton.IconOnly
-                    enabled: delegate.installed
-                    icon.name: model.held ? "object-unlocked" : "object-locked"
-                    text: model.held ? i18nd("khaxbps", "Unhold") : i18nd("khaxbps", "Hold")
-                    Accessible.name: text
-                    onClicked: delegate.installedBackend.toggleHold(model.name)
-                }
+        RowLayout {
+            id: actionsRow
+            anchors.centerIn: parent
+            spacing: Kirigami.Units.smallSpacing
+
+            QQC2.ToolButton {
+                display: QQC2.AbstractButton.IconOnly
+                icon.name: delegate.queued ? "list-remove"
+                          : (model.isUpdate ? "view-refresh"
+                                            : (delegate.installed ? "list-remove" : "list-add"))
+                text: delegate.queueActionLabel(delegate.queued ? "unqueued" : delegate.queueToken)
+                Accessible.name: text
+                onClicked: delegate.toggleQueue()
+            }
+
+            QQC2.ToolButton {
+                display: QQC2.AbstractButton.IconOnly
+                enabled: delegate.installed
+                icon.name: model.held ? "object-unlocked" : "object-locked"
+                text: model.held ? i18nd("khaxbps", "Unhold") : i18nd("khaxbps", "Hold")
+                Accessible.name: text
+                onClicked: delegate.installedBackend.toggleHold(model.name)
             }
         }
     }
