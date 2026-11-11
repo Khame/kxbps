@@ -29,6 +29,13 @@ Kirigami.ApplicationWindow {
         queryBackend: catalogBackend
     }
 
+    // The mirror list, its probe batch and the persisted selection. `owner` is
+    // the store owner, so the chosen mirror is saved through it.
+    MirrorBackend {
+        id: mirrorBackend
+        owner: installedBackend
+    }
+
 
     pageStack.initialPage: Kirigami.Page {
         title: i18nd("khaxbps", "Packages")
@@ -85,6 +92,25 @@ Kirigami.ApplicationWindow {
 
             QQC2.Label {
                 text: i18nd("khaxbps", "%1 packages", installedBackend.packages.count)
+            }
+
+            // Proof of the mirror API; Task 10 replaces this with the Mirrors view.
+            RowLayout {
+                QQC2.Button {
+                    text: i18nd("khaxbps", "Probe all mirrors")
+                    enabled: !mirrorBackend.probing
+                    onClicked: mirrorBackend.probeAll()
+                }
+                QQC2.Label {
+                    text: i18nd("khaxbps", "%1 of %2 mirrors probed",
+                                mirrorBackend.finishedCount, mirrorBackend.model.count)
+                }
+                QQC2.Label {
+                    Layout.fillWidth: true
+                    elide: Text.ElideRight
+                    opacity: 0.7
+                    text: i18nd("khaxbps", "Current mirror: %1", mirrorBackend.currentMirror)
+                }
             }
 
             // No styling yet: Task 10 replaces this with PackageDelegate.

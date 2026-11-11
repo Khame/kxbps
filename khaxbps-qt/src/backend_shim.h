@@ -54,3 +54,9 @@ void khaxbps_catalog_backend_set_state(QObject *backend,
 // QML-referenced child is never freed by JavaScript, so a closed dialog must
 // call `InstalledBackend::release` or the object outlives the dialog.
 void khaxbps_release_object(QObject *object);
+
+// The selected mirror. The store owns it, the Mirrors view presents it; the
+// mirror backend reads it at startup and writes it back on every change, so a
+// restart remembers the choice (`mirror.json`).
+QString khaxbps_installed_mirror(QObject *owner);
+void khaxbps_installed_set_mirror(QObject *owner, const QString &url);

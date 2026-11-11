@@ -17,6 +17,8 @@ fn main() {
         "src/job_backend.rs",
         "src/queue_model.rs",
         "src/log_model.rs",
+        "src/mirror_model.rs",
+        "src/mirror_backend.rs",
     ])
     // The package catalog is generated from the web app by `scripts/gen-catalog.mjs`.
     // Because the builder knows the QML module URI, the file lands in the module's
@@ -26,6 +28,9 @@ fn main() {
     // `QAbstractItemModel` members the Rust model cannot reach.
     .cpp_file("src/k18n_shim.cpp")
     .cpp_file("src/model_shim.cpp")
+    // The mirror model's factory and the `QNetworkAccessManager` probe
+    // transport, which `cxx-qt-lib` 0.10 has no binding for.
+    .cpp_file("src/mirror_shim.cpp")
     // Child-object factories and the forwarders that let Rust reach a generated
     // method on a `QObject*` it only holds as a pointer.
     .cpp_file("src/backend_shim.cpp");

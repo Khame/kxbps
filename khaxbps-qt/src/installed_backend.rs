@@ -140,6 +140,13 @@ pub mod qobject {
 
         fn set_query_backend(self: Pin<&mut InstalledBackend>, value: QObjectMutPtr);
 
+        // The selected mirror lives in the store, so the mirror backend reads and
+        // writes it through these two forwarders instead of keeping a second copy
+        // of the store. Not invokable: the Mirrors view owns the presentation.
+        fn mirror_value(self: &InstalledBackend) -> QString;
+
+        fn set_mirror_value(self: Pin<&mut InstalledBackend>, url: &QString);
+
         // Called by `khaxbps_installed_apply_plan` on the GUI thread when a job
         // finishes; not invokable so QML cannot bypass the job.
         fn apply_plan_items(self: Pin<&mut InstalledBackend>, items_json: &QString);
@@ -369,6 +376,27 @@ impl qobject::InstalledBackend {
             return;
         }
         qobject::release_object(object);
+    }
+
+    /// The selected mirror, as `mirror.json` holds it.
+    fn mirror_value(&self) -> cxx_qt_lib::QString {
+        QString::from(self.store.mirror.as_str())
+    }
+
+    /// Persists a mirror picked in the Mirrors view.
+    ///
+    /// The store is the only owner of the selection, so the write and its save
+    /// happen here; an empty URL is not a mirror and is ignored.
+    fn set_mirror_value(mut self: Pin<&mut Self>, url: &cxx_qt_lib::QString) {
+        let url = url.to_string();
+        if url.is_empty() {
+            return;
+        }
+        {
+            let data = Pin::get_mut(self.as_mut().rust_mut());
+            data.store.set_mirror(&url);
+        }
+        save_store(self.as_mut());
     }
 
     /// Wires the query façade and pushes the current snapshot into it.

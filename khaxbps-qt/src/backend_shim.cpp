@@ -79,3 +79,19 @@ void khaxbps_release_object(QObject *object)
         object->deleteLater();
     }
 }
+
+QString khaxbps_installed_mirror(QObject *owner)
+{
+    if (!owner) {
+        return QString();
+    }
+    return static_cast<InstalledBackend *>(owner)->mirrorValue();
+}
+
+void khaxbps_installed_set_mirror(QObject *owner, const QString &url)
+{
+    if (!owner) {
+        return;
+    }
+    static_cast<InstalledBackend *>(owner)->setMirrorValue(url);
+}

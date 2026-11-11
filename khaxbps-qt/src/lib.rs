@@ -15,6 +15,8 @@ pub mod catalog_backend;
 pub mod installed_backend;
 pub mod job_backend;
 pub mod log_model;
+pub mod mirror_backend;
+pub mod mirror_model;
 pub mod package_model;
 pub mod plan_backend;
 pub mod queue_model;

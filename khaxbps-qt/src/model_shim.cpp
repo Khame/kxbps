@@ -126,6 +126,18 @@ void khaxbps_log_model_end_insert_rows(QAbstractItemModel &model)
     ModelAccess::emitEndInsertRows(&model);
 }
 
+QModelIndex khaxbps_mirror_model_create_index(const QAbstractItemModel &model,
+                                              int row,
+                                              int column)
+{
+    return ModelAccess::makeIndex(const_cast<QAbstractItemModel *>(&model), row, column);
+}
+
+void khaxbps_mirror_model_data_changed(QAbstractItemModel &model, int first, int last)
+{
+    ModelAccess::emitDataChanged(&model, first, last);
+}
+
 QObject *khaxbps_create_package_model(QObject *parent,
                                       const QString &catalogJson,
                                       const QString &installedJson)

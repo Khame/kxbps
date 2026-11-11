@@ -53,3 +53,10 @@ QModelIndex khaxbps_log_model_create_index(const QAbstractItemModel &model,
                                            int column);
 void khaxbps_log_model_begin_insert_rows(QAbstractItemModel &model, int first, int last);
 void khaxbps_log_model_end_insert_rows(QAbstractItemModel &model);
+
+// The mirror model never changes its row set — the rows are the static mirror
+// list — so it needs `createIndex` and a per-row `dataChanged`, but no reset.
+QModelIndex khaxbps_mirror_model_create_index(const QAbstractItemModel &model,
+                                              int row,
+                                              int column);
+void khaxbps_mirror_model_data_changed(QAbstractItemModel &model, int first, int last);
