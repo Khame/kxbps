@@ -85,7 +85,9 @@ Item {
 
     Timer {
         id: toggleTimer
-        interval: 200
+        // The platform's own double-click window, so a single click does not
+        // fire a toggle in the middle of a double click.
+        interval: Qt.application.styleHints.mouseDoubleClickInterval
         onTriggered: drawer.expanded = !drawer.expanded
     }
 
@@ -114,23 +116,30 @@ Item {
             cursorShape: Qt.SizeVerCursor
             preventStealing: true
 
-            property real startY: 0
+            // Scene coordinates: the handle itself moves up as the drawer grows,
+            // so comparing its local `mouse.y` would move the edge at half the
+            // cursor's speed and detach it from the pointer.
+            property real startSceneY: 0
             property real startHeight: 0
 
             onPressed: (mouse) => {
-                dragArea.startY = mouse.y
+                dragArea.startSceneY = dragArea.mapToItem(null, mouse.x, mouse.y).y
                 dragArea.startHeight = drawer.expanded ? drawer.expandedHeight : drawer.collapsedHeight
-                drawer.expanded = true
-                drawer.expandedHeight = dragArea.startHeight
             }
             onPositionChanged: (mouse) => {
                 if (!dragArea.pressed) {
                     return
                 }
-                const delta = dragArea.startY - mouse.y
-                drawer.expandedHeight = Math.max(drawer.collapsedHeight,
-                                                 Math.min(drawer.maximumHeight,
-                                                          dragArea.startHeight + delta))
+                const delta = dragArea.startSceneY - dragArea.mapToItem(null, mouse.x, mouse.y).y
+                // A click without movement must not open the drawer; only a
+                // drag up from the collapsed state does.
+                if (delta <= 0 && !drawer.expanded) {
+                    return
+                }
+                const next = Math.max(drawer.collapsedHeight,
+                                      Math.min(drawer.maximumHeight, dragArea.startHeight + delta))
+                drawer.expandedHeight = next
+                drawer.expanded = next > drawer.collapsedHeight
             }
         }
     }

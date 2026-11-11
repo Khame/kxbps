@@ -21,8 +21,6 @@ Rectangle {
     property var plan
     property var job
     property string jobLabel
-    // The last finished job's closing line, shown while the queue is empty.
-    property string resultText
     property string currentMirror
 
     signal reviewRequested()
@@ -41,12 +39,12 @@ Rectangle {
         color: Kirigami.Theme.disabledTextColor
     }
 
-    // What the queue holds, or what the last job did once the queue is empty.
+    // What the queue holds. The finished job's result is a separate label: it
+    // must not hide the live queue count.
     function queueText() {
         const count = strip.installedBackend.queueCount
         if (count === 0) {
-            return strip.resultText.length > 0 ? strip.resultText
-                                               : i18nd("khaxbps", "Queue is empty")
+            return i18nd("khaxbps", "Queue is empty")
         }
         return i18ndp("khaxbps", "%1 package queued", "%1 packages queued", count)
     }
@@ -112,6 +110,13 @@ Rectangle {
                 text: strip.plan ? i18nd("khaxbps", "Apply") : i18nd("khaxbps", "Review changes")
                 enabled: strip.installedBackend.queueCount > 0 || strip.plan !== null
                 onClicked: strip.reviewRequested()
+            }
+
+            QQC2.Label {
+                visible: strip.job !== null && strip.job.done
+                text: strip.jobLabel
+                color: Kirigami.Theme.disabledTextColor
+                elide: Text.ElideRight
             }
 
             QQC2.Label {

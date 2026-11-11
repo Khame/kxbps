@@ -33,10 +33,11 @@ Item {
     readonly property real stateWidth: Kirigami.Units.gridUnit * 9
     readonly property real actionsWidth: Kirigami.Units.gridUnit * 5
 
-    // The pane needs 20 gridUnits and the columns need ~28; below 44 the list
-    // would be nothing but elided text, so the details open over the list
-    // instead of beside it.
-    readonly property bool wide: width >= Kirigami.Units.gridUnit * 44
+    // The pane needs 20 gridUnits and the five fixed columns plus their spacing
+    // need ~31; below 52 the table would be clipped, so the details open over
+    // the list instead of beside it. (The spec's 44 was measured without the
+    // column spacing; see the report.)
+    readonly property bool wide: width >= Kirigami.Units.gridUnit * 52
 
     // Derived from the catalog, not a hardcoded list: a category the catalog
     // does not use is not a category this app may offer.

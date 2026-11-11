@@ -36,8 +36,9 @@ Kirigami.ApplicationWindow {
 
     // Task 11: replace with the plan/job dialogs.
     property var plan: null
+    // The finished job is kept until the next transaction starts, so its log
+    // stays readable after it ends.
     property var job: null
-    property string lastResult: ""
 
     readonly property string jobLabel: {
         if (job === null) {
@@ -155,7 +156,6 @@ Kirigami.ApplicationWindow {
                 job = null
                 installedBackend.release(previous)
             }
-            lastResult = ""
             job = started
             if (job !== null) {
                 logDrawer.expanded = true
@@ -174,40 +174,17 @@ Kirigami.ApplicationWindow {
         installedBackend.release(opened)
     }
 
-    // A finished job keeps its result line in the strip and goes away: the log
-    // is live output, not a history buffer.
-    function finishJob() {
-        if (job === null) {
-            return
-        }
-        lastResult = jobLabel
-        const finished = job
-        job = null
-        // The log is live output; once the job is gone there is nothing to show.
-        logDrawer.expanded = false
-        installedBackend.release(finished)
-    }
-
     Connections {
         target: installedBackend
         function onQueueCountChanged() {
             // A queue change invalidates the plan the strip was showing.
             root.closePlan()
-            root.refreshCatalogIndex()
         }
-        function onInstalledCountChanged() {
+        // One revision per store mutation, including the hold toggle the
+        // counters cannot see. The catalog snapshot carries installed and held
+        // flags, so it has to be re-read.
+        function onStateRevisionChanged() {
             root.refreshCatalogIndex()
-        }
-    }
-
-    // `cancelled` turns true before the worker has stopped, so the object may
-    // only be released once `done` says the last queued callback has run.
-    Connections {
-        target: root.job
-        function onDoneChanged() {
-            if (root.job !== null && root.job.done) {
-                root.finishJob()
-            }
         }
     }
 
@@ -429,7 +406,6 @@ Kirigami.ApplicationWindow {
                     plan: root.plan
                     job: root.job
                     jobLabel: root.jobLabel
-                    resultText: root.lastResult
                     currentMirror: mirrorBackend.currentMirror
                     onReviewRequested: root.reviewOrApply()
                     onCancelRequested: {

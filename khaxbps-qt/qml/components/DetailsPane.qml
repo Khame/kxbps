@@ -51,10 +51,9 @@ Flickable {
 
     Connections {
         target: pane.installedBackend
-        function onQueueCountChanged() {
-            pane.refreshToken++
-        }
-        function onInstalledCountChanged() {
+        // One revision per store mutation, including hold toggles that change
+        // neither the installed nor the queue counter.
+        function onStateRevisionChanged() {
             pane.refreshToken++
         }
     }
@@ -267,8 +266,12 @@ Flickable {
             }
             QQC2.Label {
                 Layout.fillWidth: true
-                text: pane.orphan ? i18nd("khaxbps", "Orphan")
-                                  : (pane.info.explicit ? i18nd("khaxbps", "Explicit") : i18nd("khaxbps", "Dependency"))
+                // A package that is not installed is neither explicit nor a
+                // dependency; `explicit` is simply false for it.
+                text: !pane.installed ? i18nd("khaxbps", "Not installed")
+                      : (pane.orphan ? i18nd("khaxbps", "Orphan")
+                                     : (pane.info.explicit ? i18nd("khaxbps", "Explicit")
+                                                           : i18nd("khaxbps", "Dependency")))
                 elide: Text.ElideRight
             }
 

@@ -70,6 +70,12 @@ Item {
     function run() {
         const mode = modeCombo.currentText
         const query = searchField.text
+        // `-L` lists repositories; the catalog only knows packages, so this mode
+        // has no honest result set to show yet.
+        if (mode === "L") {
+            view.results = []
+            return
+        }
         if (!view.isListMode(mode) && query.length === 0) {
             view.results = []
             return
@@ -80,6 +86,9 @@ Item {
     function hint() {
         const mode = modeCombo.currentText
         const query = searchField.text
+        if (mode === "L") {
+            return i18nd("khaxbps", "xbps-query -L lists repositories; this app does not implement it yet.")
+        }
         if (query.length === 0 && view.isListMode(mode)) {
             return i18nd("khaxbps", "Equivalent: %1", "xbps-query -" + mode)
         }
@@ -87,6 +96,11 @@ Item {
     }
 
     function emptyText() {
+        if (modeCombo.currentText === "L") {
+            // The hint above already explains the mode; a second sentence would
+            // just repeat it.
+            return ""
+        }
         if (view.isListMode(modeCombo.currentText) || searchField.text.length > 0) {
             return i18nd("khaxbps", "No matches.")
         }
@@ -151,7 +165,7 @@ Item {
 
             QQC2.Label {
                 anchors.centerIn: parent
-                visible: view.resultCount === 0
+                visible: view.resultCount === 0 && text.length > 0
                 text: view.emptyText()
                 color: Kirigami.Theme.disabledTextColor
             }

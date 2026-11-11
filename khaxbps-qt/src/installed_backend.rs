@@ -91,6 +91,10 @@ pub mod qobject {
         #[qproperty(i32, installed_count, READ, NOTIFY)]
         #[qproperty(i32, queue_count, READ, NOTIFY)]
         #[qproperty(i32, updates_count, READ, NOTIFY)]
+        // Bumped on every `refresh()`, including changes the counters cannot
+        // see (a hold toggle). QML uses it to re-read snapshots that have no
+        // notify signal of their own (`catalogBackend.get`).
+        #[qproperty(i32, state_revision, READ, NOTIFY)]
         #[qproperty(QString, error, READ, NOTIFY)]
         type InstalledBackend = super::InstalledBackendRust;
 
@@ -179,6 +183,7 @@ pub struct InstalledBackendRust {
     installed_count: i32,
     queue_count: i32,
     updates_count: i32,
+    state_revision: i32,
     error: QString,
 }
 
@@ -195,6 +200,7 @@ impl Default for InstalledBackendRust {
             installed_count: 0,
             queue_count: 0,
             updates_count: 0,
+            state_revision: 0,
             error: QString::from(""),
         }
     }
@@ -711,6 +717,19 @@ fn refresh(mut self_: Pin<&mut qobject::InstalledBackend>) {
     if updates_changed {
         self_.as_mut().updates_count_changed();
     }
+
+    // Unconditional: a hold toggle changes neither counter, but it does change
+    // what `get()` returns and what `-H` must list.
+    {
+        let data = Pin::get_mut(self_.as_mut().rust_mut());
+        data.state_revision = next_revision(data.state_revision);
+    }
+    self_.as_mut().state_revision_changed();
+}
+
+/// Next value of the state revision counter; wraps instead of overflowing.
+fn next_revision(current: i32) -> i32 {
+    current.wrapping_add(1)
 }
 
 /// Writes the store, retrying once before reporting a technical error.
@@ -1015,6 +1034,13 @@ mod tests {
             held_in_queue(&catalog, &installed, &repos, &[]).is_empty(),
             "nothing is queued, so nothing is skipped"
         );
+    }
+
+    #[test]
+    fn state_revision_advances_and_wraps() {
+        assert_eq!(next_revision(0), 1);
+        assert_eq!(next_revision(41), 42);
+        assert_eq!(next_revision(i32::MAX), i32::MIN);
     }
 
     #[test]

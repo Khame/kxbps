@@ -826,6 +826,27 @@ mod tests {
     }
 
     #[test]
+    fn search_needle_is_case_insensitive() {
+        // The needle is lowercased once in `compute_rows`; `matches` only sees
+        // the folded form. Typing "Bash" must behave like "bash".
+        let mut model = model_with(InstalledMap::new());
+        model.search = QString::from("Bash");
+        model.rebuild();
+        assert!(!model.rows.is_empty(), "Bash matches the catalog");
+        assert!(visible_names(&model).contains(&"bash"));
+        assert!(
+            visible_names(&model)
+                .iter()
+                .all(|name| name.to_lowercase().contains("bash")
+                    || model
+                        .catalog
+                        .by_name(name)
+                        .is_some_and(|pkg| pkg.short.to_lowercase().contains("bash"))),
+            "every hit matches the folded needle"
+        );
+    }
+
+    #[test]
     fn search_and_category_narrow_without_touching_the_catalog() {
         let mut model = model_with(InstalledMap::new());
         let catalog_ptr = Arc::as_ptr(&model.catalog);
