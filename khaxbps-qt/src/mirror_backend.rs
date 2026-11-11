@@ -20,7 +20,7 @@
 
 use std::pin::Pin;
 use std::sync::Arc;
-use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::time::Instant;
 
 use cxx_qt::casting::Upcast;
@@ -50,6 +50,9 @@ pub mod qobject {
         #[cxx_name = "khaxbps_mirror_model_set_all_running"]
         fn mirror_model_set_all_running(model: QObjectMutPtr);
 
+        #[cxx_name = "khaxbps_mirror_model_finish_running"]
+        fn mirror_model_finish_running(model: QObjectMutPtr);
+
         #[cxx_name = "khaxbps_mirror_model_set_result"]
         fn mirror_model_set_result(
             model: QObjectMutPtr,
@@ -67,6 +70,11 @@ pub mod qobject {
 
         #[cxx_name = "khaxbps_probe_head"]
         fn probe_head(handle: usize, url: &QString, timeout_ms: u32) -> i32;
+
+        // True once the application is shutting down; the batch polls it between
+        // mirrors and inside a request, so closing the window stops the sweep.
+        #[cxx_name = "khaxbps_probe_shutdown_requested"]
+        fn probe_shutdown_requested() -> bool;
 
         // The store lives in the installed backend; the mirror is read and
         // written through it so there is only ever one `Store`.
@@ -124,6 +132,10 @@ pub mod qobject {
             latency_ms: u32,
             error_key: &QString,
         );
+
+        // Ends a batch that stopped early (shutdown, teardown or a newer batch):
+        // re-enables probing and returns the unanswered rows to `idle`.
+        fn finish_cancelled(self: Pin<&mut MirrorBackend>, batch: u64);
     }
 
     impl cxx_qt::Constructor<()> for MirrorBackend {}
@@ -142,27 +154,30 @@ pub struct ProbeOutcome {
 }
 
 impl ProbeOutcome {
-    /// Maps the transport's return code onto a state.
+    /// Maps the transport's return code onto a state; `None` when the request
+    /// was abandoned because the application is shutting down.
     ///
-    /// `0` — the mirror answered, `1` — the timer won, anything else — the
-    /// request never reached an answer (DNS, TLS, refused).
-    pub fn classify(code: i32, latency_ms: u32) -> Self {
+    /// `0` — the mirror answered, `1` — the timer won, `2` — the request never
+    /// reached an answer (DNS, TLS, refused), `3` — cancelled, so there is no
+    /// result to show.
+    pub fn classify(code: i32, latency_ms: u32) -> Option<Self> {
         match code {
-            0 => Self {
+            0 => Some(Self {
                 state_key: STATE_OK,
                 latency_ms,
                 error_key: "",
-            },
-            1 => Self {
+            }),
+            1 => Some(Self {
                 state_key: STATE_FAIL,
                 latency_ms: 0,
                 error_key: ProbeError::Timeout.key(),
-            },
-            _ => Self {
+            }),
+            3 => None,
+            _ => Some(Self {
                 state_key: STATE_FAIL,
                 latency_ms: 0,
                 error_key: ProbeError::NoResponse.key(),
-            },
+            }),
         }
     }
 
@@ -189,6 +204,10 @@ pub struct MirrorBackendRust {
     /// Bumped by every `probe_all`. A result from an older batch is dropped, so
     /// a second click cannot interleave two batches into one row set.
     batch: Arc<AtomicU64>,
+    /// Stops the running batch when this backend is detached from its store
+    /// owner, i.e. when the page that owns it is being torn down. A separate
+    /// flag from the application-wide shutdown, which other probes share.
+    cancel: Arc<AtomicBool>,
 }
 
 impl Default for MirrorBackendRust {
@@ -201,6 +220,7 @@ impl Default for MirrorBackendRust {
             probing: false,
             finished_count: 0,
             batch: Arc::new(AtomicU64::new(0)),
+            cancel: Arc::new(AtomicBool::new(false)),
         }
     }
 }
@@ -226,12 +246,20 @@ impl qobject::MirrorBackend {
     /// The GUI thread only marks the rows and starts the thread; results arrive
     /// through `qt_thread().queue(...)` one row at a time, so a QML timer keeps
     /// firing and the view keeps scrolling while the batch runs.
+    ///
+    /// The sweep stops early — leaving the remaining rows untouched — when a
+    /// newer batch takes over, when the backend has been destroyed, or when the
+    /// application is shutting down. The last case matters: a full sweep takes
+    /// ~20 s, and a window closed mid-batch must not keep a worker and its
+    /// network manager alive behind a dead event loop.
     fn probe_all(mut self: Pin<&mut Self>) {
         let model = self.model;
         if model.as_ptr().is_null() {
             return;
         }
         let batch = self.batch.fetch_add(1, Ordering::SeqCst) + 1;
+        // A batch started after a re-attach must be allowed to run.
+        self.cancel.store(false, Ordering::Relaxed);
 
         qobject::mirror_model_set_all_running(model);
         {
@@ -244,17 +272,30 @@ impl qobject::MirrorBackend {
 
         let thread = self.qt_thread();
         let generation = self.batch.clone();
+        let cancel = self.cancel.clone();
         let targets = row_targets();
 
         std::thread::spawn(move || {
             // One manager for the batch, created and destroyed on this thread.
             let handle = qobject::probe_batch_begin();
+            let mut stopped = false;
             for (row, url) in targets {
-                if generation.load(Ordering::SeqCst) != batch {
-                    // A newer batch owns the rows now; stop asking the network.
+                if generation.load(Ordering::SeqCst) != batch
+                    || thread.is_destroyed()
+                    || cancel.load(Ordering::Relaxed)
+                    || qobject::probe_shutdown_requested()
+                {
+                    // A newer batch owns the rows, this backend was detached
+                    // from its store, or the app is going away: stop asking the
+                    // network.
+                    stopped = true;
                     break;
                 }
-                let outcome = probe_url(handle, url);
+                let Some(outcome) = probe_url(handle, url) else {
+                    // Shutdown cancelled the request in flight.
+                    stopped = true;
+                    break;
+                };
                 thread
                     .queue(move |backend| {
                         backend.apply_probe_result(
@@ -268,6 +309,14 @@ impl qobject::MirrorBackend {
                     .ok();
             }
             qobject::probe_batch_end(handle);
+            if stopped {
+                // Clears `probing` (the button must not stay disabled) and puts
+                // the unanswered rows back to `idle`; a no-op when a newer batch
+                // already owns the rows.
+                thread
+                    .queue(move |backend| backend.finish_cancelled(batch))
+                    .ok();
+            }
         });
     }
 
@@ -298,6 +347,13 @@ impl qobject::MirrorBackend {
             let handle = qobject::probe_batch_begin();
             let outcome = probe_url(handle, &url);
             qobject::probe_batch_end(handle);
+            // A cancelled request reports no result: put the row back to `idle`
+            // instead of leaving it `running` forever.
+            let outcome = outcome.unwrap_or(ProbeOutcome {
+                state_key: crate::mirror_model::STATE_IDLE,
+                latency_ms: 0,
+                error_key: "",
+            });
             thread
                 .queue(move |backend| {
                     backend.apply_single_result(
@@ -312,19 +368,25 @@ impl qobject::MirrorBackend {
     }
 
     /// Points the backend at the store owner and adopts its saved mirror.
+    ///
+    /// Detaching (a null owner) is the teardown path of the page that owns this
+    /// backend: the running sweep stops instead of holding a socket open for a
+    /// view that is going away, and the last selection is kept for whoever binds
+    /// next.
     fn set_owner(mut self: Pin<&mut Self>, value: QObjectMutPtr) {
-        let saved = if value.as_ptr().is_null() {
-            QString::from("")
-        } else {
-            qobject::installed_mirror(value)
-        };
+        if value.as_ptr().is_null() {
+            let data = Pin::get_mut(self.as_mut().rust_mut());
+            data.cancel.store(true, Ordering::Relaxed);
+            data.owner = value;
+            self.as_mut().owner_changed();
+            return;
+        }
+        let saved = qobject::installed_mirror(value);
         let saved_text = saved.to_string();
         let current = if saved_text.is_empty() {
             // A store without a mirror means the default; write it back so the
             // next start does not have to guess again.
-            if !value.as_ptr().is_null() {
-                qobject::installed_set_mirror(value, &QString::from(DEFAULT_MIRROR));
-            }
+            qobject::installed_set_mirror(value, &QString::from(DEFAULT_MIRROR));
             QString::from(DEFAULT_MIRROR)
         } else {
             saved
@@ -333,6 +395,7 @@ impl qobject::MirrorBackend {
             let data = Pin::get_mut(self.as_mut().rust_mut());
             data.owner = value;
             data.current_mirror = current;
+            data.cancel.store(false, Ordering::Relaxed);
         }
         self.as_mut().owner_changed();
         self.as_mut().current_mirror_changed();
@@ -397,6 +460,31 @@ impl qobject::MirrorBackend {
         self.write_row(row, state_key, latency_ms, error_key);
     }
 
+    /// Ends a batch that stopped before its last row (shutdown, teardown, or a
+    /// newer batch).
+    ///
+    /// The generation guard keeps ownership honest: only the batch that is still
+    /// current resets `probing` and returns its unanswered rows to `idle`, so a
+    /// superseded batch cannot re-enable a button the new batch disabled.
+    fn finish_cancelled(mut self: Pin<&mut Self>, batch: u64) {
+        if self.batch.load(Ordering::SeqCst) != batch {
+            return;
+        }
+        let model = self.model;
+        if !model.as_ptr().is_null() {
+            qobject::mirror_model_finish_running(model);
+        }
+        {
+            let data = Pin::get_mut(self.as_mut().rust_mut());
+            if !data.probing {
+                return;
+            }
+            data.probing = false;
+        }
+        self.as_mut().probing_changed();
+        self.as_mut().probe_finished();
+    }
+
     /// Writes one row into the model, if the model exists.
     fn write_row(
         &self,
@@ -432,11 +520,13 @@ fn row_targets() -> Vec<(i32, &'static str)> {
 
 /// Probes one URL: the core rule first, then the transport, then [`measure`].
 ///
-/// Runs on the worker thread. The returned outcome carries keys only.
-fn probe_url(handle: usize, url: &str) -> ProbeOutcome {
+/// Runs on the worker thread. The returned outcome carries keys only; `None`
+/// means the application began shutting down and the request was abandoned, so
+/// there is nothing to report for that row.
+fn probe_url(handle: usize, url: &str) -> Option<ProbeOutcome> {
     if let Err(error) = check_probe_url(url) {
         // Never requested: the row says why instead.
-        return ProbeOutcome::refused(error);
+        return Some(ProbeOutcome::refused(error));
     }
     let start = Instant::now();
     let code = qobject::probe_head(
@@ -453,7 +543,7 @@ mod tests {
 
     #[test]
     fn an_answer_is_ok_with_its_latency() {
-        let outcome = ProbeOutcome::classify(0, 178);
+        let outcome = ProbeOutcome::classify(0, 178).expect("an answer is a result");
         assert_eq!(outcome.state_key, "ok");
         assert_eq!(outcome.latency_ms, 178);
         assert_eq!(outcome.error_key, "");
@@ -461,14 +551,22 @@ mod tests {
 
     #[test]
     fn the_timer_and_a_dead_host_get_distinct_keys() {
-        assert_eq!(ProbeOutcome::classify(1, 6500).error_key, "timeout");
-        assert_eq!(ProbeOutcome::classify(2, 6).error_key, "noResponse");
-        assert_eq!(ProbeOutcome::classify(-1, 0).error_key, "noResponse");
+        let key = |code| ProbeOutcome::classify(code, 6500).unwrap().error_key;
+        assert_eq!(key(1), "timeout");
+        assert_eq!(key(2), "noResponse");
+        assert_eq!(key(-1), "noResponse");
         for code in [1, 2] {
-            let outcome = ProbeOutcome::classify(code, 999);
+            let outcome = ProbeOutcome::classify(code, 999).unwrap();
             assert_eq!(outcome.state_key, "fail");
             assert_eq!(outcome.latency_ms, 0, "a failure has no latency");
         }
+    }
+
+    #[test]
+    fn a_cancelled_request_reports_no_result() {
+        // Code 3 means the shutdown flag aborted the request: there is nothing
+        // to show, so the row keeps whatever it had and the batch stops.
+        assert_eq!(ProbeOutcome::classify(3, 1200), None);
     }
 
     #[test]

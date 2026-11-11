@@ -96,6 +96,8 @@ pub mod qobject {
         // invokable, because only a probe batch may move a row's state.
         fn set_all_running(self: Pin<&mut MirrorModel>);
 
+        fn finish_running(self: Pin<&mut MirrorModel>);
+
         fn set_result(
             self: Pin<&mut MirrorModel>,
             row: i32,
@@ -215,6 +217,19 @@ impl MirrorModelRust {
         }
         changed
     }
+
+    /// Returns the rows a cancelled batch left `running` to `idle`; rows that
+    /// already have a result keep it, so nothing measured is thrown away.
+    fn clear_running(&mut self) -> bool {
+        let mut changed = false;
+        for entry in &mut self.rows {
+            if entry.state == ProbeState::Running {
+                entry.state = ProbeState::Idle;
+                changed = true;
+            }
+        }
+        changed
+    }
 }
 
 impl Default for MirrorModelRust {
@@ -298,6 +313,19 @@ impl qobject::MirrorModel {
         let changed = {
             let data = Pin::get_mut(self.as_mut().rust_mut());
             data.mark_all_running()
+        };
+        let count = self.count;
+        if changed && count > 0 {
+            qobject::mirror_model_data_changed(base(self.as_mut()), 0, count - 1);
+        }
+    }
+
+    /// Ends a batch that stopped before its last row: the unanswered rows go back
+    /// to `idle`, so a cancelled sweep leaves no spinner behind.
+    fn finish_running(mut self: Pin<&mut Self>) {
+        let changed = {
+            let data = Pin::get_mut(self.as_mut().rust_mut());
+            data.clear_running()
         };
         let count = self.count;
         if changed && count > 0 {
@@ -462,6 +490,35 @@ mod tests {
             !model.mark_all_running(),
             "a second pass changes nothing, so it emits nothing"
         );
+    }
+
+    #[test]
+    fn a_cancelled_batch_returns_the_running_rows_to_idle() {
+        let mut model = MirrorModelRust::with_mirrors(&mirrors());
+        assert!(model.mark_all_running());
+        assert!(model.clear_running());
+        assert!(
+            model.rows.iter().all(|row| row.state == ProbeState::Idle),
+            "no row is left running after a cancelled batch"
+        );
+        assert!(
+            !model.clear_running(),
+            "nothing is left running, so nothing changes"
+        );
+    }
+
+    #[test]
+    fn finishing_a_batch_keeps_the_results_it_already_has() {
+        let mut model = MirrorModelRust::with_mirrors(&mirrors());
+        assert!(model.assign(1, ProbeState::Ok { ms: 55 }));
+        assert!(model.assign(0, ProbeState::Running));
+        assert!(model.clear_running());
+        assert_eq!(
+            model.row_at(1).unwrap().state,
+            ProbeState::Ok { ms: 55 },
+            "a measured latency survives the cancellation"
+        );
+        assert_eq!(model.row_at(0).unwrap().state, ProbeState::Idle);
     }
 
     #[test]

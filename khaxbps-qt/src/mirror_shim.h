@@ -25,6 +25,10 @@ QObject *khaxbps_create_mirror_model(QObject *parent);
 // the view keeps its scroll position when a batch starts.
 void khaxbps_mirror_model_set_all_running(QObject *model);
 
+// Returns the rows a cancelled batch left `running` to `idle`, so a stopped
+// sweep does not leave spinners behind.
+void khaxbps_mirror_model_finish_running(QObject *model);
+
 // Writes one row's probe result and emits `dataChanged` for that row only.
 // `stateKey` is `idle`/`running`/`ok`/`fail`, `latencyMs` is only meaningful
 // for `ok`, and `errorKey` is a core probe key (`plainHttp`, `timeout`,
@@ -44,5 +48,11 @@ void khaxbps_probe_batch_end(std::size_t handle);
 // One `HEAD` request, blocked until the mirror answers or `timeoutMs` elapse.
 // Returns 0 when the mirror answered (any HTTP status counts, like `fetch`
 // resolving on a 404), 1 on timeout, 2 when nothing answered (DNS, TLS,
-// connection refused, ...). A handle of 0 reports 2 instead of crashing.
+// connection refused, ...) and 3 when the application announced shutdown and
+// the request was abandoned. A handle of 0 reports 2 instead of crashing.
 int khaxbps_probe_head(std::size_t handle, const QString &url, std::uint32_t timeoutMs);
+
+// True once the application is shutting down (`QCoreApplication::aboutToQuit`).
+// A batch polls this between mirrors and inside a request, so closing the window
+// stops the sweep instead of waiting out 34 mirrors at 6.5 s each.
+bool khaxbps_probe_shutdown_requested();

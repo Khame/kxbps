@@ -1,5 +1,7 @@
 #include "mirror_shim.h"
 
+#include <atomic>
+
 #include <QtCore/QCoreApplication>
 #include <QtCore/QEventLoop>
 #include <QtCore/QTimer>
@@ -22,6 +24,30 @@ struct Prober
     QNetworkAccessManager manager;
 };
 
+// Set by `QCoreApplication::aboutToQuit`. A batch is up to 34 sequential
+// requests, so without this a window closed mid-sweep would keep the worker (and
+// its manager) alive for minutes after the GUI thread has gone.
+std::atomic<bool> g_quitRequested{false};
+std::atomic<bool> g_quitHooked{false};
+
+// How often a blocked request looks at the shutdown flag.
+constexpr int POLL_INTERVAL_MS = 50;
+
+// Connects the quit signal once, on the thread that starts the first batch.
+// `QObject::connect` is thread-safe and the lambda runs on the GUI thread, which
+// is where `aboutToQuit` is emitted.
+void hook_shutdown()
+{
+    if (g_quitHooked.exchange(true)) {
+        return;
+    }
+    if (auto *app = QCoreApplication::instance()) {
+        QObject::connect(app, &QCoreApplication::aboutToQuit, app, []() {
+            g_quitRequested.store(true);
+        });
+    }
+}
+
 } // namespace
 
 QObject *khaxbps_create_mirror_model(QObject *parent)
@@ -32,6 +58,11 @@ QObject *khaxbps_create_mirror_model(QObject *parent)
 void khaxbps_mirror_model_set_all_running(QObject *model)
 {
     static_cast<MirrorModel *>(model)->setAllRunning();
+}
+
+void khaxbps_mirror_model_finish_running(QObject *model)
+{
+    static_cast<MirrorModel *>(model)->finishRunning();
 }
 
 void khaxbps_mirror_model_set_result(QObject *model,
@@ -45,7 +76,13 @@ void khaxbps_mirror_model_set_result(QObject *model,
 
 std::size_t khaxbps_probe_batch_begin()
 {
+    hook_shutdown();
     return reinterpret_cast<std::size_t>(new Prober());
+}
+
+bool khaxbps_probe_shutdown_requested()
+{
+    return g_quitRequested.load();
 }
 
 void khaxbps_probe_batch_end(std::size_t handle)
@@ -64,6 +101,10 @@ int khaxbps_probe_head(std::size_t handle, const QString &url, std::uint32_t tim
     auto *prober = reinterpret_cast<Prober *>(handle);
     if (!prober) {
         return 2;
+    }
+    if (g_quitRequested.load()) {
+        // Shutting down: do not open a socket at all.
+        return 3;
     }
 
     QNetworkRequest request{QUrl(url)};
@@ -87,9 +128,24 @@ int khaxbps_probe_head(std::size_t handle, const QString &url, std::uint32_t tim
     timer.setSingleShot(true);
     QObject::connect(reply, &QNetworkReply::finished, &loop, &QEventLoop::quit);
     QObject::connect(&timer, &QTimer::timeout, &loop, &QEventLoop::quit);
+    // Shutdown must not wait for the slowest mirror.
+    QTimer poll;
+    poll.setInterval(POLL_INTERVAL_MS);
+    QObject::connect(&poll, &QTimer::timeout, &loop, [&loop]() {
+        if (g_quitRequested.load()) {
+            loop.quit();
+        }
+    });
     timer.start(timeout);
+    poll.start();
     if (!reply->isFinished()) {
         loop.exec();
+    }
+
+    if (g_quitRequested.load()) {
+        reply->abort();
+        reply->deleteLater();
+        return 3;
     }
 
     int result = 2;
