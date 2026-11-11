@@ -21,6 +21,9 @@ Rectangle {
     property var plan
     property var job
     property string jobLabel
+    // False once the queue is used again: the last transaction's result must
+    // not outlive the state it describes.
+    property bool showResult: false
     property string currentMirror
 
     signal reviewRequested()
@@ -113,7 +116,7 @@ Rectangle {
             }
 
             QQC2.Label {
-                visible: strip.job !== null && strip.job.done
+                visible: strip.job !== null && strip.job.done && strip.showResult
                 text: strip.jobLabel
                 color: Kirigami.Theme.disabledTextColor
                 elide: Text.ElideRight

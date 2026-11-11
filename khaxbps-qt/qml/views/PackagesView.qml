@@ -41,9 +41,9 @@ Item {
     // ~123 px, enough for the longest version and license in the catalog.
     readonly property real paneWidth: Math.max(Kirigami.Units.gridUnit * 16, 288)
 
-    // The fixed columns plus their gaps need ~21; at 46 the name column still
-    // has room for the longest package name, so the pane appears at the 64
-    // gridUnit default and becomes the drawer at the 48 gridUnit minimum.
+    // The pane appears from 46 gridUnits of view width. The longest name needs
+    // ~47.5 gu with the pane open, so a window between 58.5 and 60 gu can elide
+    // it; the default (64) and minimum (48) sit outside that band.
     readonly property bool wide: width >= Kirigami.Units.gridUnit * 46
 
     // Derived from the catalog, not a hardcoded list: a category the catalog

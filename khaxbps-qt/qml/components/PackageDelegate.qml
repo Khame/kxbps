@@ -202,25 +202,26 @@ Kirigami.SwipeListItem {
                     text: i18nd("khaxbps", "Held")
                 }
 
-                // A second pill only appears when it fits; the row height is
-                // fixed, so an overflowing pill is hidden instead of growing it.
-                Pill {
-                    id: explicitPill
-                    visible: model.explicit
-                             && (!heldPill.visible
-                                 || heldPill.implicitWidth + Kirigami.Units.smallSpacing
-                                    + explicitPill.implicitWidth <= delegate.stateWidth)
-                    text: i18nd("khaxbps", "Explicit")
-                }
-
+                // The queue pill outranks the static Explicit label: it is the
+                // state the user just changed. A pill only appears when it
+                // fits; the row height is fixed, so the third one is hidden
+                // instead of growing the row.
                 Pill {
                     id: queuedPill
                     visible: delegate.queued
                              && (heldPill.visible ? heldPill.implicitWidth + Kirigami.Units.smallSpacing : 0)
-                                + (explicitPill.visible ? explicitPill.implicitWidth + Kirigami.Units.smallSpacing : 0)
                                 + queuedPill.implicitWidth <= delegate.stateWidth
                     text: delegate.queueActionLabel(model.queuedAction)
                     textColor: Kirigami.Theme.highlightColor
+                }
+
+                Pill {
+                    id: explicitPill
+                    visible: model.explicit
+                             && (heldPill.visible ? heldPill.implicitWidth + Kirigami.Units.smallSpacing : 0)
+                                + (queuedPill.visible ? queuedPill.implicitWidth + Kirigami.Units.smallSpacing : 0)
+                                + explicitPill.implicitWidth <= delegate.stateWidth
+                    text: i18nd("khaxbps", "Explicit")
                 }
             }
         }
@@ -232,14 +233,14 @@ Kirigami.SwipeListItem {
     // room. The solid background keeps the cells behind them from showing
     // through.
     Rectangle {
-        id: actionsOverlay
-
         anchors.right: parent.right
         anchors.rightMargin: delegate.rightPadding
         anchors.verticalCenter: parent.verticalCenter
         width: actionsRow.implicitWidth + Kirigami.Units.smallSpacing * 2
         height: delegate.height
-        visible: delegate.hovered || delegate.activeFocus || delegate.highlighted
+        // Hover and keyboard focus only: the selected row already has its
+        // details open, and its state pills must stay readable.
+        visible: delegate.hovered || delegate.activeFocus
         z: 2
         color: delegate.highlighted ? Kirigami.Theme.highlightColor : Kirigami.Theme.backgroundColor
 

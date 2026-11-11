@@ -37,8 +37,10 @@ Kirigami.ApplicationWindow {
     // Task 11: replace with the plan/job dialogs.
     property var plan: null
     // The finished job is kept until the next transaction starts, so its log
-    // stays readable after it ends.
+    // stays readable after it ends. Its result line leaves the strip as soon as
+    // the queue is used again.
     property var job: null
+    property bool showJobResult: false
 
     readonly property string jobLabel: {
         if (job === null) {
@@ -156,9 +158,10 @@ Kirigami.ApplicationWindow {
                 job = null
                 installedBackend.release(previous)
             }
+            showJobResult = false
             job = started
             if (job !== null) {
-                logDrawer.expanded = true
+                logDrawer.expand()
             }
             return
         }
@@ -179,12 +182,24 @@ Kirigami.ApplicationWindow {
         function onQueueCountChanged() {
             // A queue change invalidates the plan the strip was showing.
             root.closePlan()
+            if (installedBackend.queueCount > 0) {
+                root.showJobResult = false
+            }
         }
         // One revision per store mutation, including the hold toggle the
         // counters cannot see. The catalog snapshot carries installed and held
         // flags, so it has to be re-read.
         function onStateRevisionChanged() {
             root.refreshCatalogIndex()
+        }
+    }
+
+    Connections {
+        target: root.job
+        function onDoneChanged() {
+            if (root.job !== null && root.job.done) {
+                root.showJobResult = true
+            }
         }
     }
 
@@ -406,6 +421,7 @@ Kirigami.ApplicationWindow {
                     plan: root.plan
                     job: root.job
                     jobLabel: root.jobLabel
+                    showResult: root.showJobResult
                     currentMirror: mirrorBackend.currentMirror
                     onReviewRequested: root.reviewOrApply()
                     onCancelRequested: {

@@ -43,6 +43,23 @@ Item {
                                        : collapsedHeight
     height: implicitHeight
 
+    // Dragging to the minimum leaves `expandedHeight` at the header height.
+    // Expanding again must restore a readable body, not just flip the flag.
+    function expand() {
+        if (expandedHeight <= collapsedHeight) {
+            expandedHeight = Kirigami.Units.gridUnit * 10
+        }
+        expanded = true
+    }
+
+    function toggleExpanded() {
+        if (expanded) {
+            expanded = false
+        } else {
+            expand()
+        }
+    }
+
     QQC2.ItemDelegate {
         id: header
         anchors.left: parent.left
@@ -57,7 +74,7 @@ Item {
         onClicked: toggleTimer.restart()
         onDoubleClicked: {
             toggleTimer.stop()
-            drawer.expanded = !drawer.expanded
+            drawer.toggleExpanded()
         }
 
         contentItem: RowLayout {
@@ -88,7 +105,7 @@ Item {
         // The platform's own double-click window, so a single click does not
         // fire a toggle in the middle of a double click.
         interval: Qt.application.styleHints.mouseDoubleClickInterval
-        onTriggered: drawer.expanded = !drawer.expanded
+        onTriggered: drawer.toggleExpanded()
     }
 
     // The resize handle on the top edge: dragging up shows more log, dragging
