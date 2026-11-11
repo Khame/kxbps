@@ -36,9 +36,10 @@ Item {
     readonly property real sizeWidth: Kirigami.Units.gridUnit * 4.5
     readonly property real stateWidth: Kirigami.Units.gridUnit * 7
 
-    // The pane is 14 gridUnits, but never narrower than 252 px (a fact grid
-    // below that starts eliding its labels).
-    readonly property real paneWidth: Math.max(Kirigami.Units.gridUnit * 14, 252)
+    // At 14 gridUnits the fact label column (141 px) leaves only ~87 px for
+    // values, which cuts `20250812_1`. 16 gridUnits give the value column
+    // ~123 px, enough for the longest version and license in the catalog.
+    readonly property real paneWidth: Math.max(Kirigami.Units.gridUnit * 16, 288)
 
     // The fixed columns plus their gaps need ~21; at 46 the name column still
     // has room for the longest package name, so the pane appears at the 64

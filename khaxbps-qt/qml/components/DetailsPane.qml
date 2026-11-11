@@ -142,6 +142,7 @@ Flickable {
         // pane is what the user reads before deciding.
         QQC2.Label {
             Layout.fillWidth: true
+            Layout.minimumWidth: 0
             text: pane.info.name !== undefined ? pane.info.name : ""
             font.bold: true
             elide: Text.ElideRight
@@ -149,6 +150,7 @@ Flickable {
 
         QQC2.Label {
             Layout.fillWidth: true
+            Layout.minimumWidth: 0
             visible: text.length > 0
             text: pane.info.short !== undefined ? pane.info.short : ""
             wrapMode: Text.WordWrap
@@ -157,6 +159,7 @@ Flickable {
 
         RowLayout {
             Layout.fillWidth: true
+            Layout.minimumWidth: 0
             Layout.topMargin: Kirigami.Units.smallSpacing
 
             QQC2.Button {
@@ -182,17 +185,20 @@ Flickable {
 
             Item {
                 Layout.fillWidth: true
+                Layout.minimumWidth: 0
             }
         }
 
         Rectangle {
             Layout.fillWidth: true
+            Layout.minimumWidth: 0
             height: 1
             color: Kirigami.Theme.disabledTextColor
         }
 
         GridLayout {
             Layout.fillWidth: true
+            Layout.minimumWidth: 0
             columns: 2
             columnSpacing: Kirigami.Units.largeSpacing
             rowSpacing: Kirigami.Units.smallSpacing
@@ -203,6 +209,7 @@ Flickable {
             }
             QQC2.Label {
                 Layout.fillWidth: true
+                Layout.minimumWidth: 0
                 text: pane.installed ? pane.info.installedVersion : i18nd("khaxbps", "Not installed")
                 font.family: "monospace"
                 elide: Text.ElideRight
@@ -214,6 +221,7 @@ Flickable {
             }
             QQC2.Label {
                 Layout.fillWidth: true
+                Layout.minimumWidth: 0
                 text: pane.info.version !== undefined ? pane.info.version : ""
                 font.family: "monospace"
                 elide: Text.ElideRight
@@ -225,6 +233,7 @@ Flickable {
             }
             QQC2.Label {
                 Layout.fillWidth: true
+                Layout.minimumWidth: 0
                 text: pane.info.size !== undefined ? pane.info.size : ""
                 font.family: "monospace"
             }
@@ -235,6 +244,7 @@ Flickable {
             }
             QQC2.Label {
                 Layout.fillWidth: true
+                Layout.minimumWidth: 0
                 text: pane.info.download !== undefined ? pane.info.download : ""
                 font.family: "monospace"
             }
@@ -245,6 +255,7 @@ Flickable {
             }
             QQC2.Label {
                 Layout.fillWidth: true
+                Layout.minimumWidth: 0
                 text: pane.info.license !== undefined ? pane.info.license : ""
                 elide: Text.ElideRight
             }
@@ -255,6 +266,7 @@ Flickable {
             }
             QQC2.Label {
                 Layout.fillWidth: true
+                Layout.minimumWidth: 0
                 // Raw wire token, not UI copy.
                 text: pane.info.repo !== undefined ? pane.info.repo : ""
                 font.family: "monospace"
@@ -266,6 +278,7 @@ Flickable {
             }
             QQC2.Label {
                 Layout.fillWidth: true
+                Layout.minimumWidth: 0
                 // A package that is not installed is neither explicit nor a
                 // dependency; `explicit` is simply false for it.
                 text: !pane.installed ? i18nd("khaxbps", "Not installed")
@@ -281,18 +294,21 @@ Flickable {
             }
             QQC2.Label {
                 Layout.fillWidth: true
+                Layout.minimumWidth: 0
                 text: pane.info.held ? i18nd("khaxbps", "Held") : i18nd("khaxbps", "Not held")
             }
         }
 
         QQC2.Label {
             Layout.fillWidth: true
+            Layout.minimumWidth: 0
             Layout.topMargin: Kirigami.Units.smallSpacing
             text: i18nd("khaxbps", "Depends")
             font.bold: true
         }
         QQC2.Label {
             Layout.fillWidth: true
+            Layout.minimumWidth: 0
             text: pane.info.depends !== undefined && pane.info.depends.length > 0
                   ? pane.info.depends
                   : i18nd("khaxbps", "No dependencies")
@@ -308,12 +324,14 @@ Flickable {
 
         QQC2.Label {
             Layout.fillWidth: true
+            Layout.minimumWidth: 0
             Layout.topMargin: Kirigami.Units.smallSpacing
             text: i18nd("khaxbps", "Required by")
             font.bold: true
         }
         QQC2.Label {
             Layout.fillWidth: true
+            Layout.minimumWidth: 0
             text: pane.dependents.length > 0 ? pane.dependents.join(", ") : i18nd("khaxbps", "Nothing depends on it")
             elide: Text.ElideRight
 
@@ -325,18 +343,32 @@ Flickable {
             }
         }
 
-        Kirigami.LinkButton {
+        // A Label rather than `Kirigami.LinkButton`: the longest homepage in
+        // the catalog is 75 characters, and a button clips its text instead of
+        // eliding it.
+        QQC2.Label {
             Layout.fillWidth: true
+            Layout.minimumWidth: 0
             Layout.topMargin: Kirigami.Units.smallSpacing
             visible: pane.info.homepage !== undefined && pane.info.homepage.length > 0
-            text: pane.info.homepage !== undefined ? pane.info.homepage : ""
-            onClicked: Qt.openUrlExternally(pane.info.homepage)
+            text: pane.info.homepage !== undefined
+                  ? "<a href=\"" + pane.info.homepage + "\">" + pane.info.homepage + "</a>"
+                  : ""
+            textFormat: Text.StyledText
+            elide: Text.ElideRight
+            color: Kirigami.Theme.linkColor
+            onLinkActivated: (link) => Qt.openUrlExternally(link)
+
+            HoverHandler {
+                cursorShape: Qt.PointingHandCursor
+            }
         }
 
         // The removal that the plan refuses: the names come from the core, not
         // from a guess about the dependency graph.
         QQC2.Label {
             Layout.fillWidth: true
+            Layout.minimumWidth: 0
             Layout.topMargin: Kirigami.Units.smallSpacing
             visible: pane.blockedNames.length > 0
             text: i18nd("khaxbps", "Cannot be removed: %1 depends on it.", pane.blockedNames.join(", "))
