@@ -118,7 +118,9 @@ Rectangle {
             QQC2.Label {
                 visible: strip.job !== null && strip.job.done && strip.showResult
                 text: strip.jobLabel
-                color: Kirigami.Theme.disabledTextColor
+                // A failed transaction must not read like a finished one.
+                color: strip.job !== null && strip.job.failed ? Kirigami.Theme.negativeTextColor
+                                                              : Kirigami.Theme.disabledTextColor
                 elide: Text.ElideRight
             }
 

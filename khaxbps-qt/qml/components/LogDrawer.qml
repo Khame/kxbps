@@ -36,6 +36,9 @@ Item {
         if (!job.done) {
             return i18nd("khaxbps", "running")
         }
+        if (job.failed) {
+            return i18nd("khaxbps", "failed")
+        }
         return job.cancelled ? i18nd("khaxbps", "cancelled") : i18nd("khaxbps", "finished")
     }
 

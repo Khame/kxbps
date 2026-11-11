@@ -61,6 +61,8 @@ Kirigami.ApplicationWindow {
             return i18nd("khaxbps", "Finished.")
         case "jobCancelled":
             return i18nd("khaxbps", "Cancelled.")
+        case "jobFailed":
+            return i18nd("khaxbps", "Transaction failed")
         }
         return ""
     }
