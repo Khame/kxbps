@@ -4,13 +4,21 @@
 //! [`crate::installed_backend`] is the only owner of the store, so this backend
 //! holds no persistence logic of its own. `set_owner` reads the block once
 //! through the installed backend, and every write goes back through the same
-//! two forwarders, which save the store once per change. There is no KConfig
-//! here on purpose (Global Constraints): the state is three fields and the
-//! store already replaces its files atomically.
+//! shim functions — one read, two writes — which save the store once per
+//! change. There is no KConfig here on purpose (Global Constraints): the state
+//! is three fields and the store already replaces its files atomically.
 //!
-//! QML only ever sees the three properties. A write that matches the current
-//! value is dropped before it reaches the store, so binding a checkbox to a
-//! property cannot cause a save — or a notify — for every binding evaluation.
+//! **Attach order.** `owner` must be assigned before the first preference
+//! write. A write on a backend without an owner updates the cache and emits
+//! `changed`, but there is no store to persist to; the next `set_owner` adopts
+//! the store block and silently overwrites the value. In QML keep
+//! `PrefsBackend { owner: installedBackend }` and do not set a preference in the
+//! same object literal, or the literal's value is reverted.
+//!
+//! QML only ever sees the three properties. A write that matches the cached
+//! value is confirmed against the store before it is dropped: `reset()` and a
+//! finished transaction write `prefs.json` directly, so the cache can be stale
+//! while the store has moved.
 
 use std::pin::Pin;
 
@@ -71,6 +79,14 @@ pub mod qobject {
 
         fn set_dismissed_version(self: Pin<&mut PrefsBackend>, value: QString);
     }
+
+    impl cxx_qt::Constructor<()> for PrefsBackend {}
+}
+
+impl cxx_qt::Initialize for qobject::PrefsBackend {
+    /// Nothing to initialise at construction: the store owner is attached by
+    /// QML afterwards (`owner: installedBackend`).
+    fn initialize(self: Pin<&mut Self>) {}
 }
 
 /// The keys the preferences cross the store boundary with.
@@ -87,6 +103,34 @@ pub mod keys {
     pub const DISMISSED: &str = "dismissed";
 }
 
+/// One of the three persisted preferences, i.e. one `prefs.json` key.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Field {
+    NotifyOnStart,
+    Desktop,
+    Dismissed,
+}
+
+impl Field {
+    /// The key the field is persisted under.
+    pub fn key(self) -> &'static str {
+        match self {
+            Self::NotifyOnStart => keys::NOTIFY_ON_START,
+            Self::Desktop => keys::DESKTOP,
+            Self::Dismissed => keys::DISMISSED,
+        }
+    }
+
+    /// The write that would reproduce the value `prefs` holds for this field.
+    fn current(self, prefs: &Prefs) -> PrefWrite {
+        match self {
+            Self::NotifyOnStart => PrefWrite::NotifyOnStart(prefs.notify_on_start),
+            Self::Desktop => PrefWrite::Desktop(prefs.desktop),
+            Self::Dismissed => PrefWrite::Dismissed(prefs.dismissed.clone()),
+        }
+    }
+}
+
 /// One preference write, decoded from the key QML sent.
 ///
 /// QML reaches the store with a key and a value rather than a whole [`Prefs`]
@@ -100,22 +144,23 @@ pub enum PrefWrite {
 }
 
 impl PrefWrite {
+    /// The field this write targets.
+    pub fn field(&self) -> Field {
+        match self {
+            Self::NotifyOnStart(_) => Field::NotifyOnStart,
+            Self::Desktop(_) => Field::Desktop,
+            Self::Dismissed(_) => Field::Dismissed,
+        }
+    }
+
     /// The store key of this write.
     pub fn key(&self) -> &'static str {
-        match self {
-            Self::NotifyOnStart(_) => keys::NOTIFY_ON_START,
-            Self::Desktop(_) => keys::DESKTOP,
-            Self::Dismissed(_) => keys::DISMISSED,
-        }
+        self.field().key()
     }
 
     /// Whether `prefs` already holds this value.
     pub fn is_noop(&self, prefs: &Prefs) -> bool {
-        match self {
-            Self::NotifyOnStart(value) => prefs.notify_on_start == *value,
-            Self::Desktop(value) => prefs.desktop == *value,
-            Self::Dismissed(value) => prefs.dismissed == *value,
-        }
+        self.field().current(prefs) == *self
     }
 
     /// Applies the write to a plain block; used by the backend and the tests.
@@ -153,6 +198,35 @@ impl PrefWrite {
     }
 }
 
+/// What one preference write should do, after comparing cache and store.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Decision {
+    /// The store does not hold the value: apply it and save.
+    Apply,
+    /// The store already holds the value but the cache does not match the
+    /// store: adopt the store block and notify, without saving.
+    Adopt,
+    /// The cache and the store agree: nothing to do.
+    Skip,
+}
+
+/// Decides how a write relates to the cache and the store.
+///
+/// The store is authoritative. A value it does not hold must be written even
+/// when the cache already shows it — `reset()` and a finished transaction write
+/// the store directly, so the cache can be stale. When the store already holds
+/// the value the write is not repeated; the cache is only corrected when it
+/// disagrees with the store (the `Adopt` case), which never saves.
+pub fn decide(write: &PrefWrite, cache: &Prefs, store: &Prefs) -> Decision {
+    if !write.is_noop(store) {
+        Decision::Apply
+    } else if cache != store {
+        Decision::Adopt
+    } else {
+        Decision::Skip
+    }
+}
+
 /// Decodes a bool write, `None` for a key that is not a bool preference.
 pub fn bool_write(key: &str, value: bool) -> Option<PrefWrite> {
     match key {
@@ -177,6 +251,20 @@ pub fn string_write(key: &str, value: &str) -> Option<PrefWrite> {
 /// the values it already shows rather than resetting them to a guess.
 pub fn decode_prefs(json: &str) -> Option<Prefs> {
     serde_json::from_str(json).ok()
+}
+
+/// Applies a write to the store when it changes something.
+///
+/// Returns whether the store changed, i.e. whether the caller has to save. A
+/// value the store already holds is left alone, so a no-op never writes a file;
+/// unknown keys never reach here ([`bool_write`]/[`string_write`] return `None`
+/// and the caller returns before touching the store).
+pub fn apply_to_store_if_changed(write: &PrefWrite, store: &mut Store) -> bool {
+    if write.is_noop(&store.prefs) {
+        return false;
+    }
+    write.apply_to_store(store);
+    true
 }
 
 /// Rust side of [`qobject::PrefsBackend`].
@@ -212,6 +300,17 @@ impl PrefsBackendRust {
         }
     }
 
+    /// Adopts a block read from the store, returning which fields moved.
+    fn adopt(&mut self, prefs: Prefs) -> (bool, bool, bool) {
+        let changed = (
+            self.notify_on_start != prefs.notify_on_start,
+            self.desktop_notifications != prefs.desktop,
+            self.dismissed_version.to_string() != prefs.dismissed,
+        );
+        self.set_from_prefs(prefs);
+        changed
+    }
+
     /// Adopts a block read from the store.
     fn set_from_prefs(&mut self, prefs: Prefs) {
         self.notify_on_start = prefs.notify_on_start;
@@ -225,6 +324,8 @@ impl qobject::PrefsBackend {
     ///
     /// Detaching (a null owner) keeps the last values: the page that owns this
     /// backend may be rebuilt, and a blank checkbox in between would be a lie.
+    /// Attaching always overwrites the cache, so a preference written before
+    /// this call is lost (see the module docs on attach order).
     fn set_owner(mut self: Pin<&mut Self>, value: QObjectMutPtr) {
         let loaded = if value.as_ptr().is_null() {
             None
@@ -235,28 +336,12 @@ impl qobject::PrefsBackend {
             let data = Pin::get_mut(self.as_mut().rust_mut());
             data.owner = value;
             match loaded {
-                Some(prefs) => {
-                    let changed = (
-                        data.notify_on_start != prefs.notify_on_start,
-                        data.desktop_notifications != prefs.desktop,
-                        data.dismissed_version.to_string() != prefs.dismissed,
-                    );
-                    data.set_from_prefs(prefs);
-                    changed
-                }
+                Some(prefs) => data.adopt(prefs),
                 None => (false, false, false),
             }
         };
         self.as_mut().owner_changed();
-        if changed.0 {
-            self.as_mut().notify_on_start_changed();
-        }
-        if changed.1 {
-            self.as_mut().desktop_notifications_changed();
-        }
-        if changed.2 {
-            self.as_mut().dismissed_version_changed();
-        }
+        self.as_mut().notify_changed(changed);
     }
 
     /// Whether updates are announced when the window opens.
@@ -276,12 +361,40 @@ impl qobject::PrefsBackend {
 
     /// Persists one write, then notifies the property that owns it.
     ///
-    /// A value the backend already holds is dropped here, before the store
-    /// sees it, so re-evaluating a binding cannot write the same file again.
-    fn write(mut self: Pin<&mut Self>, write: PrefWrite) {
-        if write.is_noop(&self.to_prefs()) {
+    /// The cache is checked first: when it already shows a change, the write
+    /// and its save happen without a JSON round-trip. When the cache calls the
+    /// write a no-op the store is consulted, because the cache can be stale
+    /// (`reset()` and a finished transaction write the store directly); a store
+    /// that moved turns the write real again, and a store that agrees is left
+    /// untouched. Without an owner there is nothing to confirm against: the
+    /// write only updates the cache (attach order, module docs).
+    fn write(self: Pin<&mut Self>, write: PrefWrite) {
+        let cache = self.to_prefs();
+        if !write.is_noop(&cache) {
+            self.apply_and_save(write);
             return;
         }
+        let Some(store) = self.store_prefs() else {
+            return;
+        };
+        match decide(&write, &cache, &store) {
+            Decision::Apply => self.apply_and_save(write),
+            Decision::Adopt => self.adopt_only(store),
+            Decision::Skip => {}
+        }
+    }
+
+    /// The block the store currently holds; `None` when no owner is attached or
+    /// the owner cannot answer with a complete block.
+    fn store_prefs(&self) -> Option<Prefs> {
+        if self.owner.as_ptr().is_null() {
+            return None;
+        }
+        decode_prefs(&qobject::installed_prefs(self.owner).to_string())
+    }
+
+    /// Writes the value into the cache, forwards it to the store and notifies.
+    fn apply_and_save(mut self: Pin<&mut Self>, write: PrefWrite) {
         {
             let data = Pin::get_mut(self.as_mut().rust_mut());
             let mut prefs = data.to_prefs();
@@ -289,10 +402,32 @@ impl qobject::PrefsBackend {
             data.set_from_prefs(prefs);
         }
         write.forward(self.owner);
-        match write {
-            PrefWrite::NotifyOnStart(_) => self.as_mut().notify_on_start_changed(),
-            PrefWrite::Desktop(_) => self.as_mut().desktop_notifications_changed(),
-            PrefWrite::Dismissed(_) => self.as_mut().dismissed_version_changed(),
+        match write.field() {
+            Field::NotifyOnStart => self.as_mut().notify_on_start_changed(),
+            Field::Desktop => self.as_mut().desktop_notifications_changed(),
+            Field::Dismissed => self.as_mut().dismissed_version_changed(),
+        }
+    }
+
+    /// Takes the store block over the cache without writing anything.
+    fn adopt_only(mut self: Pin<&mut Self>, store: Prefs) {
+        let changed = {
+            let data = Pin::get_mut(self.as_mut().rust_mut());
+            data.adopt(store)
+        };
+        self.as_mut().notify_changed(changed);
+    }
+
+    /// Emits the property signals for the fields that moved.
+    fn notify_changed(mut self: Pin<&mut Self>, changed: (bool, bool, bool)) {
+        if changed.0 {
+            self.as_mut().notify_on_start_changed();
+        }
+        if changed.1 {
+            self.as_mut().desktop_notifications_changed();
+        }
+        if changed.2 {
+            self.as_mut().dismissed_version_changed();
         }
     }
 }
@@ -407,6 +542,8 @@ mod tests {
 
     #[test]
     fn an_unknown_key_is_ignored() {
+        // The caller returns before touching the store, so an unknown key
+        // cannot cause a save.
         assert_eq!(bool_write("nope", true), None);
         assert_eq!(string_write("nope", "x"), None);
         // The two kinds are not interchangeable.
@@ -442,8 +579,88 @@ mod tests {
         );
     }
 
+    /// A preference block, for the decision tests.
+    fn block(notify_on_start: bool, desktop: bool, dismissed: &str) -> Prefs {
+        Prefs {
+            notify_on_start,
+            desktop,
+            dismissed: dismissed.to_string(),
+        }
+    }
+
     #[test]
-    fn a_write_survives_a_store_round_trip() {
+    fn every_property_maps_to_its_own_store_key() {
+        // The key a property writes must decode back to the same field, so a
+        // copy-paste between setters cannot silently persist to a neighbour.
+        let writes = [
+            PrefWrite::NotifyOnStart(false),
+            PrefWrite::Desktop(true),
+            PrefWrite::Dismissed("sig".to_string()),
+        ];
+        assert_eq!(writes[0].key(), "notifyOnStart");
+        assert_eq!(writes[1].key(), "desktop");
+        assert_eq!(writes[2].key(), "dismissed");
+
+        assert_eq!(writes[0].field(), Field::NotifyOnStart);
+        assert_eq!(writes[1].field(), Field::Desktop);
+        assert_eq!(writes[2].field(), Field::Dismissed);
+
+        assert_eq!(bool_write(writes[0].key(), false), Some(writes[0].clone()));
+        assert_eq!(bool_write(writes[1].key(), true), Some(writes[1].clone()));
+        assert_eq!(
+            string_write(writes[2].key(), "sig"),
+            Some(writes[2].clone())
+        );
+    }
+
+    #[test]
+    fn a_store_that_moved_forces_the_write_through() {
+        // Reset emptied the store while the cache still shows the dismissed
+        // signature: the cache calls the write a no-op, the store must still
+        // receive it or the banner returns after a restart.
+        let cache = block(true, false, "sig-A");
+        let store = block(true, false, "");
+        let write = string_write(keys::DISMISSED, "sig-A").expect("known key");
+        assert!(write.is_noop(&cache), "the cache calls it a no-op");
+        assert_eq!(decide(&write, &cache, &store), Decision::Apply);
+    }
+
+    #[test]
+    fn a_store_that_already_holds_the_value_is_adopted_without_a_save() {
+        // Another writer moved the store to the value QML is about to write,
+        // and the cache is stale on another field: adopt, do not save.
+        let cache = block(true, false, "");
+        let store = block(true, false, "sig-A");
+        let write = string_write(keys::DISMISSED, "sig-A").expect("known key");
+        assert_eq!(decide(&write, &cache, &store), Decision::Adopt);
+    }
+
+    #[test]
+    fn a_write_both_sides_agree_on_is_skipped() {
+        let prefs = block(true, false, "sig-A");
+        let write = string_write(keys::DISMISSED, "sig-A").expect("known key");
+        assert_eq!(decide(&write, &prefs, &prefs), Decision::Skip);
+    }
+
+    #[test]
+    fn a_store_that_already_holds_the_value_is_not_changed() {
+        // This is the rule `InstalledBackend::setPrefBool|String` applies: the
+        // `false` answers mean "do not save".
+        let mut store = Store::fresh(&Catalog::default());
+        let same = bool_write(keys::NOTIFY_ON_START, true).expect("known key");
+        assert!(!apply_to_store_if_changed(&same, &mut store), "no save");
+
+        let change = bool_write(keys::NOTIFY_ON_START, false).expect("known key");
+        assert!(apply_to_store_if_changed(&change, &mut store), "save");
+        assert!(!store.prefs.notify_on_start);
+        assert!(
+            !apply_to_store_if_changed(&change, &mut store),
+            "a repeat is a no-op"
+        );
+    }
+
+    #[test]
+    fn three_writes_survive_a_store_round_trip() {
         let dir = TempDir::new("roundtrip");
         let catalog = Catalog::default();
         let mut store = Store::fresh(&catalog);

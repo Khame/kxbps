@@ -426,11 +426,7 @@ impl qobject::InstalledBackend {
         };
         let changed = {
             let data = Pin::get_mut(self.as_mut().rust_mut());
-            let changed = !write.is_noop(&data.store.prefs);
-            if changed {
-                write.apply_to_store(&mut data.store);
-            }
-            changed
+            crate::prefs_backend::apply_to_store_if_changed(&write, &mut data.store)
         };
         if changed {
             save_store(self.as_mut());
@@ -450,11 +446,7 @@ impl qobject::InstalledBackend {
         };
         let changed = {
             let data = Pin::get_mut(self.as_mut().rust_mut());
-            let changed = !write.is_noop(&data.store.prefs);
-            if changed {
-                write.apply_to_store(&mut data.store);
-            }
-            changed
+            crate::prefs_backend::apply_to_store_if_changed(&write, &mut data.store)
         };
         if changed {
             save_store(self.as_mut());
