@@ -42,3 +42,15 @@ QObject *khaxbps_start_job(QObject *owner, const QString &payloadJson);
 // Called on the GUI thread when a job finishes: applies the plan to the store,
 // saves it and refreshes the models.
 void khaxbps_installed_apply_plan(QObject *owner, const QString &itemsJson);
+
+// Pushes the installed/queue snapshot into the query façade, so `search()` and
+// `get()` answer `installedVersion`/`isUpdate` from the same state as the model.
+void khaxbps_catalog_backend_set_state(QObject *backend,
+                                       const QString &installedJson,
+                                       const QString &queueJson);
+
+// Schedules `object` for deletion on the next event-loop pass; null-safe.
+// The backend keeps parent ownership of every plan and job it creates, but a
+// QML-referenced child is never freed by JavaScript, so a closed dialog must
+// call `InstalledBackend::release` or the object outlives the dialog.
+void khaxbps_release_object(QObject *object);

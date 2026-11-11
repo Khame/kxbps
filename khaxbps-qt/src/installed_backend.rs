@@ -69,6 +69,16 @@ pub mod qobject {
 
         #[cxx_name = "khaxbps_object_string_property"]
         fn object_string_property(object: QObjectMutPtr, name: &QString) -> QString;
+
+        #[cxx_name = "khaxbps_catalog_backend_set_state"]
+        fn catalog_backend_set_state(
+            backend: QObjectMutPtr,
+            installed_json: &QString,
+            queue_json: &QString,
+        );
+
+        #[cxx_name = "khaxbps_release_object"]
+        fn release_object(object: QObjectMutPtr);
     }
 
     #[auto_cxx_name]
@@ -77,6 +87,7 @@ pub mod qobject {
         #[qml_element]
         #[qproperty(QObjectMutPtr, packages, READ, CONSTANT)]
         #[qproperty(QObjectMutPtr, queue_model, READ, CONSTANT)]
+        #[qproperty(QObjectMutPtr, query_backend, READ, WRITE = set_query_backend, NOTIFY)]
         #[qproperty(i32, installed_count, READ, NOTIFY)]
         #[qproperty(i32, queue_count, READ, NOTIFY)]
         #[qproperty(i32, updates_count, READ, NOTIFY)]
@@ -124,6 +135,11 @@ pub mod qobject {
         #[qinvokable]
         fn reset(self: Pin<&mut InstalledBackend>);
 
+        #[qinvokable]
+        fn release(self: &InstalledBackend, object: QObjectMutPtr);
+
+        fn set_query_backend(self: Pin<&mut InstalledBackend>, value: QObjectMutPtr);
+
         // Called by `khaxbps_installed_apply_plan` on the GUI thread when a job
         // finishes; not invokable so QML cannot bypass the job.
         fn apply_plan_items(self: Pin<&mut InstalledBackend>, items_json: &QString);
@@ -139,6 +155,9 @@ pub struct InstalledBackendRust {
     /// Child model created by [`cxx_qt::Initialize::initialize`]; Qt owns it.
     packages: QObjectMutPtr,
     queue_model: QObjectMutPtr,
+    /// The query façade (a sibling in QML), pushed the same snapshot on every
+    /// refresh; null until QML wires it.
+    query_backend: QObjectMutPtr,
     installed_count: i32,
     queue_count: i32,
     updates_count: i32,
@@ -154,6 +173,7 @@ impl Default for InstalledBackendRust {
             store: Store::fresh(&Catalog::default()),
             packages: unsafe { QObjectMutPtr::from_raw(std::ptr::null_mut()) },
             queue_model: unsafe { QObjectMutPtr::from_raw(std::ptr::null_mut()) },
+            query_backend: unsafe { QObjectMutPtr::from_raw(std::ptr::null_mut()) },
             installed_count: 0,
             queue_count: 0,
             updates_count: 0,
@@ -329,6 +349,40 @@ impl qobject::InstalledBackend {
         }
         save_store(self.as_mut());
         refresh(self.as_mut());
+    }
+
+    /// Schedules a plan or job object for deletion.
+    ///
+    /// Every `open*` and `applyPlan` returns a child of this backend. A
+    /// C++-parented object gets no JavaScript ownership, so QML holding it in a
+    /// property is not enough to free it: the dialog must call this when it
+    /// closes, after dropping its own reference.
+    fn release(&self, object: QObjectMutPtr) {
+        // Only the throwaway plan/job children may go; releasing one of the
+        // long-lived models would take the app down with it.
+        let target = object.as_ptr();
+        if target.is_null()
+            || target == self.packages.as_ptr()
+            || target == self.queue_model.as_ptr()
+            || target == self.query_backend.as_ptr()
+        {
+            return;
+        }
+        qobject::release_object(object);
+    }
+
+    /// Wires the query façade and pushes the current snapshot into it.
+    fn set_query_backend(mut self: Pin<&mut Self>, value: QObjectMutPtr) {
+        let (installed_json, queue_json) = {
+            let data = &*self;
+            (json_of(&data.store.installed), json_of(&data.store.queue))
+        };
+        {
+            let data = Pin::get_mut(self.as_mut().rust_mut());
+            data.query_backend = value;
+        }
+        push_query_state(value, &installed_json, &queue_json);
+        self.as_mut().query_backend_changed();
     }
 
     fn apply_plan_items(mut self: Pin<&mut Self>, items_json: &cxx_qt_lib::QString) {
@@ -512,6 +566,13 @@ pub fn held_in_queue(
         .collect()
 }
 
+/// Pushes a snapshot into the query façade; a missing backend is not an error.
+fn push_query_state(query: QObjectMutPtr, installed_json: &QString, queue_json: &QString) {
+    if !query.as_ptr().is_null() {
+        qobject::catalog_backend_set_state(query, installed_json, queue_json);
+    }
+}
+
 /// Applies a finished plan and refreshes the model and the counters.
 fn refresh(mut self_: Pin<&mut qobject::InstalledBackend>) {
     let (
@@ -522,6 +583,7 @@ fn refresh(mut self_: Pin<&mut qobject::InstalledBackend>) {
         updates_count,
         packages,
         queue_model,
+        query,
     ) = {
         let data = &*self_;
         let repos = repos_from_installed(&data.store.installed);
@@ -534,6 +596,7 @@ fn refresh(mut self_: Pin<&mut qobject::InstalledBackend>) {
                 .unwrap_or(i32::MAX),
             data.packages,
             data.queue_model,
+            data.query_backend,
         )
     };
 
@@ -543,6 +606,7 @@ fn refresh(mut self_: Pin<&mut qobject::InstalledBackend>) {
     if !queue_model.as_ptr().is_null() {
         qobject::queue_model_set_state(queue_model, &queue_json);
     }
+    push_query_state(query, &installed_json, &queue_json);
 
     let (installed_changed, queue_changed, updates_changed) = {
         let data = Pin::get_mut(self_.as_mut().rust_mut());

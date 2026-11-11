@@ -182,6 +182,55 @@ pub struct RowView<'a> {
     pub update_to: Option<&'a str>,
 }
 
+/// Updates and orphans derived from one installed snapshot.
+///
+/// The package model and the query façade both answer `isUpdate`,
+/// `updateVersion` and the orphan predicate from this value, so the two views
+/// cannot disagree. `updates` comes from the core, which keeps the hold,
+/// repository and security rules in one place; the repository flags are derived
+/// from the installed map exactly like the web app does (`reposFromInstalled`).
+pub(crate) struct InstalledState {
+    /// name -> catalog version, for packages that have an update.
+    pub(crate) update_to: HashMap<String, String>,
+    /// Installed, non-explicit packages nothing depends on.
+    pub(crate) orphans: HashSet<String>,
+}
+
+impl InstalledState {
+    pub(crate) fn new(catalog: &Catalog, installed: &InstalledMap) -> Self {
+        let repos = repos_from_installed(installed);
+        let update_to = catalog
+            .updates(installed, &repos)
+            .into_iter()
+            .map(|update| (update.name, update.to))
+            .collect();
+        let orphans = installed
+            .iter()
+            .filter(|(name, inst)| {
+                !inst.explicit
+                    && !catalog
+                        .revdeps(name)
+                        .iter()
+                        .any(|dependent| installed.contains_key(&dependent.name))
+            })
+            .map(|(name, _)| name.clone())
+            .collect();
+        Self { update_to, orphans }
+    }
+
+    pub(crate) fn is_update(&self, name: &str) -> bool {
+        self.update_to.contains_key(name)
+    }
+
+    pub(crate) fn update_to(&self, name: &str) -> Option<&str> {
+        self.update_to.get(name).map(String::as_str)
+    }
+
+    pub(crate) fn is_orphan(&self, name: &str) -> bool {
+        self.orphans.contains(name)
+    }
+}
+
 /// Value of `role` for one row; an invalid `QVariant` for unknown roles.
 pub fn role_value(role: i32, row: &RowView<'_>) -> QVariant {
     let pkg = row.pkg;
@@ -229,9 +278,8 @@ pub struct PackageModelRust {
     rows: Vec<u32>,
     installed: InstalledMap,
     queue: HashMap<String, QueueAction>,
-    /// name -> catalog version, for packages that have an update.
-    update_to: HashMap<String, String>,
-    orphans: HashSet<String>,
+    /// Updates and orphans derived from `installed`; shared with the query view.
+    state: InstalledState,
     filter: QString,
     search: QString,
     category: QString,
@@ -257,14 +305,14 @@ impl PackageModelRust {
                 .name
                 .cmp(&catalog.packages()[*right as usize].name)
         });
+        let state = InstalledState::new(&catalog, &installed);
         let mut model = Self {
             catalog,
             order,
             rows: Vec::new(),
+            state,
             installed,
             queue: HashMap::new(),
-            update_to: HashMap::new(),
-            orphans: HashSet::new(),
             filter: QString::from("all"),
             search: QString::from(""),
             category: QString::from("all"),
@@ -286,36 +334,16 @@ impl PackageModelRust {
             pkg,
             installed: self.installed.get(&pkg.name),
             queued: self.queue.get(&pkg.name).copied(),
-            update_to: self.update_to.get(&pkg.name).map(String::as_str),
+            update_to: self.state.update_to(&pkg.name),
         }
     }
 
     /// Recomputes the state derived from the installed snapshot.
     ///
-    /// `updates` comes from the core so hold, repository and security rules stay
-    /// in one place; the repository flags are derived from the installed map
-    /// exactly like the web app does (`reposFromInstalled`).
+    /// See [`InstalledState`]: the same value backs the query façade, so
+    /// `isUpdate` cannot mean two different things in the app.
     fn refresh_derived(&mut self) {
-        let repos = repos_from_installed(&self.installed);
-        self.update_to = self
-            .catalog
-            .updates(&self.installed, &repos)
-            .into_iter()
-            .map(|update| (update.name, update.to))
-            .collect();
-        self.orphans = self
-            .installed
-            .iter()
-            .filter(|(name, inst)| {
-                !inst.explicit
-                    && !self
-                        .catalog
-                        .revdeps(name)
-                        .iter()
-                        .any(|dependent| self.installed.contains_key(&dependent.name))
-            })
-            .map(|(name, _)| name.clone())
-            .collect();
+        self.state = InstalledState::new(&self.catalog, &self.installed);
     }
 
     /// Visible catalog indices for the current filter, search and category.
@@ -358,7 +386,7 @@ impl PackageModelRust {
         (
             self.installed.get(&pkg.name).cloned(),
             self.queue.get(&pkg.name).copied(),
-            self.update_to.get(&pkg.name).cloned(),
+            self.state.update_to(&pkg.name).map(str::to_string),
         )
     }
 
@@ -416,9 +444,9 @@ impl PackageModelRust {
         let installed = self.installed.get(&pkg.name);
         match filter {
             "installed" => installed.is_some(),
-            "updates" => self.update_to.contains_key(&pkg.name),
+            "updates" => self.state.is_update(&pkg.name),
             "explicit" => installed.is_some_and(|inst| inst.explicit),
-            "orphans" => self.orphans.contains(&pkg.name),
+            "orphans" => self.state.is_orphan(&pkg.name),
             "held" => installed.is_some_and(|inst| inst.held),
             "queued" => self.queue.contains_key(&pkg.name),
             _ => true,
@@ -710,7 +738,7 @@ mod tests {
     #[test]
     fn updates_filter_uses_the_core_update_rules() {
         let mut installed = Store::fresh(&catalog()).installed;
-        let before = model_with(installed.clone()).update_to.len();
+        let before = model_with(installed.clone()).state.update_to.len();
         assert!(before > 0, "the seed image has outdated packages");
         // Holding every installed package must clear the update list.
         for inst in installed.values_mut() {

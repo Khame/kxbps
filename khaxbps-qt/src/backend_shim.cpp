@@ -3,6 +3,7 @@
 #include <QtCore/QMetaObject>
 #include <QtCore/QVariant>
 
+#include "khaxbps-qt/src/catalog_backend.cxxqt.h"
 #include "khaxbps-qt/src/installed_backend.cxxqt.h"
 #include "khaxbps-qt/src/job_backend.cxxqt.h"
 #include "khaxbps-qt/src/log_model.cxxqt.h"
@@ -63,4 +64,18 @@ QObject *khaxbps_start_job(QObject *owner, const QString &payloadJson)
 void khaxbps_installed_apply_plan(QObject *owner, const QString &itemsJson)
 {
     static_cast<InstalledBackend *>(owner)->applyPlanItems(itemsJson);
+}
+
+void khaxbps_catalog_backend_set_state(QObject *backend,
+                                       const QString &installedJson,
+                                       const QString &queueJson)
+{
+    static_cast<CatalogBackend *>(backend)->setState(installedJson, queueJson);
+}
+
+void khaxbps_release_object(QObject *object)
+{
+    if (object) {
+        object->deleteLater();
+    }
 }

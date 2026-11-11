@@ -24,6 +24,9 @@ Kirigami.ApplicationWindow {
     // Owns the store: the package model, the queue, planning and applying.
     InstalledBackend {
         id: installedBackend
+        // The query façade answers `search`/`get` from the same snapshot; without
+        // this wiring its results would report every package as not installed.
+        queryBackend: catalogBackend
     }
 
 
