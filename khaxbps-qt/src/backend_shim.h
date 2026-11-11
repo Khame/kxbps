@@ -60,3 +60,12 @@ void khaxbps_release_object(QObject *object);
 // restart remembers the choice (`mirror.json`).
 QString khaxbps_installed_mirror(QObject *owner);
 void khaxbps_installed_set_mirror(QObject *owner, const QString &url);
+
+// The preference block (`prefs.json`). The preferences backend reads the whole
+// block once when it is attached to the store owner and writes each change back
+// by key, so no second copy of the store exists.
+QString khaxbps_installed_prefs(QObject *owner);
+void khaxbps_installed_set_pref_bool(QObject *owner, const QString &key, bool value);
+void khaxbps_installed_set_pref_string(QObject *owner,
+                                       const QString &key,
+                                       const QString &value);

@@ -147,6 +147,17 @@ pub mod qobject {
 
         fn set_mirror_value(self: Pin<&mut InstalledBackend>, url: &QString);
 
+        // The preference block lives in the store too. The preferences backend
+        // reads it once at attach and writes each change back through these
+        // three forwarders, so there is still exactly one `Store`. Not
+        // invokable: QML writes through `PrefsBackend`, which notifies its own
+        // properties as well.
+        fn prefs_value(self: &InstalledBackend) -> QString;
+
+        fn set_pref_bool(self: Pin<&mut InstalledBackend>, key: &QString, value: bool);
+
+        fn set_pref_string(self: Pin<&mut InstalledBackend>, key: &QString, value: &QString);
+
         // Called by `khaxbps_installed_apply_plan` on the GUI thread when a job
         // finishes; not invokable so QML cannot bypass the job.
         fn apply_plan_items(self: Pin<&mut InstalledBackend>, items_json: &QString);
@@ -397,6 +408,57 @@ impl qobject::InstalledBackend {
             data.store.set_mirror(&url);
         }
         save_store(self.as_mut());
+    }
+
+    /// The whole preference block, as `prefs.json` holds it.
+    fn prefs_value(&self) -> cxx_qt_lib::QString {
+        json_of(&self.store.prefs)
+    }
+
+    /// Persists one bool preference named by its QML key.
+    ///
+    /// An unknown key, and a value the store already holds, change nothing:
+    /// no file is written for a no-op, so a binding cannot save on every
+    /// evaluation.
+    fn set_pref_bool(mut self: Pin<&mut Self>, key: &cxx_qt_lib::QString, value: bool) {
+        let Some(write) = crate::prefs_backend::bool_write(&key.to_string(), value) else {
+            return;
+        };
+        let changed = {
+            let data = Pin::get_mut(self.as_mut().rust_mut());
+            let changed = !write.is_noop(&data.store.prefs);
+            if changed {
+                write.apply_to_store(&mut data.store);
+            }
+            changed
+        };
+        if changed {
+            save_store(self.as_mut());
+        }
+    }
+
+    /// Persists one string preference named by its QML key; same rules as
+    /// [`Self::set_pref_bool`].
+    fn set_pref_string(
+        mut self: Pin<&mut Self>,
+        key: &cxx_qt_lib::QString,
+        value: &cxx_qt_lib::QString,
+    ) {
+        let Some(write) = crate::prefs_backend::string_write(&key.to_string(), &value.to_string())
+        else {
+            return;
+        };
+        let changed = {
+            let data = Pin::get_mut(self.as_mut().rust_mut());
+            let changed = !write.is_noop(&data.store.prefs);
+            if changed {
+                write.apply_to_store(&mut data.store);
+            }
+            changed
+        };
+        if changed {
+            save_store(self.as_mut());
+        }
     }
 
     /// Wires the query façade and pushes the current snapshot into it.

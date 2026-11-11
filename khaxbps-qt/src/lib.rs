@@ -19,6 +19,7 @@ pub mod mirror_backend;
 pub mod mirror_model;
 pub mod package_model;
 pub mod plan_backend;
+pub mod prefs_backend;
 pub mod queue_model;
 
 #[cxx_qt::bridge]

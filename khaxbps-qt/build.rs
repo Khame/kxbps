@@ -14,6 +14,7 @@ fn main() {
         "src/catalog_backend.rs",
         "src/installed_backend.rs",
         "src/plan_backend.rs",
+        "src/prefs_backend.rs",
         "src/job_backend.rs",
         "src/queue_model.rs",
         "src/log_model.rs",

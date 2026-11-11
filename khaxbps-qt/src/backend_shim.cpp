@@ -95,3 +95,29 @@ void khaxbps_installed_set_mirror(QObject *owner, const QString &url)
     }
     static_cast<InstalledBackend *>(owner)->setMirrorValue(url);
 }
+
+QString khaxbps_installed_prefs(QObject *owner)
+{
+    if (!owner) {
+        return QString();
+    }
+    return static_cast<InstalledBackend *>(owner)->prefsValue();
+}
+
+void khaxbps_installed_set_pref_bool(QObject *owner, const QString &key, bool value)
+{
+    if (!owner) {
+        return;
+    }
+    static_cast<InstalledBackend *>(owner)->setPrefBool(key, value);
+}
+
+void khaxbps_installed_set_pref_string(QObject *owner,
+                                       const QString &key,
+                                       const QString &value)
+{
+    if (!owner) {
+        return;
+    }
+    static_cast<InstalledBackend *>(owner)->setPrefString(key, value);
+}
