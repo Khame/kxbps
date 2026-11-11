@@ -29,18 +29,21 @@ Item {
 
     // Fixed column widths, shared by the header and the delegates. The actions
     // are an overlay on the row's right edge, so they do not get a column.
-    readonly property real versionWidth: Kirigami.Units.gridUnit * 7.5
-    readonly property real sizeWidth: Kirigami.Units.gridUnit * 3.5
+    // 8.5 gu (153 px) cannot hold "8.12.1_1 → 8.16.0_1" at this font: the two
+    // versions are 77 px each, the arrow 13 px and the two gaps 8 px. 10 gu
+    // (180 px) fits it; the name column still has 263 px for 141 px of text.
+    readonly property real versionWidth: Kirigami.Units.gridUnit * 10
+    readonly property real sizeWidth: Kirigami.Units.gridUnit * 4.5
     readonly property real stateWidth: Kirigami.Units.gridUnit * 7
 
-    // The pane is 14 gridUnits, but never narrower than 280 px (a fact grid
+    // The pane is 14 gridUnits, but never narrower than 252 px (a fact grid
     // below that starts eliding its labels).
-    readonly property real paneWidth: Math.max(Kirigami.Units.gridUnit * 14, 280)
+    readonly property real paneWidth: Math.max(Kirigami.Units.gridUnit * 14, 252)
 
-    // The fixed columns plus their gaps need ~20; at 40 the name column still
-    // has room for the longest package name, so the pane appears at the default
-    // window size instead of being dead code.
-    readonly property bool wide: width >= Kirigami.Units.gridUnit * 40
+    // The fixed columns plus their gaps need ~21; at 46 the name column still
+    // has room for the longest package name, so the pane appears at the 64
+    // gridUnit default and becomes the drawer at the 48 gridUnit minimum.
+    readonly property bool wide: width >= Kirigami.Units.gridUnit * 46
 
     // Derived from the catalog, not a hardcoded list: a category the catalog
     // does not use is not a category this app may offer.

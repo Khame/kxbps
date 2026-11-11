@@ -10,9 +10,9 @@ import "views"
 Kirigami.ApplicationWindow {
     id: root
 
-    width: Kirigami.Units.gridUnit * 56
+    width: Kirigami.Units.gridUnit * 64
     height: Kirigami.Units.gridUnit * 36
-    minimumWidth: Kirigami.Units.gridUnit * 40
+    minimumWidth: Kirigami.Units.gridUnit * 48
     minimumHeight: Kirigami.Units.gridUnit * 26
     // QQmlApplicationEngine does not show the root window on its own.
     visible: true
