@@ -142,12 +142,23 @@ Kirigami.ApplicationWindow {
     // dialog that opens one releases it. `startJob` hands the job to JobDialog,
     // which releases the previous job when it takes the new one; the strip and
     // the drawer keep reading `root.job` in between.
+    //
+    // A plan is a dry run, so `open*` only starts a worker thread and answers
+    // with a request id; the object arrives through `onPlanReady`. The backend
+    // drops an answer whose request a newer one superseded, so a plan is only
+    // ever shown for the state the user asked from.
     function openQueuePlan() {
-        planDialog.showPlan(installedBackend.openQueuePlan())
+        planDialog.loadingText = i18nd("kxbps", "Asking xbps what it would do…")
+        planDialog.loading = true
+        planDialog.open()
+        planPending = installedBackend.openQueuePlan()
     }
 
     function openSystemPlan() {
-        planDialog.showPlan(installedBackend.openSystemPlan())
+        planDialog.loadingText = i18nd("kxbps", "Asking xbps what it would do…")
+        planDialog.loading = true
+        planDialog.open()
+        planPending = installedBackend.openSystemPlan()
     }
 
     function startJob(started) {
@@ -181,6 +192,9 @@ Kirigami.ApplicationWindow {
         }
     }
 
+    // The request id waiting for its plan; 0 means nothing is pending.
+    property real planPending: 0
+
     Connections {
         target: root.job
         function onDoneChanged() {
@@ -197,6 +211,23 @@ Kirigami.ApplicationWindow {
         installedBackend: installedBackend
         onJobStarted: (started) => root.startJob(started)
         onBlockedRequested: (blockedPlan) => blockedDialog.showPlan(blockedPlan)
+    }
+
+    // The dry run answered: build the plan object the backend described and
+    // hand it to the dialog, which owns and releases it from then on.
+    Connections {
+        target: installedBackend
+        function onPlanReady(payloadJson, request) {
+            if (request !== root.planPending) {
+                return
+            }
+            planDialog.clearLoading()
+            root.planPending = 0
+            const plan = installedBackend.makePlan(payloadJson)
+            if (plan !== null) {
+                planDialog.showPlan(plan)
+            }
+        }
     }
 
     JobDialog {

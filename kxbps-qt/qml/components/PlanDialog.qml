@@ -19,6 +19,10 @@ Kirigami.Dialog {
 
     property var installedBackend
     property var plan: null
+    // A dry run is a process; until it answers the dialog says so instead of
+    // showing an empty plan.
+    property bool loading: false
+    property string loadingText: ""
 
     signal jobStarted(var startedJob)
     signal blockedRequested(var blockedPlan)
@@ -27,12 +31,20 @@ Kirigami.Dialog {
                                     && plan.noticeKey.length === 0
                                     && plan.errorKey.length === 0
                                     && plan.count > 0
+    // A plan with steps is what turns Apply on; while a dry run is in flight
+    // there is nothing to apply and nothing to say yet.
+    readonly property bool waiting: plan === null && loading
+
+    function clearLoading() {
+        loading = false
+    }
+
     // Apply exists only when there is something to apply; a blocked plan is
     // handled by the button in the body, a notice or error by Close.
     readonly property bool canApply: hasRows
     readonly property bool showApplyFooter: hasRows || (plan !== null && plan.isBlocked)
 
-    title: dialog.titleText()
+    title: dialog.plan === null && dialog.loading ? dialog.loadingText : dialog.titleText()
     preferredWidth: Kirigami.Units.gridUnit * 46
     // The list is the only thing that may scroll; the dialog never grows past
     // 70 % of the window.
@@ -45,6 +57,7 @@ Kirigami.Dialog {
         if (value === null) {
             return
         }
+        loading = false
         if (value !== plan) {
             dialog.releasePlan()
         }
@@ -53,6 +66,7 @@ Kirigami.Dialog {
     }
 
     function releasePlan() {
+        loading = false
         if (plan === null) {
             return
         }
@@ -183,6 +197,19 @@ Kirigami.Dialog {
                          plan.errorArgs[2] || "")
         case "errorNotInstalled":
             return i18nd("kxbps", "Not installed: %1", plan.errorArgs[0] || "")
+        case "errorXbpsStart":
+            return i18nd("kxbps", "%1 could not be started: %2", plan.errorArgs[0] || "",
+                         plan.errorArgs[1] || "")
+        case "errorXbpsTimeout":
+            return i18nd("kxbps", "%1 did not answer within %2 s.", plan.errorArgs[0] || "",
+                         plan.errorArgs[1] || "")
+        case "errorXbpsExit":
+            return i18nd("kxbps", "%1 exited with %2: %3", plan.errorArgs[0] || "",
+                         plan.errorArgs[1] || "", plan.errorArgs[2] || "")
+        case "errorXbpsOutput":
+            return i18nd("kxbps", "%1 printed a line xbps cannot be read from: %3 (line %2)",
+                         plan.errorArgs[0] || "", plan.errorArgs[1] || "",
+                         plan.errorArgs[2] || "")
         }
         return plan.errorKey
     }
@@ -240,6 +267,23 @@ Kirigami.Dialog {
             id: closeAction
             text: i18nd("kxbps", "Close")
             onTriggered: dialog.close()
+        }
+
+        // One dry run answers in a moment; a block of text is enough, and the
+        // Close action stays available if xbps is slow.
+        QQC2.BusyIndicator {
+            visible: dialog.waiting
+            running: dialog.waiting
+            Layout.alignment: Qt.AlignHCenter
+        }
+
+        QQC2.Label {
+            visible: dialog.waiting
+            Layout.fillWidth: true
+            horizontalAlignment: Text.AlignHCenter
+            text: dialog.loadingText
+            wrapMode: Text.WordWrap
+            color: Kirigami.Theme.disabledTextColor
         }
 
         // Column header, repeated by the row delegate below.
