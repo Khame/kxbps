@@ -39,6 +39,10 @@ Kirigami.ApplicationWindow {
             return ""
         }
         switch (job.labelKey) {
+        case "jobStart":
+            return i18nd("kxbps", "Waiting for authentication…")
+        case "jobWorking":
+            return i18nd("kxbps", "Running xbps…")
         case "jobSync":
             return i18nd("kxbps", "Synchronising the repository index…")
         case "jobDownload":
@@ -53,6 +57,17 @@ Kirigami.ApplicationWindow {
             return i18nd("kxbps", "Finished.")
         case "jobCancelled":
             return i18nd("kxbps", "Cancelled.")
+        case "jobAuthDismissed":
+            return i18nd("kxbps", "Authentication was dismissed")
+        case "jobAuthDenied":
+            return i18nd("kxbps", "Authentication was denied")
+        case "jobPkexecMissing":
+            return i18nd("kxbps", "pkexec is missing or not executable")
+        case "jobXbpsFailed":
+            return job.labelArg.length > 0 ? i18nd("kxbps", "xbps failed with exit code %1", job.labelArg)
+                                           : i18nd("kxbps", "xbps failed")
+        case "jobBusy":
+            return i18nd("kxbps", "Another transaction is running")
         case "jobFailed":
             return i18nd("kxbps", "Transaction failed")
         }

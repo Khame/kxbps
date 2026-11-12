@@ -162,6 +162,11 @@ pub fn repo_installed_sizes_argv() -> Vec<String> {
     argv(XPBS_QUERY, &["-R", "-p", "installed_size", "-s", ""])
 }
 
+/// Timeout for a privileged transaction: polkit waits for a password and xbps
+/// downloads and unpacks, so the read path's 30 s is far too short. A
+/// transaction that outlives this is treated as failed and never applied.
+pub const TRANSACTION_TIMEOUT_MS: u32 = 30 * 60 * 1000;
+
 /// Encodes an argv list for the shim.
 pub fn argv_json(argv: &[String]) -> Result<String, RunnerError> {
     if argv.is_empty() || argv[0].is_empty() {

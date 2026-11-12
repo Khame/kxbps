@@ -78,6 +78,9 @@ Rectangle {
 
             QQC2.Button {
                 text: i18nd("kxbps", "Cancel")
+                // A cancel is only possible before xbps exists; hiding the
+                // control once it runs avoids a click that would do nothing.
+                visible: strip.job === null || strip.job.cancellable
                 onClicked: strip.cancelRequested()
             }
         }

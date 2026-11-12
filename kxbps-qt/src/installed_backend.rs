@@ -23,7 +23,7 @@ use cxx_qt::casting::Upcast;
 use cxx_qt_lib::{QObjectMutPtr, QString, QStringList};
 use kxbps_core::{
     InstalledMap, Plan, PlanItem, QueueAction, QueueItem, Store, effective_updates,
-    held_updates_in, not_installed, repos_from_installed, update_signature_of,
+    held_updates_in, not_installed, update_signature_of,
 };
 
 use crate::job_backend::JobPayload;
@@ -493,11 +493,7 @@ impl qobject::InstalledBackend {
         if items.is_empty() {
             return unsafe { QObjectMutPtr::from_raw(std::ptr::null_mut()) };
         }
-        let payload = JobPayload {
-            items,
-            mirror: self.store.mirror.clone(),
-            repos: repos_from_installed(&self.store.installed),
-        };
+        let payload = JobPayload { items };
         let json = serde_json::to_string(&payload).unwrap_or_else(|_| String::from("{}"));
         qobject::start_job(self.parent_ptr(), &QString::from(json.as_str()))
     }

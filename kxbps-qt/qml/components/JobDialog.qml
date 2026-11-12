@@ -131,8 +131,10 @@ Kirigami.Dialog {
         }
     }
 
-    // Cancel while it runs, Close once there is nothing left to cancel. The
+    // Cancel only while the process does not exist yet; Close otherwise, even
+    // mid-run, so a dialog whose Cancel would be a no-op still goes away. The
     // Cancel action does not close the dialog: the worker needs a moment to
     // reach its final state, and the log should show how it ended.
-    customFooterActions: dialog.running ? [cancelAction] : [closeAction]
+    readonly property bool canCancel: running && job !== null && job.cancellable
+    customFooterActions: dialog.canCancel ? [cancelAction] : [closeAction]
 }

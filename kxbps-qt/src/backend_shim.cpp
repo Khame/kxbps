@@ -62,15 +62,24 @@ QObject *kxbps_create_plan_backend(QObject *parent, const QString &payloadJson)
 
 QObject *kxbps_start_job(QObject *owner, const QString &payloadJson)
 {
-    auto *job = new JobBackend();
-    job->setParent(owner);
-    job->start(payloadJson, owner);
-    return job;
+    // The job parses the payload itself; `new` takes the parent so Qt destroys
+    // it with the installed backend if QML never releases it.
+    return new JobBackend(payloadJson, owner);
 }
 
 void kxbps_installed_apply_plan(QObject *owner, const QString &itemsJson)
 {
     static_cast<InstalledBackend *>(owner)->applyPlanItems(itemsJson);
+}
+
+bool kxbps_job_begin(QObject *job)
+{
+    return static_cast<JobBackend *>(job)->beginTransaction();
+}
+
+void kxbps_job_spawned(QObject *job)
+{
+    static_cast<JobBackend *>(job)->markSpawned();
 }
 
 void kxbps_query_backend_set_state(QObject *backend,

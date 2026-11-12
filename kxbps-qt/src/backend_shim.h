@@ -41,13 +41,21 @@ void kxbps_log_model_append(QObject *model, const QString &line);
 QObject *kxbps_create_plan_backend(QObject *parent, const QString &payloadJson);
 
 // Creates the job, starts its worker thread and returns it. `owner` is the
-// installed backend the job reports back to when the simulated transaction
-// finishes.
+// installed backend the job reports back to when the transaction finishes.
 QObject *kxbps_start_job(QObject *owner, const QString &payloadJson);
 
 // Called on the GUI thread when a job finishes: applies the plan to the store,
 // saves it and refreshes the models.
 void kxbps_installed_apply_plan(QObject *owner, const QString &itemsJson);
+
+// The privileged transaction has started: ask the store owner to stop any
+// other job, then take the single-transaction slot. `true` when this job owns
+// it; a `false` answer means another job is running and this one must not
+// start. Returns whether the process may be spawned.
+bool kxbps_job_begin(QObject *job);
+
+// The process exists: the job is no longer cancellable.
+void kxbps_job_spawned(QObject *job);
 
 // Pushes the installed/queue snapshot into the query façade, so `search()` and
 // `get()` answer `installedVersion`/`isUpdate` from the same state as the model.
