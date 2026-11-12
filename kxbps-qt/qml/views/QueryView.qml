@@ -43,12 +43,31 @@ Item {
     // Modes whose answer is a package list; the rest print raw output.
     readonly property var listModes: ["Rs", "s", "l", "m", "O", "H"]
 
+    // The mode the combo shows. `Main.qml` drives it ("Show installed in
+    // xbps-query -L"); everything below reads this instead of the combo, so the
+    // window and the view cannot disagree about what is selected.
+    readonly property string modeToken: view.modes[modeCombo.currentIndex]
+
     function isListMode(mode) {
         return view.listModes.indexOf(mode) >= 0
     }
 
+    // Selects a mode and runs it: the menu entry asks for the answer, not just
+    // for the combo to move. The pattern is left alone; `-L` reads the whole
+    // repository list. The debounce is stopped, so a pending pattern does not
+    // overwrite the answer with a listing mode's empty query.
+    function selectMode(token) {
+        const index = view.modes.indexOf(token)
+        if (index < 0) {
+            return
+        }
+        debounce.stop()
+        modeCombo.currentIndex = index
+        view.run()
+    }
+
     function run() {
-        const mode = modeCombo.currentText
+        const mode = view.modeToken
         const query = searchField.text.trim()
         view.selectedPkgver = ""
         // A listing mode needs a pattern; typing one is the next thing the
@@ -65,7 +84,7 @@ Item {
     }
 
     function hint() {
-        const mode = modeCombo.currentText
+        const mode = view.modeToken
         const query = searchField.text
         return i18nd("kxbps", "Equivalent: %1", ("xbps-query -" + mode + " " + query).trim())
     }
@@ -74,14 +93,14 @@ Item {
         if (view.errorKey.length > 0 || view.catalogBackend.searching) {
             return ""
         }
-        if (view.isListMode(modeCombo.currentText) && searchField.text.length === 0) {
+        if (view.isListMode(view.modeToken) && searchField.text.length === 0) {
             return i18nd("kxbps", "Type a query.")
         }
-        if (!view.isListMode(modeCombo.currentText) && view.rawText.length === 0) {
+        if (!view.isListMode(view.modeToken) && view.rawText.length === 0) {
             // The take answered nothing: say so, rather than a blank block.
             return i18nd("kxbps", "xbps printed nothing.")
         }
-        if (view.isListMode(modeCombo.currentText)) {
+        if (view.isListMode(view.modeToken)) {
             return i18nd("kxbps", "No matches.")
         }
         return ""
@@ -167,8 +186,8 @@ Item {
         ListView {
             id: resultsList
             Layout.fillWidth: true
-            Layout.fillHeight: view.isListMode(modeCombo.currentText)
-            visible: view.isListMode(modeCombo.currentText)
+            Layout.fillHeight: view.isListMode(view.modeToken)
+            visible: view.isListMode(view.modeToken)
             clip: true
             model: view.results
             QQC2.ScrollBar.vertical: QQC2.ScrollBar {}
@@ -194,11 +213,11 @@ Item {
         // Every other mode: the output as xbps printed it.
         ColumnLayout {
             Layout.fillWidth: true
-            Layout.fillHeight: !view.isListMode(modeCombo.currentText)
+            Layout.fillHeight: !view.isListMode(view.modeToken)
             Layout.leftMargin: Kirigami.Units.largeSpacing
             Layout.rightMargin: Kirigami.Units.largeSpacing
             Layout.bottomMargin: Kirigami.Units.smallSpacing
-            visible: !view.isListMode(modeCombo.currentText)
+            visible: !view.isListMode(view.modeToken)
             spacing: Kirigami.Units.smallSpacing
 
             QQC2.Label {
@@ -247,7 +266,7 @@ Item {
             Layout.leftMargin: Kirigami.Units.largeSpacing
             Layout.rightMargin: Kirigami.Units.largeSpacing
             Layout.bottomMargin: Kirigami.Units.smallSpacing
-            visible: view.isListMode(modeCombo.currentText) && view.resultCount > 0
+            visible: view.isListMode(view.modeToken) && view.resultCount > 0
             text: i18ndp("kxbps", "%1 result", "%1 results", view.resultCount)
             color: Kirigami.Theme.disabledTextColor
             font: Kirigami.Theme.smallFont

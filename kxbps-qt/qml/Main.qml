@@ -27,6 +27,19 @@ Kirigami.ApplicationWindow {
     // their own.
     property string section: "packages"
 
+    // The selected row, as the whole tuple the menu bar acts on. It reaches the
+    // window through `PackagesView.selectionChanged`; an empty `selectedName`
+    // means nothing is selected and every Package item is disabled.
+    property string selectedName: ""
+    property string selectedPkgver: ""
+    property bool selectedInstalled: false
+    property bool selectedIsUpdate: false
+    property bool selectedHeld: false
+    property string selectedQueuedAction: ""
+
+    // True once a row is selected: the one condition every Package item needs.
+    readonly property bool hasSelection: selectedName.length > 0
+
     // The current or last finished job. It is kept until the next transaction
     // starts, so the status strip and the log drawer stay readable after the
     // JobDialog closes; the dialog releases the previous job when it takes the
@@ -297,6 +310,42 @@ Kirigami.ApplicationWindow {
         planPending = installedBackend.openSystemPlan()
     }
 
+    // `Remove…` from the menu bar. The backend answers with a request id only,
+    // like the queue and system plans, so the dialog opens in its loading state
+    // and `onPlanReady` fills it. A name that is not installed, or an empty one,
+    // sends nothing: the menu item is disabled then, and this is the second net.
+    function openRemoveName(name) {
+        if (name.length === 0) {
+            return
+        }
+        planDialog.loadingText = i18nd("kxbps", "Asking xbps what it would do…")
+        planDialog.loading = true
+        planDialog.open()
+        const names = [name]
+        planPending = installedBackend.openRemoveNames(names, false)
+    }
+
+    // One queue gesture for the menu bar, the same rule `PackageDelegate` uses:
+    // take a queued row out, otherwise queue the token the row would send.
+    function toggleSelectedQueue() {
+        if (!hasSelection) {
+            return
+        }
+        if (selectedQueuedAction !== "") {
+            installedBackend.removeQueued(selectedName)
+            return
+        }
+        const token = selectedIsUpdate ? "update" : (selectedInstalled ? "remove" : "install")
+        installedBackend.toggleQueue(selectedName, token)
+    }
+
+    // "Show installed in xbps-query -L" prints the repository list; the pattern
+    // is left alone because `-L` reads every configured repository.
+    function showInstalledInQuery() {
+        section = "query"
+        queryView.selectMode("L")
+    }
+
     function startJob(started) {
         if (started === null) {
             return
@@ -422,6 +471,20 @@ Kirigami.ApplicationWindow {
         function onClosed() {
             root.planPending = 0
         }
+    }
+
+    // The selection reaches the window as one tuple, so no menu item can pair a
+    // name with a stale flag.
+    Connections {
+        function onSelectionChanged(name, pkgver, installed, isUpdate, held, queuedAction) {
+            root.selectedName = name
+            root.selectedPkgver = pkgver
+            root.selectedInstalled = installed
+            root.selectedIsUpdate = isUpdate
+            root.selectedHeld = held
+            root.selectedQueuedAction = queuedAction
+        }
+        target: packagesView
     }
 
     // The dry run answered: build the plan object the backend described and
@@ -668,6 +731,39 @@ Kirigami.ApplicationWindow {
                 Layout.fillHeight: true
                 spacing: 0
 
+                // The menu bar. `Kirigami.ApplicationWindow` has no `menuBar`
+                // property, so this is an in-window bar in the right column, not
+                // an entry in the Plasma global menu. It sits above the header
+                // and sizes itself from the style (no pixel height, or scaling
+                // breaks).
+                AppMenuBar {
+                    id: appMenuBar
+                    Layout.fillWidth: true
+
+                    packageName: root.selectedName
+                    packagePkgver: root.selectedPkgver
+                    packageInstalled: root.selectedInstalled
+                    packageIsUpdate: root.selectedIsUpdate
+                    packageHeld: root.selectedHeld
+                    packageQueuedAction: root.selectedQueuedAction
+
+                    prefsBackend: prefsBackend
+                    storeReady: installedBackend !== null
+
+                    updatesCount: installedBackend.updatesCount
+                    section: root.section
+                    filter: installedBackend.packages.filter
+                    onResetRequested: resetDialog.open()
+                    onAboutRequested: aboutDialog.open()
+                    onQueueToggleRequested: root.toggleSelectedQueue()
+                    onHoldToggleRequested: installedBackend.toggleHold(root.selectedName)
+                    onRemoveRequested: root.openRemoveName(root.selectedName)
+                    onUpdateAllRequested: root.openSystemPlan()
+                    onFilterSelected: (token) => root.selectFilter(token)
+                    onSectionSelected: (token) => root.section = token
+                    onShowInstalledInQueryRequested: root.showInstalledInQuery()
+                }
+
                 // One title, one muted line with the live numbers, and the
                 // current view's actions on the right.
                 Rectangle {
@@ -734,44 +830,6 @@ Kirigami.ApplicationWindow {
                                      && !mirrorBackend.systemLoading
                                      && !mirrorBackend.applyBusy
                             onClicked: mirrorApplyDialog.open()
-                        }
-
-                        // Task 13 replaces this with the menu bar; until then
-                        // the two global actions live behind one toolbar menu.
-                        QQC2.ToolButton {
-                            id: menuButton
-                            icon.name: "application-menu"
-                            Accessible.name: i18nd("kxbps", "Application menu")
-                            onClicked: menu.open()
-
-                            QQC2.Menu {
-                                id: menu
-                                y: menuButton.height
-                                width: Kirigami.Units.gridUnit * 14
-
-                                QQC2.MenuItem {
-                                    text: i18nd("kxbps", "About KXbps")
-                                    onTriggered: aboutDialog.open()
-                                }
-
-                                QQC2.MenuItem {
-                                    text: i18nd("kxbps", "Restore base image")
-                                    onTriggered: resetDialog.open()
-                                }
-
-                                QQC2.MenuSeparator {}
-
-                                // The one setting this build has. A checkable
-                                // menu item is the compact form; the label says
-                                // what the switch does, not what it is.
-                                QQC2.MenuItem {
-                                    id: autostartItem
-                                    text: i18nd("kxbps", "Start with session")
-                                    checkable: true
-                                    checked: prefsBackend.startWithSession
-                                    onToggled: prefsBackend.startWithSession = checked
-                                }
-                            }
                         }
                     }
 

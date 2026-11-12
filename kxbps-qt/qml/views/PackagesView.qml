@@ -27,10 +27,35 @@ Item {
 
     signal updateAllRequested()
 
+    // The whole selection in one go: a name alone would let the menu read
+    // `held`/`queued` from a row that has moved on. `pkgver` is the xbps form
+    // `name-version_revision`; the flags are what the row shows.
+    signal selectionChanged(string name, string pkgver, bool installed, bool isUpdate,
+                            bool held, string queuedAction)
+
     // The selected row, as the `name-version_revision` xbps prints: the details
     // pane reads that one package's facts back through `catalogBackend.get()`.
     property string selectedName: ""
     property string selectedPkgver: ""
+
+    // Emits the current row's tuple. `currentItem` is null while the delegate
+    // that just became current is still being created, so the values come from
+    // the model through the delegate's own accessors, never from the item.
+    function announceSelection(item) {
+        if (item === null || item === undefined) {
+            view.selectionChanged("", "", false, false, false, "")
+            return
+        }
+        view.selectionChanged(item.model.name, view.pkgverOf(item.model, item.model.name),
+                              item.installed, item.model.isUpdate, item.model.held === true,
+                              item.model.queuedAction)
+    }
+
+    function clearSelection() {
+        view.selectedName = ""
+        view.selectedPkgver = ""
+        view.selectionChanged("", "", false, false, false, "")
+    }
 
     // Fixed column widths, shared by the header and the delegates. The actions
     // are an overlay on the row's right edge, so they do not get a column.
@@ -228,6 +253,28 @@ Item {
                     clip: true
                     model: view.packages
                     currentIndex: -1
+                    // Keyboard navigation and a click both land here; the
+                    // selection tuple then follows the current row.
+                    onCurrentItemChanged: view.announceSelection(currentItem)
+                    // The row's flags live in the model, so a hold or queue
+                    // change moves no current index yet must refresh the tuple
+                    // the menu acts on.
+                    Connections {
+                        target: view.installedBackend
+                        function onStateRevisionChanged() {
+                            view.announceSelection(list.currentItem)
+                        }
+                    }
+                    // A model reset (filter or search change) drops the current
+                    // row: the menu must not keep acting on a row that is no
+                    // longer on screen. `currentIndex` is -1 at that point, and
+                    // it is the value that is already settled when `count`
+                    // changes.
+                    onCountChanged: {
+                        if (currentIndex < 0 && view.selectedName.length > 0) {
+                            view.clearSelection()
+                        }
+                    }
                     // The header scrolls with the rows but stays on top, so a
                     // visible scrollbar cannot shift one against the other.
                     headerPositioning: ListView.OverlayHeader
@@ -330,6 +377,10 @@ Item {
                             view.selectedName = model.name
                             view.selectedPkgver = view.pkgverOf(model, model.name)
                             list.currentIndex = index
+                            // Emitted here as well as from the list: a click on
+                            // the already-current row moves no index, and the
+                            // row's flags may have changed since.
+                            view.announceSelection(this)
                             if (!view.wide) {
                                 detailsDrawer.open()
                             }
@@ -387,6 +438,7 @@ Item {
         onClosed: {
             view.selectedName = ""
             view.selectedPkgver = ""
+            view.selectionChanged("", "", false, false, false, "")
         }
 
         DetailsPane {

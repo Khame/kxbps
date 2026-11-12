@@ -12,6 +12,7 @@ fn main() {
             .qml_file("qml/views/QueryView.qml")
             .qml_file("qml/views/MirrorsView.qml")
             .qml_file("qml/components/NavItem.qml")
+            .qml_file("qml/components/AppMenuBar.qml")
             .qml_file("qml/components/PackageDelegate.qml")
             .qml_file("qml/components/QueryDelegate.qml")
             .qml_file("qml/components/MirrorDelegate.qml")
