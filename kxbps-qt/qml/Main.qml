@@ -3,7 +3,7 @@ import QtQuick.Controls as QQC2
 import QtQuick.Layouts
 import org.kde.kirigami as Kirigami
 import org.kde.ki18n 1.0
-import org.kde.khaxbps
+import org.kde.kxbps
 import "components"
 import "views"
 

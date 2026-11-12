@@ -48,7 +48,7 @@ pub struct Catalog(pub Vec<Pkg>);
 impl Catalog {
     /// Parses a catalog from the JSON produced by `scripts/gen-catalog.mjs`.
     ///
-    /// The Qt layer reads `:/qt/qml/org/kde/khaxbps/resources/catalog.json` with
+    /// The Qt layer reads `:/qt/qml/org/kde/kxbps/resources/catalog.json` with
     /// `QFile` and passes its contents here.
     pub fn load_from_str(json: &str) -> Result<Self, CatalogError> {
         let packages: Vec<Pkg> = serde_json::from_str(json)?;

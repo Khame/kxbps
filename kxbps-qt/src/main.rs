@@ -15,7 +15,7 @@ fn main() {
         // Root context must carry KI18n's `KLocalizedContext` before the QML file
         // is compiled, or every `i18nd()` call is a `ReferenceError`.
         kxbps_qt::setup_i18n(engine.as_mut());
-        engine.load(&QUrl::from("qrc:/qt/qml/org/kde/khaxbps/qml/Main.qml"));
+        engine.load(&QUrl::from("qrc:/qt/qml/org/kde/kxbps/qml/Main.qml"));
     }
     if let Some(app) = app.as_mut() {
         app.exec();

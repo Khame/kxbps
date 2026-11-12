@@ -1,8 +1,8 @@
 //! QML-facing bridge for Khaxbps.
 //!
-//! The QML module `org.kde.khaxbps` is declared in `build.rs`; every `#[qml_element]`
+//! The QML module `org.kde.kxbps` is declared in `build.rs`; every `#[qml_element]`
 //! QObject in this file is registered into that module by `qmltyperegistrar`, so QML
-//! only needs `import org.kde.khaxbps`.
+//! only needs `import org.kde.kxbps`.
 
 // Keep the Quick Controls extras crate in the link graph: its initializer archive is
 // only pulled in by the linker when some Rust code references the crate.
@@ -85,14 +85,14 @@ impl qobject::AppBackend {
 /// `build.rs` embeds `kxbps-qt/resources/catalog.json` under the module's
 /// import path, so the Qt layer can read it with `QFile` and hand the contents
 /// to [`kxbps_core::Catalog::load_from_str`].
-pub const CATALOG_RESOURCE_PATH: &str = ":/qt/qml/org/kde/khaxbps/resources/catalog.json";
+pub const CATALOG_RESOURCE_PATH: &str = ":/qt/qml/org/kde/kxbps/resources/catalog.json";
 
-/// Registers the `org.kde.khaxbps` QML module (types and QML resources).
+/// Registers the `org.kde.kxbps` QML module (types and QML resources).
 ///
 /// Must run before a `QQmlApplicationEngine` resolves any `qrc:/qt/qml/...` URL.
 /// In CXX-Qt 0.10 this macro replaces the `qml_register_type` call of the 0.7-0.9 API.
 pub fn init() {
-    cxx_qt::init_qml_module!("org.kde.khaxbps");
+    cxx_qt::init_qml_module!("org.kde.kxbps");
 }
 
 /// Installs the KI18n `KLocalizedContext` on the engine's root context so QML
@@ -105,4 +105,67 @@ pub fn setup_i18n(engine: Pin<&mut cxx_qt_lib::QQmlApplicationEngine>) {
     use cxx_qt::casting::Upcast;
 
     qobject::setup_i18n(Upcast::<cxx_qt_lib::QQmlEngine>::upcast_pin(engine));
+}
+
+/// The module URI is spelled out in five independent literals that no compiler
+/// check connects: `build.rs` (`QmlModule::new`), this file
+/// (`init_qml_module!`, `CATALOG_RESOURCE_PATH`), `main.rs` (the `qrc:` URL it
+/// loads) and `Main.qml` (the `import`). A disagreement fails silently — the
+/// engine resolves no module and the app exits with an empty window — so this
+/// test pins all five to one URI.
+#[cfg(test)]
+mod uri_guard {
+    use super::CATALOG_RESOURCE_PATH;
+
+    /// The double-quoted literal that follows `marker` in `source`.
+    fn quoted_after(source: &str, marker: &str) -> String {
+        let start = source
+            .find(marker)
+            .unwrap_or_else(|| panic!("`{marker}` not found"))
+            + marker.len();
+        let end = start
+            + source[start..]
+                .find('"')
+                .unwrap_or_else(|| panic!("unterminated literal after `{marker}`"));
+        source[start..end].to_string()
+    }
+
+    #[test]
+    fn module_uri_is_the_same_in_every_literal() {
+        let build_rs = include_str!("../build.rs");
+        let lib_rs = include_str!("lib.rs");
+        let main_rs = include_str!("main.rs");
+        let main_qml = include_str!("../qml/Main.qml");
+
+        let declared = quoted_after(build_rs, "QmlModule::new(\"");
+        let registered = quoted_after(lib_rs, "init_qml_module!(\"");
+        assert_eq!(declared, "org.kde.kxbps");
+        assert_eq!(
+            registered, declared,
+            "the URI `init()` registers differs from the one `build.rs` declares"
+        );
+
+        // `cxx-qt-build` serves the module's resources below the URI with dots
+        // turned into separators, so the catalog path is derived from it.
+        let uri_path = declared.replace('.', "/");
+        assert_eq!(
+            CATALOG_RESOURCE_PATH,
+            format!(":/qt/qml/{uri_path}/resources/catalog.json")
+        );
+        assert_eq!(
+            quoted_after(main_rs, "QUrl::from(\""),
+            format!("qrc:/qt/qml/{uri_path}/qml/Main.qml"),
+            "the URL `main.rs` loads is not inside the registered module"
+        );
+
+        let import = main_qml
+            .lines()
+            .find(|line| line.trim_start().starts_with(&format!("import {declared}")))
+            .unwrap_or_else(|| panic!("Main.qml does not import {declared}"));
+        assert_eq!(
+            import.trim(),
+            format!("import {declared}"),
+            "Main.qml imports a different module than the one `init()` registers"
+        );
+    }
 }

@@ -2,7 +2,7 @@ fn main() {
     // Hand-written C++ shim that installs KI18n's `KLocalizedContext` on the QML
     // engine's root context, which is what makes `i18nd()` callable in QML.
     let builder = cxx_qt_build::CxxQtBuilder::new_qml_module(
-        cxx_qt_build::QmlModule::new("org.kde.khaxbps")
+        cxx_qt_build::QmlModule::new("org.kde.kxbps")
             .qml_file("qml/Main.qml")
             .qml_file("qml/views/PackagesView.qml")
             .qml_file("qml/views/QueryView.qml")
@@ -39,7 +39,7 @@ fn main() {
     ])
     // The package catalog is generated from the web app by `scripts/gen-catalog.mjs`.
     // Because the builder knows the QML module URI, the file lands in the module's
-    // import path as `:/qt/qml/org/kde/khaxbps/resources/catalog.json`.
+    // import path as `:/qt/qml/org/kde/kxbps/resources/catalog.json`.
     .qrc_resources(["resources/catalog.json"])
     // `QFile` access to the catalog resource plus the protected
     // `QAbstractItemModel` members the Rust model cannot reach.
