@@ -203,6 +203,13 @@ pub fn parse_breakers(stderr: &str) -> Vec<Breaker> {
             .next()
             .unwrap_or("")
             .trim();
+        // `needed_by` is a package name, like the catalog path's `Blocked`;
+        // xbps prints the full pkgver here. A bare name (no version) is kept
+        // as it is.
+        let needed = match split_pkgver(needed) {
+            Some((name, _)) => name,
+            None => needed,
+        };
         if needed.is_empty() {
             continue;
         }
@@ -249,9 +256,15 @@ pub fn is_already_installed(stderr: &str) -> bool {
 /// does not exist.
 pub fn missing_package(stderr: &str) -> Option<String> {
     for line in stderr.lines() {
-        let rest = line
+        // A line that does not carry the prefix says nothing about a missing
+        // package; it must not stop the search, because xbps writes warnings
+        // before the answer.
+        let Some(rest) = line
             .strip_prefix("ERROR: Package ")
-            .or_else(|| line.strip_prefix("Package "))?;
+            .or_else(|| line.strip_prefix("Package "))
+        else {
+            continue;
+        };
         // The notice about an installed package is also prefixed `ERROR:
         // Package`; only the "not found" wording means the name is unknown.
         let name = rest
@@ -375,7 +388,7 @@ ERROR: Transaction aborted due to unresolved dependencies.
             blockers,
             vec![Breaker {
                 name: "acpid".into(),
-                needed_by: vec!["base-system-0.114_2".into()],
+                needed_by: vec!["base-system".into()],
             }]
         );
         let blocked = DryRunOutcome {
@@ -385,7 +398,7 @@ ERROR: Transaction aborted due to unresolved dependencies.
         .blocked();
         assert_eq!(blocked.len(), 1);
         assert_eq!(blocked[0].name, "acpid");
-        assert_eq!(blocked[0].needed_by, vec!["base-system-0.114_2".to_owned()]);
+        assert_eq!(blocked[0].needed_by, vec!["base-system".to_owned()]);
     }
 
     #[test]
@@ -400,7 +413,7 @@ ERROR: Transaction aborted due to unresolved dependencies.
             blockers: parse_breakers(stderr),
         }
         .blocked();
-        assert_eq!(blocked[0].needed_by, vec!["bash-5.2_1", "vim-9.2_1"]);
+        assert_eq!(blocked[0].needed_by, vec!["bash", "vim"]);
     }
 
     #[test]
@@ -462,6 +475,17 @@ ERROR: Transaction aborted due to unresolved dependencies.
             Some("nosuchpkg-zzz".to_owned())
         );
         assert_eq!(missing_package(""), None);
+    }
+
+    /// xbps may write a warning before the answer; a line without the prefix
+    /// must not end the search.
+    #[test]
+    fn a_missing_package_is_found_after_an_unrelated_line() {
+        let stderr = "\
+WARNING: something else happened
+ERROR: Package 'nosuchpkg-zzz' not found in repository pool.
+";
+        assert_eq!(missing_package(stderr), Some("nosuchpkg-zzz".to_owned()));
     }
 
     #[test]
