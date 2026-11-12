@@ -305,9 +305,21 @@ pub fn parse_search(input: &str) -> Result<Vec<SearchHit>, XbpsError> {
 
 /// Parses `xbps-query -L`: `<count> <url> (RSA signed)` per repository.
 ///
-/// A count of `-1` means xbps could not read the index. The parenthetical is
-/// optional; when present it must be exactly `(RSA signed)`, because any other
-/// note would be a new format the caller has to learn about.
+/// A count of `-1` means xbps could not read the index; it is not an empty
+/// repository and not a success, which is why [`RepoEntry::available`] exists.
+///
+/// xbps 0.60.7 prints one of three shapes, taken from the binary's format
+/// strings:
+///
+/// - `<count> <url> (RSA signed)` — the index is signed and verified with a
+///   local key, so [`RepoEntry::signed`] is `true`;
+/// - `<count> <url> (RSA maybe-signed)` — the index is signed but no local key
+///   verifies it (only `-1` counts were seen in the wild), so `signed` is
+///   `false`;
+/// - `<count> <url>` — no note at all for an unsigned repository, `signed`
+///   `false`.
+///
+/// Any other note is a new format the caller has to learn about, so it fails.
 pub fn parse_repos(input: &str) -> Result<Vec<RepoEntry>, XbpsError> {
     let mut repos = Vec::new();
     for (line_no, line) in body_lines(input) {
@@ -321,7 +333,7 @@ pub fn parse_repos(input: &str) -> Result<Vec<RepoEntry>, XbpsError> {
         let (url, note) = split_first_field(rest)
             .ok_or_else(|| malformed(line_no, line, "missing repository URL"))?;
         let signed = match note {
-            "" => false,
+            "" | "(RSA maybe-signed)" => false,
             "(RSA signed)" => true,
             _ => return Err(malformed(line_no, line, "unknown repository note")),
         };
@@ -560,6 +572,7 @@ mod tests {
     const UPDATES: &str = include_str!("../tests/fixtures/xbps/updates.txt");
     const SEARCH: &str = include_str!("../tests/fixtures/xbps/search.txt");
     const REPOS: &str = include_str!("../tests/fixtures/xbps/repos.txt");
+    const REPOS_0607: &str = include_str!("../tests/fixtures/xbps/repos-0.60.7.txt");
     const PROPERTY: &str = include_str!("../tests/fixtures/xbps/property.txt");
     const MANUAL: &str = include_str!("../tests/fixtures/xbps/manual.txt");
 
@@ -770,6 +783,46 @@ mod tests {
         assert_eq!(repos[0].count, -1);
         assert!(!repos[0].signed);
         assert!(!repos[0].available());
+    }
+
+    #[test]
+    fn repos_accepts_the_notes_xbps_0607_prints() {
+        let repos = parse_repos(REPOS_0607).expect("the 0.60.7 output parses");
+        assert_eq!(repos.len(), 5);
+        assert_eq!(repos[0].url, "https://repo-fi.voidlinux.org/current");
+        assert_eq!(repos[4].url, "https://repo-de.voidlinux.org/current");
+        assert_eq!(repos[4].count, 14_836);
+        assert!(repos[4].signed);
+    }
+
+    #[test]
+    fn maybe_signed_repository_parses_without_a_local_key() {
+        let repos = parse_repos("   -1 https://repo-fi.voidlinux.org/current (RSA maybe-signed)\n")
+            .expect("a maybe-signed repository parses");
+        assert_eq!(repos[0].count, -1);
+        assert_eq!(repos[0].url, "https://repo-fi.voidlinux.org/current");
+        assert!(
+            !repos[0].signed,
+            "maybe-signed is not verified locally, so it is not signed"
+        );
+    }
+
+    #[test]
+    fn a_minus_one_count_is_not_an_available_repository() {
+        let repos = parse_repos(REPOS_0607).expect("the 0.60.7 output parses");
+        assert_eq!(repos[0].count, -1);
+        assert!(!repos[0].available(), "-1 means no index");
+        assert!(repos[1].available());
+    }
+
+    #[test]
+    fn an_unsigned_repository_without_a_note_parses() {
+        let repos = parse_repos("10 https://repo.example.invalid/current\n")
+            .expect("an unsigned repository without a note parses");
+        assert_eq!(repos[0].count, 10);
+        assert_eq!(repos[0].url, "https://repo.example.invalid/current");
+        assert!(!repos[0].signed);
+        assert!(repos[0].available());
     }
 
     #[test]
