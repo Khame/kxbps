@@ -22,6 +22,7 @@ pub mod plan_backend;
 pub mod prefs_backend;
 pub mod queue_model;
 pub mod xbps_bridge;
+pub mod xbps_plan;
 pub mod xbps_runner;
 pub mod xbps_snapshot;
 

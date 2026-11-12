@@ -22,24 +22,7 @@
 use crate::types::{Blocked, PlanAction, PlanItem, PlanReason};
 use crate::xbps::{UpdateEntry, XbpsAction, XbpsError, parse_updates, split_pkgver};
 
-/// Which dry run answered.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum DryRun {
-    /// `xbps-install -n <packages>`: install or update the named packages.
-    Install,
-    /// `xbps-install -n -Su`: every available update.
-    System,
-    /// `xbps-remove -n <packages>`: remove the named packages.
-    Remove,
-}
-
-impl DryRun {
-    /// Whether the run asks xbps to add packages, which is where a blocked
-    /// transaction is an error rather than the usual removal refusal.
-    pub fn removes(self) -> bool {
-        self == Self::Remove
-    }
-}
+use crate::request::DryRun;
 
 /// Exit code xbps uses for a transaction it refused because of dependencies.
 pub const EXIT_UNRESOLVED: i32 = 19;

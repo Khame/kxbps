@@ -74,9 +74,33 @@ impl Catalog {
         self.0.is_empty()
     }
 
-    /// Exact lookup by package name.
+    /// The catalog's own entry for `name`, if it has one.
     pub fn by_name(&self, name: &str) -> Option<&Pkg> {
         self.0.iter().find(|pkg| pkg.name == name)
+    }
+
+    /// The package a dry run would install for `name`, when the catalog only
+    /// knows it in a repository the user left disabled.
+    ///
+    /// This is the pre-check of a plan: xbps reads its own configuration and
+    /// would answer "not found", but the reason the user needs is that the
+    /// package exists and the repository is off. A package the catalog does
+    /// not know at all is not reported here; the dry run fails for it.
+    pub fn disabled_repo_of(&self, name: &str, repos: &Repos) -> Option<RepoId> {
+        let pkg = self.by_name(name)?;
+        (!repo_enabled(pkg.repo, repos)).then_some(pkg.repo)
+    }
+
+    /// A dependency of `name` that only exists in a disabled repository.
+    ///
+    /// `xbps-install -n <name>` would fail on it with "not found", which reads
+    /// as a missing package instead of a switched-off repository.
+    pub fn disabled_dependency_of(&self, name: &str, repos: &Repos) -> Option<(String, RepoId)> {
+        let pkg = self.by_name(name)?;
+        pkg.depends.iter().find_map(|dep| {
+            self.disabled_repo_of(dep, repos)
+                .map(|repo| (dep.clone(), repo))
+        })
     }
 
     /// Packages that depend on `name`, in catalog order — `xbps-query -X`.

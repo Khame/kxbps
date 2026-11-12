@@ -20,6 +20,9 @@ pub const XPBS_QUERY: &str = "xbps-query";
 /// Program name of the transaction tool; `-un` and `-n` do not change anything.
 pub const XPBS_INSTALL: &str = "xbps-install";
 
+/// Program name of the removal tool; `-n` only prints the plan.
+pub const XPBS_REMOVE: &str = "xbps-remove";
+
 /// Timeout for the read-only commands, which only touch the local package
 /// database and the already-synced repository indexes.
 pub const READ_TIMEOUT_MS: u32 = 30_000;

@@ -3,7 +3,11 @@
 //! One object owns the [`Store`] (installed map, queue, preferences, mirror) and
 //! is therefore the single source of truth for everything that survives a
 //! restart. It exposes the package model and the queue model, mutates the store
-//! on behalf of QML, and builds the plan/job objects the dialogs show.
+//! on behalf of QML, and starts the plan/job objects the dialogs show.
+//!
+//! A plan is not computed: it is whatever `xbps-install -n` or `xbps-remove -n`
+//! would do, read on a worker thread, so what the dialog promises is what the
+//! transaction would perform.
 //!
 //! Persistence: every mutating invokable saves the store once, after the
 //! mutation, and a failed save is retried once before it becomes `error`.
@@ -19,12 +23,12 @@ use cxx_qt::casting::Upcast;
 use cxx_qt_lib::{QObjectMutPtr, QString, QStringList};
 use kxbps_core::{
     Catalog, InstalledMap, Plan, PlanItem, QueueAction, QueueItem, Repos, Store, effective_updates,
-    held_updates_in, plan_install, plan_queue, plan_remove, plan_system, repos_from_installed,
-    update_signature_of,
+    held_updates_in, not_installed, repos_from_installed, update_signature_of,
 };
 
 use crate::job_backend::JobPayload;
 use crate::plan_backend::{PlanPayload, keys as plan_keys};
+use crate::xbps_plan;
 use crate::xbps_snapshot::{SharedInvoke, Snapshot, SnapshotError, read_snapshot};
 use kxbps_core::UpdateEntry;
 
@@ -114,6 +118,8 @@ pub mod qobject {
         // Whether a snapshot is being read. The list keeps its previous rows
         // while one is in flight; QML only needs this to explain an empty list.
         #[qproperty(bool, loading, READ, NOTIFY)]
+        // Whether a plan is being read from xbps right now.
+        #[qproperty(bool, plan_loading, READ, NOTIFY)]
         type InstalledBackend = super::InstalledBackendRust;
 
         #[qinvokable]
@@ -128,28 +134,57 @@ pub mod qobject {
         #[qinvokable]
         fn toggle_hold(self: Pin<&mut InstalledBackend>, name: &QString);
 
+        // Planning asks xbps what it would do, which is a process, so every
+        // `open*` starts a worker thread and answers through `plan_ready`
+        // instead of returning the object. The returned number is the request
+        // id; a caller that sees a second answer for one request only shows the
+        // last one, and a plan whose dry run finished after a newer request
+        // started is dropped before it reaches QML.
+        /// Plans the transaction queue; answers with the request id.
         #[qinvokable]
-        fn open_queue_plan(self: &InstalledBackend) -> QObjectMutPtr;
+        fn open_queue_plan(self: Pin<&mut InstalledBackend>) -> u64;
 
+        /// Plans the system upgrade (`xbps-install -n -Su`).
         #[qinvokable]
-        fn open_system_plan(self: &InstalledBackend) -> QObjectMutPtr;
+        fn open_system_plan(self: Pin<&mut InstalledBackend>) -> u64;
 
+        /// Plans installing exactly `names`.
         #[qinvokable]
         fn open_named_plan(
-            self: &InstalledBackend,
+            self: Pin<&mut InstalledBackend>,
             names: &QStringList,
             title_key: &QString,
-        ) -> QObjectMutPtr;
+        ) -> u64;
 
+        /// Plans removing `name` (and, with `cascade`, whatever else the call
+        /// asked for).
         #[qinvokable]
-        fn open_remove(self: &InstalledBackend, name: &QString, cascade: bool) -> QObjectMutPtr;
+        fn open_remove(self: Pin<&mut InstalledBackend>, name: &QString, cascade: bool) -> u64;
 
+        /// Plans removing `names`, the list the Blocked dialog approved.
         #[qinvokable]
         fn open_remove_names(
-            self: &InstalledBackend,
+            self: Pin<&mut InstalledBackend>,
             names: &QStringList,
             cascade: bool,
-        ) -> QObjectMutPtr;
+        ) -> u64;
+
+        /// One plan finished: the payload as JSON, the request it belongs to
+        /// and the title/blocked metadata the dialog needs to rebuild it.
+        /// QML calls `makePlan(payloadJson)` for a plan with steps.
+        // The payload carries its own title and names, so the signal only says
+        // which request it answers and which payload to build.
+        #[qsignal]
+        fn plan_ready(self: Pin<&mut InstalledBackend>, payload_json: QString, request: u64);
+
+        /// Builds the `PlanBackend` child of a payload QML received; the
+        /// caller owns it and releases it like every other plan.
+        #[qinvokable]
+        fn make_plan(self: &InstalledBackend, payload_json: &QString) -> QObjectMutPtr;
+
+        /// Whether a plan is being read right now; the dialogs show a spinner.
+        #[qinvokable]
+        fn plan_loading_of(self: &InstalledBackend) -> bool;
 
         #[qinvokable]
         fn apply_plan(self: &InstalledBackend, plan: QObjectMutPtr) -> QObjectMutPtr;
@@ -221,12 +256,16 @@ pub struct InstalledBackendRust {
     read_error: QString,
     read_error_args: QStringList,
     loading: bool,
+    plan_loading: bool,
     /// The last snapshot xbps answered; its updates and orphans are what the
     /// model and the query façade show. `None` until the first read.
     snapshot: Option<Snapshot>,
     /// How many reads were started; only the newest may write its result, so
     /// a slow first read cannot overwrite a newer one.
     generation: Arc<AtomicU64>,
+    /// Same guard for plans: a dry run that finishes after a newer request
+    /// started is dropped, and a plan is never shown for a stale queue.
+    plan_generation: Arc<AtomicU64>,
     /// The process transport. Tests install a fake here, so the suite never
     /// starts xbps; production installs [`crate::xbps_bridge::production_invoke`].
     invoke: SharedInvoke,
@@ -250,8 +289,10 @@ impl Default for InstalledBackendRust {
             read_error: QString::from(""),
             read_error_args: QStringList::default(),
             loading: false,
+            plan_loading: false,
             snapshot: None,
             generation: Arc::new(AtomicU64::new(0)),
+            plan_generation: Arc::new(AtomicU64::new(0)),
             invoke: crate::xbps_bridge::production_invoke(),
         }
     }
@@ -344,32 +385,35 @@ impl qobject::InstalledBackend {
         refresh(self.as_mut());
     }
 
-    fn open_queue_plan(&self) -> QObjectMutPtr {
-        let payload = queue_payload(
-            &self.catalog,
-            &self.store.installed,
-            &repos_from_installed(&self.store.installed),
-            self.store.pending_updates(),
-            &self.store.queue,
-        );
-        self.plan_object(&payload)
+    /// Plans the transaction queue on a worker thread.
+    fn open_queue_plan(mut self: Pin<&mut Self>) -> u64 {
+        let (request, title_key) = {
+            let data = &*self;
+            (
+                PlanTask::queue(&data.store),
+                plan_keys::PLAN_QUEUE.to_string(),
+            )
+        };
+        self.as_mut()
+            .start_plan(request, title_key, Vec::new(), Vec::new())
     }
 
-    fn open_system_plan(&self) -> QObjectMutPtr {
-        let payload = system_payload(
-            &self.catalog,
-            &self.store.installed,
-            &repos_from_installed(&self.store.installed),
-            self.store.pending_updates(),
-        );
-        self.plan_object(&payload)
+    /// Plans the system upgrade on a worker thread.
+    fn open_system_plan(mut self: Pin<&mut Self>) -> u64 {
+        self.as_mut().start_plan(
+            PlanTask::system(),
+            plan_keys::PLAN_SYSTEM.to_string(),
+            Vec::new(),
+            Vec::new(),
+        )
     }
 
+    /// Plans installing exactly `names` on a worker thread.
     fn open_named_plan(
-        &self,
+        mut self: Pin<&mut Self>,
         names: &cxx_qt_lib::QStringList,
         title_key: &cxx_qt_lib::QString,
-    ) -> QObjectMutPtr {
+    ) -> u64 {
         let names = strings_of(names);
         let title_key = title_key.to_string();
         let title_key = if title_key.is_empty() {
@@ -377,28 +421,107 @@ impl qobject::InstalledBackend {
         } else {
             title_key
         };
-        let payload = named_payload(
-            &self.catalog,
-            &self.store.installed,
-            &repos_from_installed(&self.store.installed),
-            &names,
-            &title_key,
-        );
-        self.plan_object(&payload)
+        self.as_mut()
+            .start_plan(PlanTask::named(names.clone()), title_key, Vec::new(), names)
     }
 
-    fn open_remove(&self, name: &cxx_qt_lib::QString, cascade: bool) -> QObjectMutPtr {
-        self.open_remove_names(&cxx_qt_lib::QStringList::from(name), cascade)
+    /// Plans removing `name` on a worker thread.
+    fn open_remove(mut self: Pin<&mut Self>, name: &cxx_qt_lib::QString, cascade: bool) -> u64 {
+        self.as_mut()
+            .open_remove_names(&cxx_qt_lib::QStringList::from(name), cascade)
     }
 
-    fn open_remove_names(&self, names: &cxx_qt_lib::QStringList, cascade: bool) -> QObjectMutPtr {
-        let payload = remove_payload(
-            &self.catalog,
-            &self.store.installed,
-            &strings_of(names),
-            cascade,
-        );
-        self.plan_object(&payload)
+    /// Plans removing `names` on a worker thread.
+    fn open_remove_names(
+        mut self: Pin<&mut Self>,
+        names: &cxx_qt_lib::QStringList,
+        cascade: bool,
+    ) -> u64 {
+        let names = strings_of(names);
+        let title_key = if cascade {
+            plan_keys::PLAN_CASCADE
+        } else {
+            plan_keys::PLAN_REMOVE
+        };
+        self.as_mut().start_plan(
+            PlanTask::remove(names.clone()),
+            title_key.to_string(),
+            vec![names.join(" ")],
+            names,
+        )
+    }
+
+    /// Starts the dry runs of one plan and answers with its request id.
+    ///
+    /// The GUI thread only takes a copy of what the worker needs and spawns the
+    /// thread; the answer arrives through `qt_thread().queue(...)`, the only
+    /// way a background thread may touch this object.
+    fn start_plan(
+        mut self: Pin<&mut Self>,
+        task: PlanTask,
+        title_key: String,
+        title_args: Vec<String>,
+        names: Vec<String>,
+    ) -> u64 {
+        let request = self.plan_generation.fetch_add(1, Ordering::SeqCst) + 1;
+        let current = Arc::clone(&self.plan_generation);
+        let invoke = Arc::clone(&self.invoke);
+        let installed = self.store.installed.clone();
+        let repos = repos_from_installed(&installed);
+        let catalog = Arc::clone(&self.catalog);
+        {
+            let data = Pin::get_mut(self.as_mut().rust_mut());
+            data.plan_loading = true;
+        }
+        self.as_mut().plan_loading_changed();
+
+        let thread = self.qt_thread();
+        std::thread::spawn(move || {
+            let payload = task.run(&installed, &repos, &catalog, &*invoke);
+            let _ = (title_key, title_args, names);
+            let meta = PlanMeta { request };
+            thread
+                .queue(move |backend| backend.finish_plan(request, &current, meta, payload))
+                .ok();
+        });
+        request
+    }
+
+    /// Emits a finished plan, unless a newer request owns the dialog.
+    fn finish_plan(
+        mut self: Pin<&mut Self>,
+        request: u64,
+        current: &Arc<AtomicU64>,
+        meta: PlanMeta,
+        payload: PlanPayload,
+    ) {
+        if current.load(Ordering::SeqCst) != request {
+            // A newer plan owns the dialog; this answer describes a queue the
+            // user has already moved past.
+            return;
+        }
+        let was_loading = {
+            let data = Pin::get_mut(self.as_mut().rust_mut());
+            let was_loading = data.plan_loading;
+            data.plan_loading = false;
+            was_loading
+        };
+        if was_loading {
+            self.as_mut().plan_loading_changed();
+        }
+        let json = serde_json::to_string(&payload).unwrap_or_else(|_| String::from("{}"));
+        self.as_mut()
+            .plan_ready(QString::from(json.as_str()), meta.request);
+    }
+
+    /// Builds the plan object QML was told about.
+    fn make_plan(&self, payload_json: &cxx_qt_lib::QString) -> QObjectMutPtr {
+        qobject::create_plan_backend(self.parent_ptr(), payload_json)
+    }
+
+    /// Whether a plan is in flight.
+    fn plan_loading_of(&self) -> bool {
+        self.plan_loading
     }
 
     fn apply_plan(&self, plan: QObjectMutPtr) -> QObjectMutPtr {
@@ -651,132 +774,146 @@ impl qobject::InstalledBackend {
             )
         }
     }
+}
 
-    /// Wraps a payload into a child `PlanBackend` and hands it to QML.
-    fn plan_object(&self, payload: &PlanPayload) -> QObjectMutPtr {
-        let json = serde_json::to_string(payload).unwrap_or_else(|_| String::from("{}"));
-        qobject::create_plan_backend(self.parent_ptr(), &QString::from(json.as_str()))
+/// What one `open*` asks the worker to plan, and how it becomes a payload.
+///
+/// The variants carry exactly what the dry runs need; the installed set, the
+/// enabled repositories and the catalog are copied at spawn time, so a plan
+/// always describes the system the queue was built against.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum PlanTask {
+    /// Installs and updates first, then removals, as the queue asks.
+    Queue(Vec<QueueItem>),
+    /// `xbps-install -n -Su`.
+    System,
+    /// `xbps-install -n <names>`.
+    Named(Vec<String>),
+    /// `xbps-remove -n <names>`.
+    Remove(Vec<String>),
+}
+
+impl PlanTask {
+    /// The task of `openQueuePlan`.
+    pub fn queue(store: &Store) -> Self {
+        Self::Queue(store.queue.clone())
     }
+
+    /// The task of `openSystemPlan`.
+    pub fn system() -> Self {
+        Self::System
+    }
+
+    /// The task of `openNamedPlan`.
+    pub fn named(names: Vec<String>) -> Self {
+        Self::Named(names)
+    }
+
+    /// The task of `openRemoveNames`.
+    pub fn remove(names: Vec<String>) -> Self {
+        Self::Remove(names)
+    }
+
+    /// Runs the task's dry runs and returns the payload the dialog shows.
+    ///
+    /// Runs on the worker thread; every process call goes through `invoke`, so
+    /// this is testable without a GUI and the suite never starts xbps.
+    pub fn run(
+        &self,
+        installed: &InstalledMap,
+        repos: &Repos,
+        catalog: &Catalog,
+        invoke: &crate::xbps_snapshot::Invoke,
+    ) -> PlanPayload {
+        match self {
+            Self::System => xbps_plan::system_payload(installed, invoke),
+            Self::Named(names) => named_payload(
+                installed,
+                repos,
+                catalog,
+                names,
+                plan_keys::PLAN_INSTALL,
+                invoke,
+            ),
+            Self::Remove(names) => xbps_plan::remove_payload(installed, names, false, invoke),
+            Self::Queue(queue) => queue_payload(installed, repos, catalog, queue, invoke),
+        }
+    }
+}
+
+/// What a finished plan reports back: the request it answers.
+///
+/// The title, its arguments and the user's names travel inside the payload, so
+/// QML builds the dialog from one object and nothing can disagree.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct PlanMeta {
+    pub request: u64,
 }
 
 /// Plan payload for the transaction queue.
 ///
-/// `updates` is the list the last read reported; it is what the held note
-/// needs, because the catalog no longer decides what an update is.
+/// Installs and updates come from one `xbps-install -n`, removals from one
+/// `xbps-remove -n`. A blocked removal wins and discards the steps: the dialog
+/// must not offer Apply for a transaction xbps refuses.
 pub fn queue_payload(
-    catalog: &Catalog,
     installed: &InstalledMap,
     repos: &Repos,
-    updates: &[UpdateEntry],
+    catalog: &Catalog,
     queue: &[QueueItem],
+    invoke: &crate::xbps_snapshot::Invoke,
 ) -> PlanPayload {
     if queue.is_empty() {
         return PlanPayload::notice(plan_keys::NOTICE_EMPTY_QUEUE);
     }
-    match plan_queue(catalog, installed, repos, queue) {
-        Ok(plan) if plan.blocked.is_empty() && plan.items.is_empty() => {
-            PlanPayload::notice(plan_keys::NOTICE_EMPTY_QUEUE)
-        }
-        Ok(plan) => {
-            let names = queue
+    let missing = not_installed(queue, installed);
+    if !missing.is_empty() {
+        return PlanPayload::from_error(&xbps_plan::PlanError::NotInstalled(missing));
+    }
+    let payload = xbps_plan::queue_payload(installed, repos, catalog, queue, invoke);
+    let mut payload = payload;
+    // The held note concerns the packages the queue actually updates; xbps
+    // neither holds nor reports them, so it is added here.
+    let updates = installed
+        .keys()
+        .filter(|name| queue.iter().any(|item| &item.name == *name))
+        .count();
+    if updates > 0 && payload.note_key.is_empty() {
+        let held = held_in_queue(
+            &installed
                 .iter()
-                .filter(|item| item.action == QueueAction::Remove)
-                .map(|item| item.name.clone())
-                .collect();
-            let mut payload =
-                PlanPayload::from_plan(plan, plan_keys::PLAN_QUEUE, Vec::new(), names);
-            let held = held_in_queue(updates, installed, queue);
-            if !held.is_empty() {
-                payload.note_key = plan_keys::NOTE_HELD.to_string();
-                payload.note_args = vec![held.join(", ")];
-            }
-            payload
+                .filter(|(_, inst)| inst.held)
+                .map(|(name, inst)| UpdateEntry {
+                    name: name.clone(),
+                    version: inst.version.clone(),
+                    pkgver: format!("{name}-{}", inst.version),
+                    action: kxbps_core::XbpsAction::Update,
+                    arch: String::new(),
+                    repository: String::new(),
+                    installed_size: 0,
+                    download_size: 0,
+                })
+                .collect::<Vec<_>>(),
+            installed,
+            queue,
+        );
+        if !held.is_empty() {
+            payload.note_key = plan_keys::NOTE_HELD.to_string();
+            payload.note_args = vec![held.join(", ")];
         }
-        Err(err) => PlanPayload::error(&err),
     }
-}
-
-/// Plan payload for the system upgrade.
-pub fn system_payload(
-    catalog: &Catalog,
-    installed: &InstalledMap,
-    repos: &Repos,
-    updates: &[UpdateEntry],
-) -> PlanPayload {
-    match plan_system(catalog, installed, repos) {
-        Ok(items) if items.is_empty() => PlanPayload::notice(plan_keys::NOTICE_EMPTY_SYSTEM),
-        Ok(items) => {
-            let mut payload = PlanPayload::from_plan(
-                Plan {
-                    items,
-                    blocked: Vec::new(),
-                },
-                plan_keys::PLAN_SYSTEM,
-                Vec::new(),
-                Vec::new(),
-            );
-            let held = held_updates_in(updates, installed);
-            if !held.is_empty() {
-                payload.note_key = plan_keys::NOTE_HELD.to_string();
-                payload.note_args = vec![held.join(", ")];
-            }
-            payload
-        }
-        Err(err) => PlanPayload::error(&err),
-    }
+    payload
 }
 
 /// Plan payload for "install exactly these packages".
 pub fn named_payload(
-    catalog: &Catalog,
     installed: &InstalledMap,
     repos: &Repos,
+    catalog: &Catalog,
     names: &[String],
     title_key: &str,
+    invoke: &crate::xbps_snapshot::Invoke,
 ) -> PlanPayload {
-    let queue: Vec<QueueItem> = names
-        .iter()
-        .map(|name| QueueItem {
-            name: name.clone(),
-            action: QueueAction::Install,
-        })
-        .collect();
-    match plan_install(catalog, installed, repos, &queue) {
-        Ok(items) if items.is_empty() => PlanPayload::notice(plan_keys::NOTICE_EMPTY_INSTALL),
-        Ok(items) => PlanPayload::from_plan(
-            Plan {
-                items,
-                blocked: Vec::new(),
-            },
-            title_key,
-            Vec::new(),
-            names.to_vec(),
-        ),
-        Err(err) => PlanPayload::error(&err),
-    }
-}
-
-/// Plan payload for a removal, blocked list included.
-pub fn remove_payload(
-    catalog: &Catalog,
-    installed: &InstalledMap,
-    names: &[String],
-    cascade: bool,
-) -> PlanPayload {
-    let plan = plan_remove(catalog, installed, names, cascade);
-    let title_key = if cascade {
-        plan_keys::PLAN_CASCADE
-    } else {
-        plan_keys::PLAN_REMOVE
-    };
-    let title_args = vec![names.join(" ")];
-    if plan.is_blocked() {
-        return PlanPayload::from_plan(plan, title_key, title_args, names.to_vec());
-    }
-    if plan.items.is_empty() {
-        return PlanPayload::notice(plan_keys::NOTICE_EMPTY_REMOVE);
-    }
-    PlanPayload::from_plan(plan, title_key, title_args, names.to_vec())
+    xbps_plan::named_payload(installed, repos, catalog, names, title_key, invoke)
 }
 
 /// Held packages that the queue actually wants to update.
@@ -1006,7 +1143,9 @@ fn now_ms() -> i64 {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use kxbps_core::{PlanAction, PlanReason, SEED_AT};
+    use crate::xbps_plan::PlanError;
+    use kxbps_core::{PlanAction, PlanReason, SEED_AT, XbpsAction};
+    use std::sync::{Arc, Mutex};
 
     fn catalog() -> Catalog {
         Catalog::load_from_str(include_str!("../resources/catalog.json")).unwrap()
@@ -1018,35 +1157,6 @@ mod tests {
         (catalog, store.installed)
     }
 
-    /// The updates the read layer would report for the seed image: every
-    /// installed package whose seed version is below the catalog's, plus the
-    /// dependency pins the plan tests need. The read layer gets this list from
-    /// `xbps-install -un`; the seed only knows the versions.
-    fn seed_updates(catalog: &Catalog, installed: &InstalledMap) -> Vec<UpdateEntry> {
-        let mut updates: Vec<UpdateEntry> = installed
-            .iter()
-            .filter_map(|(name, inst)| {
-                let pkg = catalog.by_name(name)?;
-                (pkg.version != inst.version).then(|| update_entry(name, &pkg.version))
-            })
-            .collect();
-        updates.sort_by(|left, right| left.name.cmp(&right.name));
-        updates
-    }
-
-    fn update_entry(name: &str, version: &str) -> UpdateEntry {
-        UpdateEntry {
-            name: name.to_owned(),
-            version: version.to_owned(),
-            pkgver: format!("{name}-{version}"),
-            action: kxbps_core::XbpsAction::Update,
-            arch: "x86_64".to_owned(),
-            repository: "https://repo.example/current".to_owned(),
-            installed_size: 1,
-            download_size: 1,
-        }
-    }
-
     fn queue(name: &str, action: QueueAction) -> Vec<QueueItem> {
         vec![QueueItem {
             name: name.into(),
@@ -1054,74 +1164,129 @@ mod tests {
         }]
     }
 
+    fn update_entry(name: &str, version: &str) -> UpdateEntry {
+        UpdateEntry {
+            name: name.to_owned(),
+            version: version.to_owned(),
+            pkgver: format!("{name}-{version}"),
+            action: XbpsAction::Update,
+            arch: "x86_64".to_owned(),
+            repository: "https://repo.example/current".to_owned(),
+            installed_size: 1,
+            download_size: 1,
+        }
+    }
+
+    /// The argv lists a fake transport was asked to run.
+    type Seen = Arc<Mutex<Vec<Vec<String>>>>;
+
+    /// A transport that answers every request with one canned reply and
+    /// remembers the argv it was asked for.
+    fn one_answer(reply: &str) -> (SharedInvoke, Seen) {
+        let seen = Arc::new(Mutex::new(Vec::new()));
+        let recorder = Arc::clone(&seen);
+        let reply = reply.to_owned();
+        let invoke: SharedInvoke = Arc::new(move |request: &str, _: u32| {
+            let argv: Vec<String> = serde_json::from_str(request).expect("request decodes");
+            recorder.lock().map(|mut seen| seen.push(argv)).ok();
+            reply.clone()
+        });
+        (invoke, seen)
+    }
+
+    fn ok_reply(stdout: &str) -> String {
+        serde_json::json!({
+            "exitCode": 0,
+            "stdout": stdout,
+            "stderr": "",
+            "timedOut": false,
+        })
+        .to_string()
+    }
+
+    fn exit_reply(exit_code: i32, stdout: &str, stderr: &str) -> String {
+        serde_json::json!({
+            "exitCode": exit_code,
+            "stdout": stdout,
+            "stderr": stderr,
+            "timedOut": false,
+        })
+        .to_string()
+    }
+
     #[test]
-    fn queue_plan_installs_a_package_missing_from_the_seed_image() {
-        // `vim` is part of the seed image, so the interesting install is a
-        // package the image does not have. `ark` needs `qt6-base`, which needs
-        // `mesa` — pinned below the catalog by the seed, so the plan is the
-        // dependency update followed by the install.
+    fn the_queue_plan_is_the_dependency_install_xbps_reported() {
+        // `xbps-install -n ark` answers with the outdated dependency first,
+        // then the package the user asked for; the dialog shows exactly that.
         let (catalog, installed) = seed();
-        let updates = seed_updates(&catalog, &installed);
+        let (invoke, seen) = one_answer(&ok_reply(
+            "mesa-25.2_1 update x86_64 https://r/current 4194304 1468006\n\
+             ark-25.08.0_1 install x86_64 https://r/current 2097152 524288\n",
+        ));
         let payload = queue_payload(
-            &catalog,
             &installed,
             &repos_from_installed(&installed),
-            &updates,
+            &catalog,
             &queue("ark", QueueAction::Install),
+            &*invoke,
         );
         assert_eq!(payload.title_key, "planQueue");
         assert!(payload.error_key.is_empty());
         assert!(payload.notice_key.is_empty());
-        assert_eq!(payload.items.len(), 2, "mesa is an outdated dependency");
-        assert_eq!(payload.items[0].name, "mesa");
+        assert_eq!(payload.items.len(), 2, "xbps reported two steps");
         assert_eq!(payload.items[0].action, PlanAction::Update);
         assert_eq!(payload.items[0].reason, PlanReason::Dependency);
         assert_eq!(payload.items[1].name, "ark");
-        assert_eq!(payload.items[1].action, PlanAction::Install);
         assert_eq!(payload.items[1].reason, PlanReason::Requested);
+        assert_eq!(
+            seen.lock().map(|seen| seen[0].clone()).unwrap(),
+            ["xbps-install", "-n", "ark"]
+        );
     }
 
     #[test]
-    fn queue_plan_pulls_in_an_outdated_dependency() {
-        // The seed pins `git` and `curl` below the catalog, so updating `git`
-        // plans the dependency update first.
+    fn a_queue_with_nothing_to_do_is_a_notice() {
         let (catalog, installed) = seed();
-        let updates = seed_updates(&catalog, &installed);
+        let (invoke, _) = one_answer(&ok_reply(""));
         let payload = queue_payload(
-            &catalog,
             &installed,
             &repos_from_installed(&installed),
-            &updates,
-            &queue("git", QueueAction::Update),
+            &catalog,
+            &queue("ark", QueueAction::Install),
+            &*invoke,
         );
-        assert!(payload.error_key.is_empty());
-        assert!(
-            payload
-                .items
-                .iter()
-                .any(|item| item.name == "curl" && item.reason == PlanReason::Dependency),
-            "curl is planned as a dependency"
+        assert_eq!(payload.notice_key, "emptyQueue");
+        assert!(payload.items.is_empty());
+    }
+
+    #[test]
+    fn an_update_of_a_package_that_is_not_installed_never_runs_xbps() {
+        let (catalog, installed) = seed();
+        let (invoke, seen) = one_answer(&ok_reply(""));
+        let payload = queue_payload(
+            &installed,
+            &repos_from_installed(&installed),
+            &catalog,
+            &queue("ghost", QueueAction::Update),
+            &*invoke,
         );
-        assert!(
-            payload.items.iter().any(|item| item.name == "git"),
-            "git itself is planned"
-        );
-        let curl = payload.items.iter().position(|item| item.name == "curl");
-        let git = payload.items.iter().position(|item| item.name == "git");
-        assert!(curl < git, "dependencies come before dependents");
+        assert_eq!(payload.error_key, "errorNotInstalled");
+        assert!(seen.lock().map(|seen| seen.is_empty()).unwrap());
     }
 
     #[test]
     fn applying_the_plan_adds_exactly_one_package() {
         let (catalog, installed) = seed();
         assert_eq!(installed.len(), 56, "seed image size");
-        let updates = seed_updates(&catalog, &installed);
+        let (invoke, _) = one_answer(&ok_reply(
+            "ark-25.08.0_1 install x86_64 https://r/current 2097152 524288\n",
+        ));
         let payload = queue_payload(
-            &catalog,
             &installed,
             &repos_from_installed(&installed),
-            &updates,
+            &catalog,
             &queue("ark", QueueAction::Install),
+            &*invoke,
         );
         let mut store = Store::fresh(&catalog);
         store.queue = queue("ark", QueueAction::Install);
@@ -1142,19 +1307,18 @@ mod tests {
 
     #[test]
     fn reinstalling_a_seed_package_keeps_the_installed_count() {
-        // The brief expected `vim` to be a fresh install; it is part of the seed
-        // image, so the queue produces a reinstall and the count stays at 56.
         let (catalog, installed) = seed();
-        let updates = seed_updates(&catalog, &installed);
+        let (invoke, _) = one_answer(&ok_reply(
+            "vim-9.2.1031_1 reinstall x86_64 https://r/current 4194304 1468006\n",
+        ));
         let payload = queue_payload(
-            &catalog,
             &installed,
             &repos_from_installed(&installed),
-            &updates,
+            &catalog,
             &queue("vim", QueueAction::Install),
+            &*invoke,
         );
         assert_eq!(payload.items.len(), 1);
-        assert_eq!(payload.items[0].name, "vim");
         assert_eq!(payload.items[0].action, PlanAction::Reinstall);
 
         let mut store = Store::fresh(&catalog);
@@ -1169,55 +1333,66 @@ mod tests {
     }
 
     #[test]
-    fn system_plan_matches_the_core_update_list() {
-        let (catalog, installed) = seed();
-        let repos = repos_from_installed(&installed);
-        let updates = seed_updates(&catalog, &installed);
-        assert!(!updates.is_empty(), "the seed pins outdated versions");
-        let payload = system_payload(&catalog, &installed, &repos, &updates);
+    fn the_system_plan_is_the_update_all_dry_run() {
+        let (installed, _) = (seed().1, ());
+        let (invoke, seen) = one_answer(&ok_reply(
+            "vim-9.2.2000_1 update x86_64 https://r/current 4194304 1468006\n",
+        ));
+        let payload = crate::xbps_plan::system_payload(&installed, &*invoke);
         assert_eq!(payload.title_key, "planSystem");
-        assert!(
-            payload.items.len() >= updates.len(),
-            "every reported update is planned"
+        assert_eq!(payload.items.len(), 1);
+        assert_eq!(
+            seen.lock().map(|seen| seen[0].clone()).unwrap(),
+            ["xbps-install", "-n", "-Su"]
         );
-        for update in &updates {
-            assert!(
-                payload.items.iter().any(|item| item.name == update.name),
-                "{} is planned",
-                update.name
-            );
-        }
     }
 
     #[test]
-    fn removing_glibc_reports_its_dependents() {
-        let (catalog, installed) = seed();
-        let payload = remove_payload(&catalog, &installed, &["glibc".to_string()], false);
+    fn an_up_to_date_system_is_a_notice() {
+        let (installed, _) = (seed().1, ());
+        let (invoke, _) = one_answer(&ok_reply(""));
+        let payload = crate::xbps_plan::system_payload(&installed, &*invoke);
+        assert_eq!(payload.notice_key, "emptySystem");
+    }
+
+    #[test]
+    fn removing_a_needed_package_reports_the_dry_run_refusal() {
+        // `xbps-remove -n acpid` exits 19 and names what breaks; that refusal
+        // is the only source of `blocked`.
+        let (_, installed) = seed();
+        let (invoke, seen) = one_answer(&exit_reply(
+            19,
+            "",
+            "acpid-2.0.34_4 in transaction breaks installed pkg 'base-system-0.114_2'\n\
+             ERROR: Transaction aborted due to unresolved dependencies.\n",
+        ));
+        let names = vec!["acpid".to_string()];
+        let payload = crate::xbps_plan::remove_payload(&installed, &names, false, &*invoke);
         assert!(payload.items.is_empty(), "a blocked plan has no steps");
-        assert!(
-            payload
-                .blocked
-                .iter()
-                .any(|blocked| blocked.name == "glibc"),
-            "glibc is blocked"
+        assert_eq!(payload.blocked.len(), 1);
+        assert_eq!(payload.blocked[0].name, "acpid");
+        assert_eq!(
+            payload.blocked[0].needed_by,
+            vec!["base-system-0.114_2".to_string()]
         );
-        let blocked = payload
-            .blocked
-            .iter()
-            .find(|blocked| blocked.name == "glibc")
-            .unwrap();
-        assert!(!blocked.needed_by.is_empty(), "dependents are listed");
-        assert!(blocked.needed_by.iter().any(|name| name == "bash"));
-        assert_eq!(payload.names, vec!["glibc".to_string()]);
+        assert_eq!(payload.names, names);
         assert_eq!(payload.title_key, "planRemove");
+        assert_eq!(
+            seen.lock().map(|seen| seen[0].clone()).unwrap(),
+            ["xbps-remove", "-n", "acpid"]
+        );
     }
 
     #[test]
-    fn cascade_removes_the_dependents_instead_of_blocking() {
-        let (catalog, installed) = seed();
-        let payload = remove_payload(&catalog, &installed, &["glibc".to_string()], true);
+    fn a_cascade_removal_is_a_plain_removal_plan_with_its_own_title() {
+        let (_, installed) = seed();
+        let (invoke, _) = one_answer(&ok_reply(
+            "glibc-2.41_1 remove x86_64 https://r/current 0 848\n\
+             bash-5.2_1 remove x86_64 https://r/current 8100000 0\n",
+        ));
+        let names = vec!["glibc".to_string(), "bash".to_string()];
+        let payload = crate::xbps_plan::remove_payload(&installed, &names, true, &*invoke);
         assert!(payload.blocked.is_empty());
-        assert!(payload.items.iter().any(|item| item.name == "glibc"));
         assert!(
             payload
                 .items
@@ -1230,8 +1405,18 @@ mod tests {
 
     #[test]
     fn removing_an_uninstalled_package_is_a_notice() {
-        let (catalog, installed) = seed();
-        let payload = remove_payload(&catalog, &installed, &["nonexistent".to_string()], false);
+        let (_, installed) = seed();
+        let (invoke, _) = one_answer(&exit_reply(
+            2,
+            "",
+            "Package `nonexistent' is not currently installed.",
+        ));
+        let payload = crate::xbps_plan::remove_payload(
+            &installed,
+            &["nonexistent".to_string()],
+            false,
+            &*invoke,
+        );
         assert_eq!(payload.notice_key, "emptyRemove");
         assert!(payload.items.is_empty());
     }
@@ -1239,75 +1424,121 @@ mod tests {
     #[test]
     fn named_plan_keeps_the_callers_title_key() {
         let (catalog, installed) = seed();
+        let (invoke, _) = one_answer(&ok_reply(
+            "ark-25.08.0_1 install x86_64 https://r/current 2097152 524288\n",
+        ));
         let payload = named_payload(
-            &catalog,
             &installed,
             &repos_from_installed(&installed),
+            &catalog,
             &["ark".to_string()],
             "planInstall",
+            &*invoke,
         );
         assert_eq!(payload.title_key, "planInstall");
         assert!(payload.items.iter().any(|item| item.name == "ark"));
-        assert_eq!(payload.names, vec!["ark".to_string()]);
     }
 
     #[test]
     fn unknown_packages_become_an_error_key() {
         let (catalog, installed) = seed();
+        let (invoke, _) = one_answer(&exit_reply(
+            2,
+            "",
+            "ERROR: Package 'nope' not found in repository pool.",
+        ));
         let payload = named_payload(
-            &catalog,
             &installed,
             &repos_from_installed(&installed),
+            &catalog,
             &["nope".to_string()],
             "planInstall",
+            &*invoke,
         );
         assert_eq!(payload.error_key, "errorUnknownPackage");
         assert_eq!(payload.error_args, vec!["nope".to_string()]);
     }
 
     #[test]
-    fn disabled_repository_becomes_a_key_with_the_repo() {
+    fn disabled_repository_is_named_before_any_dry_run() {
+        // `steam` lives in nonfree, which the seed image does not enable. xbps
+        // would only answer "not found"; the catalog knows why.
         let (catalog, installed) = seed();
-        // `steam` lives in nonfree, which the seed image does not enable.
+        let (invoke, seen) = one_answer(&ok_reply(""));
         let payload = named_payload(
-            &catalog,
             &installed,
             &repos_from_installed(&installed),
+            &catalog,
             &["steam".to_string()],
             "planInstall",
+            &*invoke,
         );
         assert_eq!(payload.error_key, "errorRepoDisabled");
         assert_eq!(
             payload.error_args,
             vec!["steam".to_string(), "nonfree".to_string()]
         );
+        assert!(seen.lock().map(|seen| seen.is_empty()).unwrap());
     }
 
     #[test]
     fn empty_queue_is_a_notice_not_a_plan() {
         let (catalog, installed) = seed();
-        let payload = queue_payload(&catalog, &installed, &Repos::default(), &[], &[]);
+        let (invoke, _) = one_answer(&ok_reply(""));
+        let payload = queue_payload(
+            &installed,
+            &repos_from_installed(&installed),
+            &catalog,
+            &[],
+            &*invoke,
+        );
         assert_eq!(payload.notice_key, "emptyQueue");
         assert!(payload.items.is_empty());
     }
 
     #[test]
     fn held_note_only_mentions_packages_the_queue_updates() {
-        let (catalog, mut installed) = seed();
-        let updates = seed_updates(&catalog, &installed);
-        assert!(updates.len() >= 2, "the seed has several outdated packages");
-        let held_name = updates[0].name.clone();
+        let (_, mut installed) = seed();
+        let held_name = "vim".to_string();
         installed.get_mut(&held_name).unwrap().held = true;
 
         let queued = queue(&held_name, QueueAction::Update);
         assert_eq!(
-            held_in_queue(&updates, &installed, &queued),
+            held_in_queue(
+                &[update_entry(&held_name, "9.2.2000_1")],
+                &installed,
+                &queued
+            ),
             vec![held_name.clone()]
         );
         assert!(
-            held_in_queue(&updates, &installed, &[]).is_empty(),
+            held_in_queue(&[update_entry(&held_name, "9.2.2000_1")], &installed, &[]).is_empty(),
             "nothing is queued, so nothing is skipped"
         );
+    }
+
+    #[test]
+    fn every_plan_task_chooses_its_dry_runs() {
+        use crate::xbps_plan::{install_argv, remove_argv, system_argv};
+        assert_eq!(
+            crate::xbps_plan::queue_requests(&queue("vim", QueueAction::Install))
+                .0
+                .names,
+            ["vim"]
+        );
+        assert_eq!(install_argv(&["vim".to_string()])[1], "-n");
+        assert_eq!(system_argv(), ["xbps-install", "-n", "-Su"]);
+        assert_eq!(
+            remove_argv(&["vim".to_string()]),
+            ["xbps-remove", "-n", "vim"]
+        );
+    }
+
+    #[test]
+    fn a_plan_error_reaches_the_dialog_as_its_key() {
+        let payload = PlanPayload::from_error(&PlanError::UnknownPackage("nope".into()));
+        assert_eq!(payload.error_key, "errorUnknownPackage");
+        assert!(payload.items.is_empty());
     }
 
     #[test]

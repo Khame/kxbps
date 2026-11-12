@@ -9,13 +9,12 @@
 //! stable translation keys plus their substitution arguments; QML maps them
 //! through `i18nd()`. The keys are listed in [`keys`].
 
+use crate::xbps_plan::PlanError;
 use cxx_qt_lib::{
     QList, QMap, QMapPair_QString_QVariant, QObjectMutPtr, QString, QStringList, QVariant,
     QVariantValue,
 };
-use kxbps_core::{
-    Blocked, EngineError, Plan, PlanItem, RepoId, action_key, plan_totals, reason_key,
-};
+use kxbps_core::{Blocked, Plan, PlanItem, RepoId, action_key, plan_totals, reason_key};
 use serde::{Deserialize, Serialize};
 
 #[cxx_qt::bridge]
@@ -130,31 +129,15 @@ impl PlanPayload {
         }
     }
 
-    /// A payload that only carries an engine error as a translation key.
-    pub fn error(err: &EngineError) -> Self {
-        let (key, args) = match err {
-            EngineError::UnknownPackage(name) => (keys::ERROR_UNKNOWN_PACKAGE, vec![name.clone()]),
-            EngineError::RepoDisabled { package, repo } => (
-                keys::ERROR_REPO_DISABLED,
-                vec![package.clone(), repo_key(*repo).to_string()],
-            ),
-            EngineError::DependencyRepoDisabled {
-                package,
-                dependency,
-                repo,
-            } => (
-                keys::ERROR_DEPENDENCY_REPO_DISABLED,
-                vec![
-                    package.clone(),
-                    dependency.clone(),
-                    repo_key(*repo).to_string(),
-                ],
-            ),
-            EngineError::NotInstalled(names) => (keys::ERROR_NOT_INSTALLED, vec![names.join(", ")]),
-        };
+    /// A payload that only carries a planning failure as a translation key.
+    ///
+    /// The key and its arguments come from [`PlanError`], which turns a refused
+    /// dry run (a package xbps does not know, a disabled repository, a missing
+    /// xbps) into the same shape QML already renders.
+    pub fn from_error(err: &PlanError) -> Self {
         Self {
-            error_key: key.to_string(),
-            error_args: args,
+            error_key: err.key().to_string(),
+            error_args: err.args(),
             ..Self::default()
         }
     }
@@ -444,14 +427,14 @@ mod tests {
     }
 
     #[test]
-    fn engine_errors_become_keys_not_sentences() {
-        let payload = PlanPayload::error(&EngineError::UnknownPackage("nope".into()));
+    fn plan_errors_become_keys_not_sentences() {
+        let payload = PlanPayload::from_error(&PlanError::UnknownPackage("nope".into()));
         assert_eq!(payload.error_key, "errorUnknownPackage");
         assert_eq!(payload.error_args, vec!["nope".to_string()]);
 
-        let payload = PlanPayload::error(&EngineError::RepoDisabled {
+        let payload = PlanPayload::from_error(&PlanError::RepoDisabled {
             package: "steam".into(),
-            repo: RepoId::Nonfree,
+            repo: "nonfree".into(),
         });
         assert_eq!(payload.error_key, "errorRepoDisabled");
         assert_eq!(
@@ -459,7 +442,8 @@ mod tests {
             vec!["steam".to_string(), "nonfree".to_string()]
         );
 
-        let payload = PlanPayload::error(&EngineError::NotInstalled(vec!["a".into(), "b".into()]));
+        let payload =
+            PlanPayload::from_error(&PlanError::NotInstalled(vec!["a".into(), "b".into()]));
         assert_eq!(payload.error_key, "errorNotInstalled");
         assert_eq!(payload.error_args, vec!["a, b".to_string()]);
     }
