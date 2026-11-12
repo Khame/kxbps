@@ -27,7 +27,7 @@ fn main() {
     .files([
         "src/lib.rs",
         "src/package_model.rs",
-        "src/catalog_backend.rs",
+        "src/query_backend.rs",
         "src/installed_backend.rs",
         "src/plan_backend.rs",
         "src/prefs_backend.rs",

@@ -52,11 +52,11 @@ void kxbps_installed_apply_plan(QObject *owner, const QString &itemsJson);
 // Pushes the installed/queue snapshot into the query façade, so `search()` and
 // `get()` answer `installedVersion`/`isUpdate` from the same state as the model.
 // `updatesJson` and `orphansJson` are the lists xbps reported.
-void kxbps_catalog_backend_set_state(QObject *backend,
-                                       const QString &installedJson,
-                                       const QString &queueJson,
-                                       const QString &updatesJson,
-                                       const QString &orphansJson);
+void kxbps_query_backend_set_state(QObject *backend,
+                                   const QString &installedJson,
+                                   const QString &queueJson,
+                                   const QString &updatesJson,
+                                   const QString &orphansJson);
 
 // Schedules `object` for deletion on the next event-loop pass; null-safe.
 // The backend keeps parent ownership of every plan and job it creates, but a

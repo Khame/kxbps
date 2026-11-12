@@ -71,39 +71,39 @@ pub mod qobject {
         #[qproperty(QStringList, facts_error_args, READ, NOTIFY)]
         #[qproperty(QString, facts_pkgver, READ, NOTIFY)]
         #[qproperty(i32, facts_revision, READ, NOTIFY)]
-        type CatalogBackend = super::CatalogBackendRust;
+        type QueryBackend = super::QueryBackendRust;
 
         #[qinvokable]
-        fn version(self: &CatalogBackend) -> QString;
+        fn version(self: &QueryBackend) -> QString;
 
         /// Runs a search on a worker thread. The hits of the previous answer
         /// stay until it lands; QML re-reads through `resultsRevision`.
         #[qinvokable]
-        fn search(self: Pin<&mut CatalogBackend>, query: &QString, mode: &QString);
+        fn search(self: Pin<&mut QueryBackend>, query: &QString, mode: &QString);
 
         /// The hits of the newest answer, as role-keyed maps.
         #[qinvokable]
-        fn results(self: &CatalogBackend) -> QList_QVariant;
+        fn results(self: &QueryBackend) -> QList_QVariant;
 
         /// The facts of one pkgver, as a role-keyed map. An empty map while the
         /// first read is in flight; QML re-reads through `factsRevision`.
         #[qinvokable]
-        fn get(self: &CatalogBackend, pkgver: &QString) -> QMap_QString_QVariant;
+        fn get(self: &QueryBackend, pkgver: &QString) -> QMap_QString_QVariant;
 
         /// Reads a package's facts when nothing has asked for it yet.
         #[qinvokable]
-        fn request_facts(self: Pin<&mut CatalogBackend>, pkgver: &QString);
+        fn request_facts(self: Pin<&mut QueryBackend>, pkgver: &QString);
 
         /// The version a read reported, or the one the pkgver carries.
         #[qinvokable]
-        fn version_of(self: &CatalogBackend, pkgver: &QString) -> QString;
+        fn version_of(self: &QueryBackend, pkgver: &QString) -> QString;
 
         // Pushes the installed/queue snapshot; called by the installed backend
-        // through `kxbps_catalog_backend_set_state`. `updates_json` and
+        // through `kxbps_query_backend_set_state`. `updates_json` and
         // `orphans_json` are the lists xbps reported, so a query hit answers
         // `isUpdate` from the same source as a list row.
         fn set_state(
-            self: Pin<&mut CatalogBackend>,
+            self: Pin<&mut QueryBackend>,
             installed_json: &QString,
             queue_json: &QString,
             updates_json: &QString,
@@ -111,18 +111,18 @@ pub mod qobject {
         );
     }
 
-    impl cxx_qt::Constructor<()> for CatalogBackend {}
+    impl cxx_qt::Constructor<()> for QueryBackend {}
     // A search and a facts read run on worker threads and report back through
     // `qt_thread().queue(...)`; that needs the thread handle CXX-Qt generates.
-    impl cxx_qt::Threading for CatalogBackend {}
+    impl cxx_qt::Threading for QueryBackend {}
 }
 
-/// Rust side of [`qobject::CatalogBackend`].
+/// Rust side of [`qobject::QueryBackend`].
 ///
 /// The read state lives here and every mutation takes `&mut self`: the bridge
 /// methods wrap it in `Pin<&mut Self>`, which only unwraps inside `unsafe`, so
 /// the tweaks and the guards sit together on the plain struct.
-pub struct CatalogBackendRust {
+pub struct QueryBackendRust {
     error: QString,
     catalog: Arc<Catalog>,
     /// The same snapshot the package model holds.
@@ -211,7 +211,7 @@ struct SearchAnswer {
     raw: Option<RawOutput>,
 }
 
-impl Default for CatalogBackendRust {
+impl Default for QueryBackendRust {
     fn default() -> Self {
         Self {
             error: QString::from(""),
@@ -242,7 +242,7 @@ impl Default for CatalogBackendRust {
     }
 }
 
-impl cxx_qt::Initialize for qobject::CatalogBackend {
+impl cxx_qt::Initialize for qobject::QueryBackend {
     /// Reads the embedded catalog. A missing or malformed resource must not
     /// abort the app: it becomes the `error` string QML shows in a banner.
     fn initialize(mut self: Pin<&mut Self>) {
@@ -277,7 +277,7 @@ pub(crate) fn load_catalog(resource: &QString) -> (Catalog, String, QString) {
     }
 }
 
-impl qobject::CatalogBackend {
+impl qobject::QueryBackend {
     fn version(&self) -> QString {
         QString::from(env!("CARGO_PKG_VERSION"))
     }
@@ -292,7 +292,7 @@ impl qobject::CatalogBackend {
         let signature = if list_mode {
             SearchSignature::new(source, "", &query)
         } else {
-            SearchSignature::new(source, &CatalogBackendRust::raw_flag(&mode), &query)
+            SearchSignature::new(source, &QueryBackendRust::raw_flag(&mode), &query)
         };
         let empty = list_mode && query.is_empty();
         {
@@ -388,7 +388,7 @@ impl qobject::CatalogBackend {
     }
 }
 
-impl CatalogBackendRust {
+impl QueryBackendRust {
     /// Replaces the installed and queue snapshots with the store's own values.
     ///
     /// `InstalledState::new` is the same call the package model makes, so
@@ -629,7 +629,7 @@ impl CatalogBackendRust {
     }
 }
 
-impl qobject::CatalogBackend {
+impl qobject::QueryBackend {
     /// Reads the hits on a worker thread and hands them back on the GUI thread.
     fn run_search(self: Pin<&mut Self>, signature: SearchSignature) {
         let generation = self.rust().search_generation.load(Ordering::SeqCst);
@@ -810,10 +810,10 @@ mod tests {
         })
     }
 
-    fn with_invoke(invoke: SharedInvoke) -> CatalogBackendRust {
-        CatalogBackendRust {
+    fn with_invoke(invoke: SharedInvoke) -> QueryBackendRust {
+        QueryBackendRust {
             invoke,
-            ..CatalogBackendRust::default()
+            ..QueryBackendRust::default()
         }
     }
 
@@ -854,7 +854,7 @@ mod tests {
 
     #[test]
     fn every_mode_token_selects_the_database_it_names() {
-        let backend = CatalogBackendRust::default();
+        let backend = QueryBackendRust::default();
         for token in ["l", "m", "O", "H"] {
             assert_eq!(
                 backend.source_for_mode(token),
@@ -974,7 +974,7 @@ mod tests {
         let signature = backend.signature.clone();
         let raw = read_raw(
             &*backend.invoke.clone(),
-            &CatalogBackendRust::raw_flag("L"),
+            &QueryBackendRust::raw_flag("L"),
             "",
         )
         .expect("a repository list lands");
@@ -1000,21 +1000,21 @@ mod tests {
 
     #[test]
     fn only_the_list_modes_are_read_as_packages() {
-        let backend = CatalogBackendRust::default();
+        let backend = QueryBackendRust::default();
         for token in ["Rs", "s", "l", "m", "O", "H"] {
             assert!(backend.lists_packages(token), "token {token}");
         }
         for token in ["L", "show", "x", "X", "f", "o", "R", "p"] {
             assert!(!backend.lists_packages(token), "token {token}");
         }
-        assert_eq!(CatalogBackendRust::raw_flag("show"), "-show");
-        assert_eq!(CatalogBackendRust::raw_flag("Rs"), "-Rs");
+        assert_eq!(QueryBackendRust::raw_flag("show"), "-show");
+        assert_eq!(QueryBackendRust::raw_flag("Rs"), "-Rs");
     }
 
     #[test]
     fn a_new_installed_set_drops_the_facts_of_a_package_it_changed() {
         let catalog = Catalog::load_from_str(include_str!("../resources/catalog.json")).unwrap();
-        let mut backend = CatalogBackendRust::default();
+        let mut backend = QueryBackendRust::default();
         // A package read while it was not installed: no size, not installed.
         backend.begin_facts("zramen-1.0.1_1");
         backend.finish_facts(
@@ -1075,7 +1075,7 @@ mod tests {
 
     #[test]
     fn a_facts_read_for_an_older_pkgver_is_dropped() {
-        let mut backend = CatalogBackendRust::default();
+        let mut backend = QueryBackendRust::default();
         backend.begin_facts("vim-9.2.1031_1");
         backend.begin_facts("ark-25.08.0_1");
         backend.finish_facts(
@@ -1091,7 +1091,7 @@ mod tests {
 
     #[test]
     fn a_failed_facts_read_reports_the_key_and_leaves_the_fields_empty() {
-        let mut backend = CatalogBackendRust::default();
+        let mut backend = QueryBackendRust::default();
         backend.begin_facts("zramen-1.0.1_1");
         backend.finish_facts(
             "zramen-1.0.1_1".to_owned(),
@@ -1116,7 +1116,7 @@ mod tests {
 
     #[test]
     fn the_facts_map_of_an_installed_package_holds_every_read_field() {
-        let backend = CatalogBackendRust::default();
+        let backend = QueryBackendRust::default();
         let map = backend.facts_map("vim", &facts("vim-9.2.1031_1", true));
         assert_eq!(text_of(&map, "name"), "vim");
         assert_eq!(text_of(&map, "version"), "9.2.1031_1");
@@ -1136,7 +1136,7 @@ mod tests {
 
     #[test]
     fn the_facts_map_of_a_package_that_is_not_installed_leaves_the_unknown_fields_empty() {
-        let backend = CatalogBackendRust::default();
+        let backend = QueryBackendRust::default();
         let map = backend.facts_map("zramen", &facts("zramen-1.0.1_1", false));
         assert!(!flag_of(&map, "installed"));
         assert_eq!(text_of(&map, "version"), "1.0.1_1");
@@ -1160,7 +1160,7 @@ mod tests {
                  "installedSize":1,"downloadSize":1}]"#,
         )
         .unwrap();
-        let mut backend = CatalogBackendRust::default();
+        let mut backend = QueryBackendRust::default();
         backend.apply_snapshot(
             installed,
             vec![QueueItem {
@@ -1179,7 +1179,7 @@ mod tests {
 
     #[test]
     fn a_search_hit_map_carries_the_snapshot_and_no_invented_facts() {
-        let backend = CatalogBackendRust::default();
+        let backend = QueryBackendRust::default();
         let map = backend.hit_map(&hit("libx", "1_1", false));
         assert_eq!(text_of(&map, "name"), "libx");
         assert_eq!(text_of(&map, "version"), "1_1");
@@ -1196,7 +1196,7 @@ mod tests {
     fn a_search_hit_map_reports_the_installed_record_it_knows() {
         let catalog = Catalog::load_from_str(include_str!("../resources/catalog.json")).unwrap();
         let store = Store::fresh(&catalog);
-        let mut backend = CatalogBackendRust::default();
+        let mut backend = QueryBackendRust::default();
         backend.apply_snapshot(store.installed.clone(), Vec::new(), Vec::new(), Vec::new());
         let version = store.installed["vim"].version.clone();
         let map = backend.hit_map(&hit("vim", &version, true));
@@ -1226,9 +1226,9 @@ mod tests {
             serde_json::json!({"exitCode": 0, "stdout": "", "stderr": "", "timedOut": false})
                 .to_string()
         });
-        let mut backend = CatalogBackendRust {
+        let mut backend = QueryBackendRust {
             invoke,
-            ..CatalogBackendRust::default()
+            ..QueryBackendRust::default()
         };
         assert!(backend.begin_facts("vim-9.2.1031_1").is_some());
         backend.finish_facts("vim-9.2.1031_1".to_owned(), Ok(PackageFacts::default()));

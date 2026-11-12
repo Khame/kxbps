@@ -168,7 +168,7 @@ pub mod role {
 
 /// Role ids and the names QML sees, in declaration order.
 ///
-/// `data()` and the `QVariantMap`s built by `CatalogBackend` share this table, so
+/// `data()` and the `QVariantMap`s built by `QueryBackend` share this table, so
 /// a delegate reading `model.installedVersion` and a query result reading
 /// `result.installedVersion` always agree.
 pub const ROLES: [(i32, &str); 18] = [
@@ -368,7 +368,7 @@ pub struct PackageModelRust {
 impl PackageModelRust {
     /// Parses the catalog; the list shows it until the first snapshot arrives.
     ///
-    /// `CatalogBackend` validates the catalog before handing it over, so a
+    /// `QueryBackend` validates the catalog before handing it over, so a
     /// parse failure here can only mean the two halves disagree; the model
     /// then starts empty instead of panicking.
     fn new(catalog_json: &str) -> Self {

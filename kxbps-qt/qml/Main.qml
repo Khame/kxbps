@@ -59,8 +59,8 @@ Kirigami.ApplicationWindow {
         return ""
     }
 
-    // Query helpers over the catalog (`search`, `get`).
-    CatalogBackend {
+    // Query helpers over xbps (`search`, `get`).
+    QueryBackend {
         id: catalogBackend
     }
 

@@ -11,7 +11,6 @@ use cxx_qt_lib_extras as _;
 
 use std::pin::Pin;
 
-pub mod catalog_backend;
 pub mod installed_backend;
 pub mod job_backend;
 pub mod log_model;
@@ -20,6 +19,7 @@ pub mod mirror_model;
 pub mod package_model;
 pub mod plan_backend;
 pub mod prefs_backend;
+pub mod query_backend;
 pub mod queue_model;
 pub mod xbps_bridge;
 pub mod xbps_plan;

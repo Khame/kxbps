@@ -3,7 +3,7 @@
 #include <QtCore/QMetaObject>
 #include <QtCore/QVariant>
 
-#include "kxbps-qt/src/catalog_backend.cxxqt.h"
+#include "kxbps-qt/src/query_backend.cxxqt.h"
 #include "kxbps-qt/src/installed_backend.cxxqt.h"
 #include "kxbps-qt/src/job_backend.cxxqt.h"
 #include "kxbps-qt/src/log_model.cxxqt.h"
@@ -73,16 +73,16 @@ void kxbps_installed_apply_plan(QObject *owner, const QString &itemsJson)
     static_cast<InstalledBackend *>(owner)->applyPlanItems(itemsJson);
 }
 
-void kxbps_catalog_backend_set_state(QObject *backend,
-                                       const QString &installedJson,
-                                       const QString &queueJson,
-                                       const QString &updatesJson,
-                                       const QString &orphansJson)
+void kxbps_query_backend_set_state(QObject *backend,
+                                   const QString &installedJson,
+                                   const QString &queueJson,
+                                   const QString &updatesJson,
+                                   const QString &orphansJson)
 {
-    static_cast<CatalogBackend *>(backend)->setState(installedJson,
-                                                       queueJson,
-                                                       updatesJson,
-                                                       orphansJson);
+    static_cast<QueryBackend *>(backend)->setState(installedJson,
+                                                   queueJson,
+                                                   updatesJson,
+                                                   orphansJson);
 }
 
 void kxbps_release_object(QObject *object)

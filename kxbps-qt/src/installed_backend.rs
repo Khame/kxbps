@@ -82,8 +82,8 @@ pub mod qobject {
         #[cxx_name = "kxbps_object_string_property"]
         fn object_string_property(object: QObjectMutPtr, name: &QString) -> QString;
 
-        #[cxx_name = "kxbps_catalog_backend_set_state"]
-        fn catalog_backend_set_state(
+        #[cxx_name = "kxbps_query_backend_set_state"]
+        fn query_backend_set_state(
             backend: QObjectMutPtr,
             installed_json: &QString,
             queue_json: &QString,
@@ -308,7 +308,7 @@ impl cxx_qt::Initialize for qobject::InstalledBackend {
     /// xbps replaces it a moment later (see [`qobject::InstalledBackend::reload`]).
     fn initialize(mut self: Pin<&mut Self>) {
         let json = crate::qobject::read_resource(&QString::from(crate::CATALOG_RESOURCE_PATH));
-        let (catalog, catalog_error, model_json) = crate::catalog_backend::load_catalog(&json);
+        let (catalog, catalog_error, model_json) = crate::query_backend::load_catalog(&json);
         let (store, store_error) = match Store::load(&catalog) {
             Ok(store) => (store, String::new()),
             Err(err) => (Store::fresh(&catalog), format!("{err}")),
@@ -918,7 +918,7 @@ fn push_query_state(
     orphans_json: &QString,
 ) {
     if !query.as_ptr().is_null() {
-        qobject::catalog_backend_set_state(
+        qobject::query_backend_set_state(
             query,
             installed_json,
             queue_json,
