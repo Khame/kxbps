@@ -64,6 +64,7 @@ TRUSTED_FILES="
 kxbps-core/src/probe.rs
 kxbps-core/src/mirror_config.rs
 kxbps-core/src/mirror_apply.rs
+kxbps-core/src/store.rs
 kxbps-core/src/transaction.rs
 kxbps-qt/src/plan_backend.rs
 kxbps-qt/src/job_backend.rs

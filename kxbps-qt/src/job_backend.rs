@@ -146,6 +146,29 @@ pub fn timer_interval(tick_ms: u32) -> i32 {
     i32::try_from(tick_ms).unwrap_or(i32::MAX)
 }
 
+/// Whether one arriving line leaves the job waiting for a lock, and whether
+/// that is a change.
+///
+/// xbps does not fail on a held lock: it prints `package database locked,
+/// waiting...` (or `repository locked: <url>: waiting...`) and waits, then
+/// carries on printing progress once it holds it. So the flag is not
+/// "a lock line was ever seen": a lock line raises it and every other line
+/// lowers it, which is what makes the table row say "waiting for another
+/// process" for exactly as long as that is true.
+///
+/// `waiting` is the job's current value; the answer is whether it changed, so
+/// the caller writes the property only on a transition and a run of ordinary
+/// lines costs no notification at all. The predicate itself lives in
+/// [`kxbps_core::lock_waited_on`], next to the format strings it reads.
+pub fn lock_state(waiting: &mut bool, line: &str) -> bool {
+    let now = kxbps_core::lock_waited_on(line);
+    if *waiting == now {
+        return false;
+    }
+    *waiting = now;
+    true
+}
+
 /// Progress shown `elapsed_ms` into a transaction.
 ///
 /// xbps reports no percentage, so the bar is deliberately indeterminate in
@@ -211,6 +234,15 @@ pub mod qobject {
         /// bridge reaches QML with a queued connection: the read never runs on
         /// the worker, and a burst of lines costs one property write, not one
         /// signal per line.
+        /// Whether the job is waiting for another process to release an xbps
+        /// lock.
+        ///
+        /// xbps prints a lock line and waits instead of failing, and until now
+        /// the dialog looked hung. A lock line raises this flag, the next line
+        /// that is not one lowers it (once xbps holds the lock it prints
+        /// progress), and `settle` clears it, so it is true for exactly as long
+        /// as the wait lasts. Read through [`lock_state`].
+        #[qproperty(bool, waiting_for_lock, READ, NOTIFY)]
         #[qproperty(QList_QString, pending_lines, READ, NOTIFY)]
         type JobBackend = super::JobBackendRust;
 
@@ -881,6 +913,8 @@ pub struct JobBackendRust {
     /// it. A mirror apply's whole output is a handful of lines, so one string
     /// is the whole buffer.
     last_line: String,
+    /// Whether the job is waiting for a lock right now; see [`lock_state`].
+    waiting_for_lock: bool,
     /// Whether this job was told to ask the owner for a fresh system read after
     /// a successful mirror apply. A package transaction leaves it `false`: its
     /// success goes through `installed_apply_plan` instead.
@@ -916,6 +950,7 @@ impl JobBackendRust {
             owner_addr: 0,
             items_json: String::new(),
             last_line: String::new(),
+            waiting_for_lock: false,
             notify_owner: false,
             cancel: Arc::new(AtomicBool::new(false)),
         }
@@ -1027,11 +1062,17 @@ impl qobject::JobBackend {
     /// does not touch it, so the `tick` timer cannot ping-pong with QML.
     fn publish_lines(mut self: Pin<&mut Self>, lines: &LineRegistry) {
         let mut shown = QList_QString::default();
+        let mut lock_changed = false;
         while let Some(line) = lines.take_first() {
-            {
+            let clear_waiting = {
                 let data = Pin::get_mut(self.as_mut().rust_mut());
                 data.last_line = line.clone();
-            }
+                // A lock line raises `waitingForLock`, any other line lowers
+                // it; only the transitions are reported, so a run of ordinary
+                // lines costs no signal.
+                lock_state(&mut data.waiting_for_lock, &line)
+            };
+            lock_changed |= clear_waiting;
             shown.append(QString::from(line.as_str()));
         }
         if shown.is_empty() {
@@ -1042,6 +1083,9 @@ impl qobject::JobBackend {
             data.pending_lines = shown;
         }
         self.as_mut().pending_lines_changed();
+        if lock_changed {
+            self.as_mut().waiting_for_lock_changed();
+        }
     }
 
     /// Appends everything in `pendingLines` to the log model and empties it.
@@ -1214,6 +1258,8 @@ fn settle(mut job: Pin<&mut qobject::JobBackend>, verdict: &Verdict) {
         data.cancelled = verdict.cancelled;
         data.exit_code = verdict.exit_code;
         data.cancellable = false;
+        // The wait ends with the job, however the job ends.
+        data.waiting_for_lock = false;
         data.label_key = QString::from(verdict.key);
         data.label_arg = QString::from(verdict.args.first().map_or("", String::as_str));
         data.slot.release();
@@ -1225,6 +1271,7 @@ fn settle(mut job: Pin<&mut qobject::JobBackend>, verdict: &Verdict) {
     job.as_mut().failed_changed();
     job.as_mut().cancelled_changed();
     job.as_mut().done_changed();
+    job.as_mut().waiting_for_lock_changed();
 }
 
 #[cfg(test)]
@@ -1661,6 +1708,48 @@ mod tests {
         let (seen, runs, _) = run_commands(&commands, &[0, 0]);
         assert_eq!(runs, 2, "both commands ran");
         assert_eq!(seen, commands);
+    }
+
+    /// The property an arriving line leaves behind: a lock line raises it, any
+    /// other line lowers it. This is what the property write compares against,
+    /// so a run of ordinary lines costs no notification at all.
+    #[test]
+    fn a_lock_line_raises_the_waiting_flag_and_the_next_other_line_lowers_it() {
+        let mut waiting = false;
+        assert!(lock_state(
+            &mut waiting,
+            "package database locked, waiting..."
+        ));
+        assert!(waiting, "the database lock is shown while it waits");
+        assert!(
+            lock_state(
+                &mut waiting,
+                "[*] Updating repository `https://example.org/x86_64' ..."
+            ),
+            "xbps printing progress means it holds the lock now, which is a change"
+        );
+        assert!(!waiting, "a non-lock line clears the flag");
+
+        waiting = false;
+        assert!(lock_state(
+            &mut waiting,
+            "repository locked: https://example.org/x86_64: waiting..."
+        ));
+        assert!(waiting, "a repository lock is shown as well");
+        assert!(
+            lock_state(&mut waiting, ""),
+            "an empty line clears the flag and reports the change"
+        );
+        assert!(!waiting);
+    }
+
+    /// A line that is not a lock line leaves the flag down, so the caller can
+    /// skip the property write entirely.
+    #[test]
+    fn an_ordinary_line_reports_no_change_when_no_lock_was_seen() {
+        let mut waiting = false;
+        assert!(!lock_state(&mut waiting, "vim-9.2.1031_1: unpacking ..."));
+        assert!(!waiting);
     }
 
     #[test]

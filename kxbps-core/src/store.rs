@@ -86,6 +86,33 @@ pub enum StoreError {
     },
 }
 
+impl StoreError {
+    /// The i18n key the window maps to a sentence.
+    ///
+    /// The `Display` text names paths and OS errors, which a catalog cannot
+    /// carry, so the UI receives this key plus [`Self::args`] and builds the
+    /// sentence itself. Command output and the technical form stay in the log.
+    pub fn key(&self) -> &'static str {
+        match self {
+            Self::NoDataDir => "errorStoreNoDataDir",
+            Self::Io { .. } => "errorStoreWrite",
+            Self::Json { .. } => "errorStoreFormat",
+        }
+    }
+
+    /// The arguments of the translated sentence, in `%1…` order.
+    ///
+    /// A write or a format error names the file and the reason; a missing data
+    /// directory has nothing to name.
+    pub fn args(&self) -> Vec<String> {
+        match self {
+            Self::NoDataDir => Vec::new(),
+            Self::Io { path, source } => vec![path.display().to_string(), source.to_string()],
+            Self::Json { path, source } => vec![path.display().to_string(), source.to_string()],
+        }
+    }
+}
+
 /// On-disk shape of `mirror.json`.
 ///
 /// An object rather than a bare JSON string so the file can grow (region, last

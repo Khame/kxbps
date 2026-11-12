@@ -111,6 +111,14 @@ Kirigami.Dialog {
             elide: Text.ElideRight
         }
 
+        QQC2.Label {
+            Layout.fillWidth: true
+            visible: dialog.job !== null && dialog.job.waitingForLock
+            text: i18nd("kxbps", "Waiting for another process to release the xbps lock…")
+            color: Kirigami.Theme.neutralTextColor
+            wrapMode: Text.WordWrap
+        }
+
         QQC2.ProgressBar {
             Layout.fillWidth: true
             visible: dialog.running

@@ -22,7 +22,7 @@ use cxx_qt::Threading;
 use cxx_qt::casting::Upcast;
 use cxx_qt_lib::{QObjectMutPtr, QString, QStringList};
 use kxbps_core::{
-    InstalledMap, Plan, PlanItem, QueueAction, QueueItem, Store, effective_updates,
+    InstalledMap, Plan, PlanItem, QueueAction, QueueItem, Store, StoreError, effective_updates,
     held_updates_in, not_installed, update_signature_of,
 };
 
@@ -115,6 +115,9 @@ pub mod qobject {
         // notify signal of their own (`catalogBackend.get`).
         #[qproperty(i32, state_revision, READ, NOTIFY)]
         #[qproperty(QString, error, READ, NOTIFY)]
+        // The `%1…%2` arguments of the save error's sentence; `error` alone is
+        // the key, never a finished English sentence.
+        #[qproperty(QStringList, error_args, READ, NOTIFY)]
         // A failed read of the system (xbps missing, timed out, unparsable
         // output) as the i18n key QML wraps in a sentence, plus its `%1…%3`
         // arguments. Empty key means the last read succeeded.
@@ -275,6 +278,7 @@ pub struct InstalledBackendRust {
     updates_count: i32,
     state_revision: i32,
     error: QString,
+    error_args: QStringList,
     read_error: QString,
     read_error_args: QStringList,
     loading: bool,
@@ -311,6 +315,7 @@ impl Default for InstalledBackendRust {
             updates_count: 0,
             state_revision: 0,
             error: QString::from(""),
+            error_args: QStringList::default(),
             read_error: QString::from(""),
             read_error_args: QStringList::default(),
             loading: false,
@@ -329,14 +334,14 @@ impl cxx_qt::Initialize for qobject::InstalledBackend {
     /// Loads the store, then creates both child models.
     ///
     /// A store that cannot be loaded is not fatal: an empty store stays in
-    /// memory and `error` carries a technical reason for QML to wrap in a
-    /// translated sentence. The installed set is not the store's: the window
+    /// memory and `error`/`errorArgs` carry the key and arguments of the
+    /// sentence QML shows. The installed set is not the store's: the window
     /// opens empty and the first read of xbps fills it a moment later (see
     /// [`qobject::InstalledBackend::reload`]).
     fn initialize(mut self: Pin<&mut Self>) {
         let (store, store_error) = match Store::load() {
-            Ok(store) => (store, String::new()),
-            Err(err) => (Store::fresh(), format!("{err}")),
+            Ok(store) => (store, None),
+            Err(err) => (Store::fresh(), Some(err)),
         };
 
         let parent = unsafe {
@@ -350,7 +355,10 @@ impl cxx_qt::Initialize for qobject::InstalledBackend {
         let queue_model = qobject::create_queue_model(parent, &queue_json);
 
         let queue_count = store.queue.len();
-        let error = store_error;
+        let (error_key, error_args) = match &store_error {
+            Some(err) => store_error_parts(err),
+            None => (String::new(), Vec::new()),
+        };
 
         let data = Pin::get_mut(self.as_mut().rust_mut());
         data.store = store;
@@ -359,7 +367,11 @@ impl cxx_qt::Initialize for qobject::InstalledBackend {
         data.installed_count = 0;
         data.queue_count = i32::try_from(queue_count).unwrap_or(i32::MAX);
         data.updates_count = 0;
-        data.error = QString::from(error.as_str());
+        data.error = QString::from(error_key.as_str());
+        data.error_args = error_args
+            .iter()
+            .map(|arg| QString::from(arg.as_str()))
+            .collect::<QStringList>();
     }
 }
 
@@ -1182,13 +1194,33 @@ fn save_store(mut self_: Pin<&mut qobject::InstalledBackend>) {
         }
     };
     if let Err(err) = result {
-        let message = format!("{err}");
-        {
-            let data = Pin::get_mut(self_.as_mut().rust_mut());
-            data.error = QString::from(message.as_str());
-        }
-        self_.as_mut().error_changed();
+        let (key, args) = store_error_parts(&err);
+        set_store_error(self_.as_mut(), &key, &args);
     }
+}
+
+/// Splits a [`StoreError`] into the key QML maps and the arguments of its
+/// sentence.
+///
+/// The `Display` text (a path glued to an OS or parser reason) is not
+/// translatable, so the window never sees it: this pair is what `error` and
+/// `errorArgs` carry. `Display` stays available for the log.
+fn store_error_parts(error: &StoreError) -> (String, Vec<String>) {
+    (error.key().to_owned(), error.args())
+}
+
+/// Writes the save error into `error`/`errorArgs` and notifies QML.
+fn set_store_error(mut self_: Pin<&mut qobject::InstalledBackend>, key: &str, args: &[String]) {
+    {
+        let data = Pin::get_mut(self_.as_mut().rust_mut());
+        data.error = QString::from(key);
+        data.error_args = args
+            .iter()
+            .map(|arg| QString::from(arg.as_str()))
+            .collect::<QStringList>();
+    }
+    self_.as_mut().error_changed();
+    self_.as_mut().error_args_changed();
 }
 
 fn strings_of(list: &cxx_qt_lib::QStringList) -> Vec<String> {
@@ -1222,6 +1254,33 @@ mod tests {
     use crate::xbps_plan::PlanError;
     use kxbps_core::{Inst, PlanAction, PlanReason, XbpsAction};
     use std::sync::{Arc, Mutex};
+
+    /// A store error becomes the key QML maps plus the arguments its sentence
+    /// takes, never the `Display` text: a failed save must not surface as an
+    /// untranslated English sentence in a Polish build.
+    #[test]
+    fn a_save_error_reaches_qml_as_a_key_and_its_arguments() {
+        let error = StoreError::Io {
+            path: std::path::PathBuf::from("/home/u/.local/share/kxbps/queue.json"),
+            source: std::io::Error::other("Read-only file system"),
+        };
+        let (key, args) = store_error_parts(&error);
+        assert_eq!(key, "errorStoreWrite");
+        assert_eq!(
+            args,
+            vec![
+                String::from("/home/u/.local/share/kxbps/queue.json"),
+                String::from("Read-only file system"),
+            ]
+        );
+    }
+
+    #[test]
+    fn a_missing_data_directory_reaches_qml_without_arguments() {
+        let (key, args) = store_error_parts(&StoreError::NoDataDir);
+        assert_eq!(key, "errorStoreNoDataDir");
+        assert!(args.is_empty());
+    }
 
     /// A small installed set: the packages the plan tests talk about.
     fn installed_set() -> InstalledMap {

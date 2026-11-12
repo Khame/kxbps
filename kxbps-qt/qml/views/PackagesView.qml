@@ -119,6 +119,23 @@ Item {
         return i18nd("kxbps", "Could not read the installed packages: %1", a)
     }
 
+    // The one sentence for a failed save, chosen by the key the backend sent.
+    // The `Display` text of a store error names paths and OS reasons, so it
+    // stays in the log; the window gets a key and its `%1…%2` arguments.
+    function storeErrorText(key, args) {
+        const a = args.length > 0 ? args[0] : ""
+        const b = args.length > 1 ? args[1] : ""
+        switch (key) {
+        case "errorStoreNoDataDir":
+            return i18nd("kxbps", "The data directory could not be located: neither XDG_DATA_HOME nor HOME is set.")
+        case "errorStoreWrite":
+            return i18nd("kxbps", "Could not write %1: %2", a, b)
+        case "errorStoreFormat":
+            return i18nd("kxbps", "Could not read %1: %2", a, b)
+        }
+        return i18nd("kxbps", "Could not save the system state.")
+    }
+
     ColumnLayout {
         anchors.fill: parent
         spacing: 0
@@ -132,7 +149,7 @@ Item {
             Layout.topMargin: Kirigami.Units.smallSpacing
             visible: installedBackend.error.length > 0
             color: Kirigami.Theme.neutralTextColor
-            text: i18nd("kxbps", "Could not save the system state: %1", installedBackend.error)
+            text: view.storeErrorText(installedBackend.error, installedBackend.errorArgs)
             wrapMode: Text.WordWrap
         }
 
