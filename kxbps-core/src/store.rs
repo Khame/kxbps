@@ -38,6 +38,7 @@ use serde::de::DeserializeOwned;
 use crate::catalog::Catalog;
 use crate::engine::{Plan, apply_installed};
 use crate::types::{Inst, InstalledMap, Prefs, QueueAction, QueueItem};
+use crate::xbps::{InstalledPackage, UpdateEntry};
 
 /// Mirror used until the user picks another one.
 ///
@@ -151,6 +152,9 @@ pub struct Store {
     /// When the repository index was last refreshed, epoch milliseconds.
     /// Memory-only, like the web app's `syncedAt`.
     pub synced_at: Option<i64>,
+    /// The pending updates xbps reported for the system; memory-only, like
+    /// `synced_at`, because the next start reads them again.
+    updates: Vec<UpdateEntry>,
     /// The seed image this store was created from; restored by [`Store::reset`].
     baseline: InstalledMap,
     dirty: bool,
@@ -285,6 +289,7 @@ impl Store {
         let baseline = fresh_install(catalog);
         Store {
             installed: baseline.clone(),
+            updates: Vec::new(),
             queue: Vec::new(),
             mirror: DEFAULT_MIRROR.to_string(),
             prefs: default_prefs(),
@@ -457,8 +462,13 @@ impl Store {
     /// The queue and the mirror go back to their defaults and the
     /// notification preferences are reset, except for the desktop-notification
     /// switch, which the web app keeps across a reset.
+    ///
+    /// This is the store-only half: the application restores the real system
+    /// state (the store still holds the seed image) from the installed
+    /// backend, which clears it and re-reads xbps afterwards.
     pub fn reset(&mut self) {
         self.installed = self.baseline.clone();
+        self.updates.clear();
         self.queue.clear();
         self.mirror = DEFAULT_MIRROR.to_string();
         self.prefs = Prefs {
@@ -469,6 +479,68 @@ impl Store {
         self.synced_at = None;
         self.dirty = true;
     }
+
+    /// Replaces the installed set with what xbps reports for the system.
+    ///
+    /// `explicit` and `held` are the names the two list modes answered; every
+    /// other field comes from the installed records. The pending-update list is
+    /// kept as well, so the update counter and the plan do not have to consult
+    /// the embedded catalog.
+    pub fn apply_snapshot(
+        &mut self,
+        records: &[InstalledPackage],
+        explicit: &[String],
+        held: &[String],
+        updates: Vec<UpdateEntry>,
+    ) {
+        let at = |name: &str| self.installed.get(name).map_or(0, |inst| inst.at);
+        self.installed = installed_map(records, explicit, held, &at);
+        self.updates = updates;
+        self.dirty = true;
+    }
+
+    /// The updates xbps reported for the system.
+    pub fn pending_updates(&self) -> &[UpdateEntry] {
+        &self.updates
+    }
+
+    /// The pending update of `name`, if there is one.
+    pub fn update_of(&self, name: &str) -> Option<&UpdateEntry> {
+        self.updates.iter().find(|entry| entry.name == name)
+    }
+}
+
+/// Builds the installed map from the snapshot the read layer took.
+///
+/// `explicit` and `held` are the names `xbps-query -m` and `-H` answered. A
+/// name from `xbps-query -O` (orphaned: installed, not explicit, nothing needs
+/// it) is not explicit either, which the list already says; its "orphan" state
+/// is computed where the package list is filtered, not stored here.
+///
+/// `at` keeps the install date of a package the store already knew: xbps has
+/// no bulk source for it, and the value only grows stale, never wrong.
+pub fn installed_map(
+    records: &[InstalledPackage],
+    explicit: &[String],
+    held: &[String],
+    at: &dyn Fn(&str) -> i64,
+) -> InstalledMap {
+    let explicit: HashSet<&str> = explicit.iter().map(String::as_str).collect();
+    let held: HashSet<&str> = held.iter().map(String::as_str).collect();
+    records
+        .iter()
+        .map(|package| {
+            (
+                package.name.clone(),
+                Inst {
+                    version: package.version.clone(),
+                    explicit: explicit.contains(package.name.as_str()),
+                    held: held.contains(package.name.as_str()),
+                    at: at(&package.name),
+                },
+            )
+        })
+        .collect()
 }
 
 /// Moves the pre-rename state files into the current data directory.
@@ -1123,5 +1195,131 @@ mod tests {
         assert!(!store.toggle_hold("vim"));
         assert!(!store.installed["vim"].held);
         assert!(!store.toggle_hold("definitely-not-installed"));
+    }
+
+    /// One installed record as `xbps-query -l` printed it.
+    fn record(pkgver: &str) -> InstalledPackage {
+        let (name, version) = crate::xbps::split_pkgver(pkgver).expect("pkgver splits");
+        InstalledPackage {
+            name: name.to_owned(),
+            version: version.to_owned(),
+            pkgver: pkgver.to_owned(),
+            state: crate::xbps::InstallState::Installed,
+            description: String::new(),
+        }
+    }
+
+    /// One dry-run line of `xbps-install -un`.
+    fn update(pkgver: &str) -> UpdateEntry {
+        let (name, version) = crate::xbps::split_pkgver(pkgver).expect("pkgver splits");
+        UpdateEntry {
+            name: name.to_owned(),
+            version: version.to_owned(),
+            pkgver: pkgver.to_owned(),
+            action: crate::xbps::XbpsAction::Update,
+            arch: "x86_64".to_owned(),
+            repository: "https://repo.example/current".to_owned(),
+            installed_size: 10,
+            download_size: 20,
+        }
+    }
+
+    #[test]
+    fn apply_snapshot_replaces_the_seed_image_with_the_real_records() {
+        let mut store = Store::fresh(&catalog());
+        assert!(store.installed.contains_key("vim"), "the seed has vim");
+
+        store.apply_snapshot(
+            &[record("Neovim-custom-0.11.0_1")],
+            &["Neovim-custom".to_owned()],
+            &[],
+            Vec::new(),
+        );
+
+        assert_eq!(
+            store.installed.keys().collect::<Vec<_>>(),
+            ["Neovim-custom"],
+            "the seed image is gone, not merged with"
+        );
+        let inst = &store.installed["Neovim-custom"];
+        assert_eq!(inst.version, "0.11.0_1");
+        assert!(inst.explicit, "`-m` listed it");
+        assert!(!inst.held, "`-H` did not list it");
+        assert_eq!(inst.at, 0, "xbps gives no install date in bulk");
+        assert!(store.is_dirty(), "the new set has to be saved");
+    }
+
+    #[test]
+    fn apply_snapshot_derives_explicit_and_held_from_the_list_modes() {
+        let mut store = Store::fresh(&catalog());
+        store.apply_snapshot(
+            &[record("vim-9.2.1031_1"), record("linux-6.18.63_1")],
+            &["vim".to_owned()],
+            &["linux".to_owned()],
+            Vec::new(),
+        );
+        assert!(store.installed["vim"].explicit);
+        assert!(!store.installed["linux"].explicit);
+        assert!(store.installed["linux"].held);
+        assert!(!store.installed["vim"].held);
+    }
+
+    #[test]
+    fn apply_snapshot_keeps_the_install_date_the_store_already_knew() {
+        let mut store = Store::fresh(&catalog());
+        store.apply_snapshot(
+            &[record("vim-9.2.2000_1"), record("ark-25.08.0_1")],
+            &["vim".to_owned()],
+            &[],
+            Vec::new(),
+        );
+        assert_eq!(
+            store.installed["vim"].at, SEED_AT,
+            "a re-read must not forget when vim was installed"
+        );
+        assert_eq!(store.installed["ark"].at, 0);
+    }
+
+    #[test]
+    fn apply_snapshot_replaces_the_pending_updates() {
+        let mut store = Store::fresh(&catalog());
+        assert!(store.pending_updates().is_empty());
+
+        store.apply_snapshot(
+            &[record("vim-9.2.1031_1")],
+            &["vim".to_owned()],
+            &[],
+            vec![update("vim-9.2.2000_1")],
+        );
+
+        assert_eq!(store.pending_updates().len(), 1);
+        assert_eq!(
+            store.update_of("vim").map(|entry| entry.version.as_str()),
+            Some("9.2.2000_1")
+        );
+        assert!(store.update_of("ark").is_none());
+
+        store.apply_snapshot(&[record("vim-9.2.2000_1")], &[], &[], Vec::new());
+        assert!(
+            store.pending_updates().is_empty(),
+            "after the transaction xbps reports no update"
+        );
+    }
+
+    #[test]
+    fn reset_drops_the_pending_updates_with_the_seed_image() {
+        let catalog = catalog();
+        let mut store = Store::fresh(&catalog);
+        store.apply_snapshot(
+            &[record("vim-9.2.1031_1")],
+            &[],
+            &[],
+            vec![update("vim-9.2.2000_1")],
+        );
+
+        store.reset();
+
+        assert!(store.pending_updates().is_empty());
+        assert_eq!(store.installed, Store::fresh(&catalog).installed);
     }
 }

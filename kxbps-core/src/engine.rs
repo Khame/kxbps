@@ -13,6 +13,7 @@ use crate::types::{
     Blocked, Inst, InstalledMap, Pkg, PlanAction, PlanItem, PlanReason, QueueAction, QueueItem,
     RepoId, Repos,
 };
+use crate::xbps::UpdateEntry;
 use std::collections::{BTreeSet, HashMap, HashSet};
 
 /// Everything that can go wrong while planning a transaction.
@@ -166,6 +167,20 @@ pub fn plan_system(
     plan_install(catalog, installed, repos, &queue)
 }
 
+/// The updates the application shows: what xbps reported, minus held packages.
+///
+/// xbps' own dry run (`xbps-install -un`) already respects a hold in its
+/// configuration, but the hold the user toggles in this window is only in the
+/// store until a transaction writes it, so it is filtered here. Entries keep
+/// the order xbps printed and only `xbps-query -H` can make one disappear.
+pub fn effective_updates(pending: &[UpdateEntry], installed: &InstalledMap) -> Vec<UpdateEntry> {
+    pending
+        .iter()
+        .filter(|entry| !installed.get(&entry.name).is_some_and(|inst| inst.held))
+        .cloned()
+        .collect()
+}
+
 /// Held packages that have an update waiting, sorted by name.
 ///
 /// This is the list behind the web app's "skipped held packages" note on the
@@ -184,6 +199,18 @@ pub fn held_updates(catalog: &Catalog, installed: &InstalledMap, repos: &Repos) 
         .map(|pkg| pkg.name.clone())
         .collect();
     names.sort();
+    names
+}
+
+/// Held packages that the reported updates want to touch, sorted by name.
+pub fn held_updates_in(pending: &[UpdateEntry], installed: &InstalledMap) -> Vec<String> {
+    let mut names: Vec<String> = pending
+        .iter()
+        .filter(|entry| installed.get(&entry.name).is_some_and(|inst| inst.held))
+        .map(|entry| entry.name.clone())
+        .collect();
+    names.sort();
+    names.dedup();
     names
 }
 
@@ -403,15 +430,45 @@ pub fn repos_from_installed(installed: &InstalledMap) -> Repos {
 /// a `u64` that is identical across runs and platforms (a `DefaultHasher` is
 /// randomly seeded and would change on every start).
 pub fn update_signature(catalog: &Catalog, installed: &InstalledMap, repos: &Repos) -> u64 {
-    let updates = catalog.updates(installed, repos);
+    signature_of(&catalog.updates(installed, repos))
+}
+
+/// Same fingerprint over a pending list the caller already has.
+///
+/// `update_signature` still describes a demo store; this one describes the
+/// system xbps reported, with the same `name@to` text and hash.
+pub fn update_signature_of(pending: &[UpdateEntry]) -> u64 {
+    signature_of(pending)
+}
+
+/// Shared text half of the two signature functions; `updates` items are the
+/// catalog's `UpdateInfo` on one side and the parsed `UpdateEntry` on the other.
+trait UpdateTarget {
+    fn signature_parts(&self) -> (&str, &str);
+}
+
+impl UpdateTarget for crate::types::UpdateInfo {
+    fn signature_parts(&self) -> (&str, &str) {
+        (&self.name, &self.to)
+    }
+}
+
+impl UpdateTarget for UpdateEntry {
+    fn signature_parts(&self) -> (&str, &str) {
+        (&self.name, &self.version)
+    }
+}
+
+fn signature_of<T: UpdateTarget>(updates: &[T]) -> u64 {
     let mut text = String::new();
     for (index, update) in updates.iter().enumerate() {
         if index > 0 {
             text.push(',');
         }
-        text.push_str(&update.name);
+        let (name, to) = update.signature_parts();
+        text.push_str(name);
         text.push('@');
-        text.push_str(&update.to);
+        text.push_str(to);
     }
     fnv1a64(text.as_bytes())
 }
@@ -1350,5 +1407,62 @@ mod tests {
         assert!(plan.items.is_empty());
         assert_eq!(plan.blocked[0].name, "glibc");
         assert_eq!(plan.blocked[0].needed_by, vec!["vim"]);
+    }
+
+    /// One dry-run line of `xbps-install -un`.
+    fn update(pkgver: &str) -> UpdateEntry {
+        let (name, version) = crate::xbps::split_pkgver(pkgver).expect("pkgver splits");
+        UpdateEntry {
+            name: name.to_owned(),
+            version: version.to_owned(),
+            pkgver: pkgver.to_owned(),
+            action: crate::xbps::XbpsAction::Update,
+            arch: "x86_64".to_owned(),
+            repository: "https://repo.example/current".to_owned(),
+            installed_size: 10,
+            download_size: 20,
+        }
+    }
+
+    #[test]
+    fn effective_updates_drops_the_packages_the_user_held() {
+        let installed = installed(&[
+            ("curl", inst("8.12.1_1", true, true)),
+            ("vim", inst("9.1.1700_1", true, false)),
+        ]);
+        let pending = vec![update("curl-8.16.0_1"), update("vim-9.2.2000_1")];
+
+        let shown = effective_updates(&pending, &installed);
+
+        assert_eq!(
+            shown
+                .iter()
+                .map(|entry| entry.name.as_str())
+                .collect::<Vec<_>>(),
+            ["vim"],
+            "a hold toggled in the window hides the update"
+        );
+        assert_eq!(pending.len(), 2, "the reported list itself is not modified");
+    }
+
+    #[test]
+    fn held_updates_in_names_exactly_the_held_pending_updates() {
+        let installed = installed(&[
+            ("curl", inst("8.12.1_1", true, true)),
+            ("vim", inst("9.1.1700_1", true, false)),
+        ]);
+        let pending = vec![update("vim-9.2.2000_1"), update("curl-8.16.0_1")];
+        assert_eq!(held_updates_in(&pending, &installed), vec!["curl"]);
+        assert!(held_updates_in(&[], &installed).is_empty());
+    }
+
+    #[test]
+    fn update_signature_of_matches_the_catalog_signature_text() {
+        // The same pending list must fingerprint identically whether it came
+        // from the catalog (seeded store) or from xbps' dry run.
+        let updates = [update("vim-9.2.2000_1"), update("curl-8.16.0_1")];
+        let to = fnv1a64(b"vim@9.2.2000_1,curl@8.16.0_1");
+        assert_eq!(update_signature_of(&updates), to);
+        assert_eq!(update_signature_of(&[]), fnv1a64(b""));
     }
 }

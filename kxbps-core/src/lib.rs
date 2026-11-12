@@ -14,13 +14,14 @@ pub mod xbps;
 
 pub use catalog::{Catalog, CatalogError, SECURITY_UPDATES, is_security_update, repo_enabled};
 pub use engine::{
-    EngineError, Plan, PlanTotals, apply_installed, check_blocked, held_updates, plan_install,
-    plan_queue, plan_remove, plan_system, plan_totals, repos_from_installed, update_signature,
+    EngineError, Plan, PlanTotals, apply_installed, check_blocked, effective_updates, held_updates,
+    held_updates_in, plan_install, plan_queue, plan_remove, plan_system, plan_totals,
+    repos_from_installed, update_signature, update_signature_of,
 };
 pub use format::{ByteUnit, action_key, byte_decimals, format_bytes, reason_key};
 pub use mirrors::{DEFAULT_MIRROR, MIRRORS, MirrorInfo, Region};
 pub use probe::{PROBE_TIMEOUT, PROBE_TIMEOUT_MS, ProbeError, check_probe_url, measure};
-pub use store::{SEED_AT, Store, StoreError, data_dir, fresh_install};
+pub use store::{SEED_AT, Store, StoreError, data_dir, fresh_install, installed_map};
 pub use types::{
     Blocked, Category, DialogState, Inst, InstalledMap, Job, ListFilter, Pkg, PlanAction, PlanItem,
     PlanReason, Prefs, ProbeState, QueryMode, QueueAction, QueueItem, RepoId, Repos, UpdateInfo,
