@@ -1,0 +1,18 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256" width="256" height="256">
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#3a7a5a"/>
+      <stop offset="1" stop-color="#1f4a36"/>
+    </linearGradient>
+  </defs>
+  <rect x="8" y="8" width="240" height="240" rx="52" fill="url(#bg)"/>
+  <!-- package -->
+  <polygon points="128,50 196,89 128,128 60,89" fill="#ffffff"/>
+  <polygon points="60,89 128,128 128,206 60,167" fill="#cfe5d9"/>
+  <polygon points="128,128 196,89 196,167 128,206" fill="#9cc7b0"/>
+  <!-- tape -->
+  <polygon points="104,63.5 172,102.5 152,114 84,75" fill="#478061" opacity="0.55"/>
+  <!-- arrow down (install) -->
+  <circle cx="196" cy="196" r="34" fill="#ffd54a"/>
+  <path d="M196 178 v24 m-12 -10 l12 12 l12 -12" fill="none" stroke="#1f4a36" stroke-width="7" stroke-linecap="round" stroke-linejoin="round"/>
+</svg>
