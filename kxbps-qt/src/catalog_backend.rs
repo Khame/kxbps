@@ -394,6 +394,14 @@ impl CatalogBackendRust {
     /// `InstalledState::new` is the same call the package model makes, so
     /// `isUpdate`/`updateVersion` and the orphan predicate are derived once, in
     /// one place, from the lists xbps reported.
+    ///
+    /// The cached facts go with it. A read answers `installed`, `state`,
+    /// `installed_size` and `repository` from the installed record it saw, so
+    /// after a transaction every entry may describe a system that no longer
+    /// exists — a package that was just installed would still read as "not
+    /// installed". Dropping the whole cache is simpler than comparing each
+    /// entry with the new records, and a fact read is one take of one package:
+    /// the pane re-reads the package it is showing and nothing else is missed.
     fn apply_snapshot(
         &mut self,
         installed: InstalledMap,
@@ -407,6 +415,11 @@ impl CatalogBackendRust {
             .into_iter()
             .map(|item| (item.name, item.action))
             .collect();
+        self.facts.clear();
+        self.facts_pending = None;
+        self.facts_pkgver = QString::from("");
+        // A read still in flight answers for the previous system.
+        self.facts_generation.fetch_add(1, Ordering::SeqCst);
     }
 
     /// Which database a mode searches. Modes that list a set read the
@@ -742,7 +755,7 @@ fn trimmed(query: &cxx_qt_lib::QString) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use kxbps_core::Store;
+    use kxbps_core::{Inst, Store};
 
     fn text_of(map: &QMap<QMapPair_QString_QVariant>, key: &str) -> String {
         map.get(&QString::from(key))
@@ -996,6 +1009,46 @@ mod tests {
         }
         assert_eq!(CatalogBackendRust::raw_flag("show"), "-show");
         assert_eq!(CatalogBackendRust::raw_flag("Rs"), "-Rs");
+    }
+
+    #[test]
+    fn a_new_installed_set_drops_the_facts_of_a_package_it_changed() {
+        let catalog = Catalog::load_from_str(include_str!("../resources/catalog.json")).unwrap();
+        let mut backend = CatalogBackendRust::default();
+        // A package read while it was not installed: no size, not installed.
+        backend.begin_facts("zramen-1.0.1_1");
+        backend.finish_facts(
+            "zramen-1.0.1_1".to_owned(),
+            Ok(facts("zramen-1.0.1_1", false)),
+        );
+        assert_eq!(
+            backend
+                .facts_of("zramen-1.0.1_1")
+                .map(|facts| facts.installed),
+            Some(false)
+        );
+
+        let mut store = Store::fresh(&catalog);
+        store.installed.insert(
+            "zramen".to_owned(),
+            Inst {
+                version: "1.0.1_1".to_owned(),
+                explicit: true,
+                held: false,
+                at: 0,
+            },
+        );
+        backend.apply_snapshot(store.installed.clone(), Vec::new(), Vec::new(), Vec::new());
+
+        assert!(
+            backend.facts_of("zramen-1.0.1_1").is_none(),
+            "a read from before the transaction must not answer for after it"
+        );
+        assert_eq!(
+            backend.facts_pkgver.to_string(),
+            "",
+            "the pane re-reads, it does not echo a stale pkgver"
+        );
     }
 
     #[test]
