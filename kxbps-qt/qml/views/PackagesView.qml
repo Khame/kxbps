@@ -139,7 +139,11 @@ Item {
                 id: searchField
                 Layout.fillWidth: true
                 placeholderText: i18nd("kxbps", "Search packages…")
-                onTextChanged: view.packages.search = text
+                onTextChanged: searchDebounce.restart()
+                onAccepted: {
+                    searchDebounce.stop()
+                    view.packages.search = text
+                }
             }
 
             // The bulk action belongs to the Updates filter only. It sits in
@@ -392,5 +396,14 @@ Item {
             installedBackend: view.installedBackend
             packageName: view.selectedPkgver
         }
+    }
+
+    // Typing narrows the list once the pattern settles; Enter applies it at
+    // once instead of waiting for the timer. In memory this is cheap, but
+    // 1340 rows per keystroke still reset the list, so the pause wins.
+    Timer {
+        id: searchDebounce
+        interval: 200
+        onTriggered: view.packages.search = searchField.text
     }
 }

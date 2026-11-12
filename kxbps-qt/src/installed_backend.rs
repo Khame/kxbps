@@ -375,7 +375,7 @@ impl qobject::InstalledBackend {
             data.store.toggle_queue(&name.to_string(), action);
         }
         save_store(self.as_mut());
-        refresh(self.as_mut());
+        refresh_store(self.as_mut());
     }
 
     fn remove_queued(mut self: Pin<&mut Self>, name: &cxx_qt_lib::QString) {
@@ -384,7 +384,7 @@ impl qobject::InstalledBackend {
             data.store.remove_queued(&name.to_string());
         }
         save_store(self.as_mut());
-        refresh(self.as_mut());
+        refresh_store(self.as_mut());
     }
 
     fn clear_queue(mut self: Pin<&mut Self>) {
@@ -393,7 +393,7 @@ impl qobject::InstalledBackend {
             data.store.clear_queue();
         }
         save_store(self.as_mut());
-        refresh(self.as_mut());
+        refresh_store(self.as_mut());
     }
 
     fn toggle_hold(mut self: Pin<&mut Self>, name: &cxx_qt_lib::QString) {
@@ -402,7 +402,7 @@ impl qobject::InstalledBackend {
             data.store.toggle_hold(&name.to_string());
         }
         save_store(self.as_mut());
-        refresh(self.as_mut());
+        refresh_store(self.as_mut());
     }
 
     /// Plans the transaction queue on a worker thread.
@@ -1039,8 +1039,36 @@ fn pending_signature_of(store: &Store) -> String {
     update_signature_of(&pending).to_string()
 }
 
-/// Applies a finished plan and refreshes the model and the counters.
+/// Pushes everything a finished read produced into the models and counters.
+///
+/// This is the read path: a new snapshot was taken, so the model gets all of
+/// it — the records with their descriptions, the sizes, the updates and the
+/// orphans — and the list is rebuilt from xbps rather than from the store.
 fn refresh(mut self_: Pin<&mut qobject::InstalledBackend>) {
+    refresh_models(self_.as_mut(), true)
+}
+
+/// Pushes a store-only change (a queue toggle, a hold) into the models.
+///
+/// No snapshot is shipped: nothing about xbps moved, so the model keeps the
+/// records, the descriptions and the derived update/orphan state it already
+/// has and only re-reads the installed map and the queue. Shipping the whole
+/// snapshot here would re-serialise and re-parse 1340 records through serde on
+/// every click for nothing.
+///
+/// `apply_plan_items` deliberately stays on [`refresh`]: a finished job may
+/// have changed what is installed, and `store_state` rebuilds records from the
+/// map without descriptions — the read path is the one that carries them.
+fn refresh_store(mut self_: Pin<&mut qobject::InstalledBackend>) {
+    refresh_models(self_.as_mut(), false)
+}
+
+/// The shared body of [`refresh`] and [`refresh_store`].
+///
+/// `with_snapshot` decides whether the model receives the full snapshot push
+/// or the store-only one; every other step (counters, query façade, revision)
+/// is the same for both.
+fn refresh_models(mut self_: Pin<&mut qobject::InstalledBackend>, with_snapshot: bool) {
     let (
         installed_json,
         queue_json,
@@ -1070,7 +1098,11 @@ fn refresh(mut self_: Pin<&mut qobject::InstalledBackend>) {
             data.packages,
             data.queue_model,
             data.query_backend,
-            data.snapshot.as_ref().map(json_of),
+            if with_snapshot {
+                data.snapshot.as_ref().map(json_of)
+            } else {
+                None
+            },
         )
     };
 
@@ -1186,6 +1218,7 @@ fn now_ms() -> i64 {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::package_model::VisibleRow;
     use crate::xbps_plan::PlanError;
     use kxbps_core::{Inst, PlanAction, PlanReason, XbpsAction};
     use std::sync::{Arc, Mutex};
@@ -1312,6 +1345,137 @@ mod tests {
         let payload = queue_payload(&installed, &queue("ghost", QueueAction::Update), &*invoke);
         assert_eq!(payload.error_key, "errorNotInstalled");
         assert!(seen.lock().map(|seen| seen.is_empty()).unwrap());
+    }
+
+    /// A read snapshot over `installed_set()`, the shape `refresh` ships.
+    fn store_snapshot(installed: &InstalledMap) -> Snapshot {
+        use kxbps_core::InstallState;
+        let records: Vec<kxbps_core::InstalledPackage> = installed
+            .iter()
+            .map(|(name, inst)| kxbps_core::InstalledPackage {
+                name: name.clone(),
+                version: inst.version.clone(),
+                pkgver: format!("{name}-{}", inst.version),
+                state: InstallState::Installed,
+                description: format!("The {name} package"),
+            })
+            .collect();
+        Snapshot {
+            installed: records,
+            updates: vec![update_entry("mesa", "25.2_1")],
+            explicit: installed.keys().cloned().collect(),
+            held: Vec::new(),
+            orphans: vec![String::from("zramen")],
+            installed_sizes: Vec::new(),
+            repo_installed_sizes: Vec::new(),
+            repo_download_sizes: Vec::new(),
+        }
+    }
+
+    /// A store holding `installed_set()` with one queued package.
+    fn store_with(installed: &InstalledMap, queue: Vec<QueueItem>) -> Store {
+        let mut store = Store::fresh();
+        store.installed = installed.clone();
+        store.queue = queue;
+        store
+    }
+
+    /// A model that has just taken `refresh`'s snapshot push.
+    fn snapshot_model(
+        store: &Store,
+        snapshot: &Snapshot,
+    ) -> crate::package_model::PackageModelRust {
+        let mut model = crate::package_model::PackageModelRust::default();
+        let installed = kxbps_core::installed_map(
+            &snapshot.installed,
+            &snapshot.explicit,
+            &snapshot.held,
+            &|_| 0,
+        );
+        let (_, rows, _) = model.snapshot(
+            snapshot.installed.clone(),
+            installed,
+            store.queue.clone(),
+            snapshot.updates.clone(),
+            snapshot.orphans.clone(),
+        );
+        model.assign_rows(rows);
+        model
+    }
+
+    /// The store-only push, into a model that already took a snapshot push:
+    /// the production order, where `refresh_store` follows a read.
+    fn store_push(store: &Store, snapshot: &Snapshot) -> (Vec<u32>, Vec<VisibleRow>) {
+        let mut model = snapshot_model(store, snapshot);
+        let (installed_json, queue_json, _, _) = state_json(store, None);
+        let installed: InstalledMap =
+            serde_json::from_str(&installed_json.to_string()).expect("installed decodes");
+        let queue: Vec<QueueItem> =
+            serde_json::from_str(&queue_json.to_string()).expect("queue decodes");
+        let (_, rows, _) = model.store_state(installed, queue);
+        model.assign_rows(rows.clone());
+        (rows, model.visible_rows())
+    }
+
+    /// The same click through the old path: a full snapshot push.
+    fn full_push(store: &Store, snapshot: &Snapshot) -> (Vec<u32>, Vec<VisibleRow>) {
+        let model = snapshot_model(store, snapshot);
+        (model.row_indices(), model.visible_rows())
+    }
+
+    #[test]
+    fn a_queue_toggle_reads_the_same_through_the_store_path() {
+        // A queue click now pushes the store, not the snapshot; the list must
+        // show exactly what the snapshot path showed.
+        let installed = installed_set();
+        let snapshot = store_snapshot(&installed);
+        let mut store = store_with(&installed, Vec::new());
+        store.toggle_queue("ark", QueueAction::Install);
+
+        assert_eq!(
+            store_push(&store, &snapshot),
+            full_push(&store, &snapshot),
+            "a queue toggle looks the same either way"
+        );
+    }
+
+    #[test]
+    fn a_hold_toggle_reads_the_same_through_the_store_path() {
+        let installed = installed_set();
+        let snapshot = store_snapshot(&installed);
+        let mut store = store_with(&installed, Vec::new());
+        store.toggle_hold("mesa");
+
+        assert_eq!(
+            store_push(&store, &snapshot),
+            full_push(&store, &snapshot),
+            "a hold toggle looks the same either way"
+        );
+    }
+
+    #[test]
+    fn a_store_only_push_keeps_the_updates_and_the_orphans() {
+        // The store path has no snapshot to ship, so the model keeps the
+        // updates and orphans the last read printed.
+        let installed = installed_set();
+        let snapshot = store_snapshot(&installed);
+        let store = store_with(&installed, Vec::new());
+        let mut model = snapshot_model(&store, &snapshot);
+
+        let (installed_json, queue_json, _, _) = state_json(&store, None);
+        let map: InstalledMap = serde_json::from_str(&installed_json.to_string()).unwrap();
+        let queue: Vec<QueueItem> = serde_json::from_str(&queue_json.to_string()).unwrap();
+        model.store_state(map, queue);
+
+        model.set_filter("updates");
+        assert!(
+            model.visible_names().contains(&"mesa"),
+            "the pending update survives a store-only refresh"
+        );
+        assert!(
+            model.is_orphan_for_test("zramen"),
+            "the orphan list survives a store-only refresh"
+        );
     }
 
     #[test]

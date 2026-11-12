@@ -352,6 +352,24 @@ impl qobject::QueryBackend {
     }
 }
 
+/// Whether two installed maps describe the same records.
+///
+/// A fact read answers from the installed record — its version, whether it is
+/// installed at all, whether it is held and whether it is explicit — so the
+/// comparison covers exactly those fields. The install timestamp is left out:
+/// nothing a fact read reports depends on it, and a queued install that later
+/// stamps the package does not change what the record says.
+fn same_installed_records(left: &InstalledMap, right: &InstalledMap) -> bool {
+    left.len() == right.len()
+        && left.iter().all(|(name, before)| {
+            right.get(name).is_some_and(|after| {
+                before.version == after.version
+                    && before.explicit == after.explicit
+                    && before.held == after.held
+            })
+        })
+}
+
 impl QueryBackendRust {
     /// Replaces the installed and queue snapshots with the store's own values.
     ///
@@ -359,13 +377,15 @@ impl QueryBackendRust {
     /// `isUpdate`/`updateVersion` and the orphan predicate are derived once, in
     /// one place, from the lists xbps reported.
     ///
-    /// The cached facts go with it. A read answers `installed`, `state`,
-    /// `installed_size` and `repository` from the installed record it saw, so
-    /// after a transaction every entry may describe a system that no longer
-    /// exists — a package that was just installed would still read as "not
-    /// installed". Dropping the whole cache is simpler than comparing each
-    /// entry with the new records, and a fact read is one take of one package:
-    /// the pane re-reads the package it is showing and nothing else is missed.
+    /// The cached facts survive a push that keeps every installed record.
+    /// A fact read answers `installed`, `state`, `installed_size` and
+    /// `repository` from the installed record it saw, so after a real
+    /// transaction (a package installed, upgraded or held) every entry may
+    /// describe a system that no longer exists — a package that was just
+    /// installed would still read as "not installed". A queue-only push moves
+    /// nothing those answers depend on, and dropping the cache there would
+    /// make the details pane re-read a package that did not change, so the
+    /// cache goes with the records, not with the push.
     fn apply_snapshot(
         &mut self,
         installed: InstalledMap,
@@ -373,17 +393,20 @@ impl QueryBackendRust {
         updates: Vec<UpdateEntry>,
         orphans: Vec<String>,
     ) {
+        let records_moved = !same_installed_records(&self.installed, &installed);
         self.state = InstalledState::new(&updates, &orphans);
         self.installed = installed;
         self.queue = queue
             .into_iter()
             .map(|item| (item.name, item.action))
             .collect();
-        self.facts.clear();
-        self.facts_pending = None;
-        self.facts_pkgver = QString::from("");
-        // A read still in flight answers for the previous system.
-        self.facts_generation.fetch_add(1, Ordering::SeqCst);
+        if records_moved {
+            self.facts.clear();
+            self.facts_pending = None;
+            self.facts_pkgver = QString::from("");
+            // A read still in flight answers for the previous system.
+            self.facts_generation.fetch_add(1, Ordering::SeqCst);
+        }
     }
 
     /// Which database a mode searches. Modes that list a set read the
@@ -1001,6 +1024,99 @@ mod tests {
             "",
             "the pane re-reads, it does not echo a stale pkgver"
         );
+    }
+
+    /// One installed record, for the facts-cache tests.
+    fn one_installed(name: &str, version: &str, explicit: bool, held: bool) -> InstalledMap {
+        let mut installed = InstalledMap::new();
+        installed.insert(
+            name.to_owned(),
+            Inst {
+                version: version.to_owned(),
+                explicit,
+                held,
+                at: 0,
+            },
+        );
+        installed
+    }
+
+    /// A backend that has read the system once and holds one cached package.
+    ///
+    /// The first push establishes the installed set, the way the first read
+    /// does; the facts are read after it, so the next push is the one under
+    /// test.
+    fn backend_with_facts(pkgver: &str, installed: &InstalledMap) -> QueryBackendRust {
+        let mut backend = QueryBackendRust::default();
+        backend.apply_snapshot(installed.clone(), Vec::new(), Vec::new(), Vec::new());
+        backend.begin_facts(pkgver);
+        backend.finish_facts(pkgver.to_owned(), Ok(facts(pkgver, true)));
+        backend
+    }
+
+    #[test]
+    fn a_state_push_that_keeps_the_installed_set_keeps_the_facts() {
+        // A queue toggle pushes the same installed set; dropping the cache
+        // would make the details pane re-read a package nothing changed.
+        let installed = one_installed("zramen", "1.0.1_1", true, false);
+        let mut backend = backend_with_facts("zramen-1.0.1_1", &installed);
+        backend.apply_snapshot(installed.clone(), Vec::new(), Vec::new(), Vec::new());
+
+        assert!(
+            backend.facts_of("zramen-1.0.1_1").is_some(),
+            "the installed record did not move, so the facts still describe it"
+        );
+
+        // The same push again, this time with a queue item: still identical.
+        let queue = vec![QueueItem {
+            name: "vim".into(),
+            action: QueueAction::Install,
+        }];
+        backend.apply_snapshot(installed, queue, Vec::new(), Vec::new());
+        assert!(
+            backend.facts_of("zramen-1.0.1_1").is_some(),
+            "a queue change alone does not invalidate the facts"
+        );
+    }
+
+    #[test]
+    fn a_changed_installed_record_drops_the_facts() {
+        // Every field a fact read answers from must count as a change:
+        // version, held and explicit.
+        for (version, explicit, held) in [
+            ("1.0.2_1", true, false),
+            ("1.0.1_1", false, false),
+            ("1.0.1_1", true, true),
+        ] {
+            let mut backend = backend_with_facts(
+                "zramen-1.0.1_1",
+                &one_installed("zramen", "1.0.1_1", true, false),
+            );
+            backend.apply_snapshot(
+                one_installed("zramen", version, explicit, held),
+                Vec::new(),
+                Vec::new(),
+                Vec::new(),
+            );
+            assert!(
+                backend.facts_of("zramen-1.0.1_1").is_none(),
+                "version {version}, explicit {explicit}, held {held} changes the facts"
+            );
+        }
+    }
+
+    #[test]
+    fn a_reset_that_empties_the_installed_set_drops_the_facts() {
+        let mut backend = backend_with_facts(
+            "zramen-1.0.1_1",
+            &one_installed("zramen", "1.0.1_1", true, false),
+        );
+        backend.apply_snapshot(InstalledMap::new(), Vec::new(), Vec::new(), Vec::new());
+        assert!(
+            backend.facts_of("zramen-1.0.1_1").is_none(),
+            "nothing is installed any more"
+        );
+        assert_eq!(backend.facts_pkgver.to_string(), "");
     }
 
     #[test]

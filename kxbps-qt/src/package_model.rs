@@ -277,6 +277,16 @@ pub fn field_value(name: &str, row: &RowView<'_>) -> Option<QVariant> {
         .map(|(id, _)| role_value(*id, row))
 }
 
+/// One visible row as the tests compare two pushes: the name plus the two
+/// columns a store mutation can move.
+#[cfg(test)]
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct VisibleRow {
+    pub name: String,
+    pub queued: Option<QueueAction>,
+    pub update_to: Option<String>,
+}
+
 /// Rust side of [`qobject::PackageModel`].
 pub struct PackageModelRust {
     /// The records `xbps-query -l` answered, sorted by name; empty until the
@@ -290,6 +300,11 @@ pub struct PackageModelRust {
     orphans: Vec<String>,
     /// Indices into `snapshot`, in display order.
     rows: Vec<u32>,
+    /// The lowercase name of each record, indexed like `snapshot`: the search
+    /// runs over these instead of lowercasing 1340 names per keystroke.
+    name_lower: Vec<String>,
+    /// The lowercase description of each record, same indexing.
+    description_lower: Vec<String>,
     queue: HashMap<String, QueueAction>,
     /// Updates, held names and orphans derived from the snapshot.
     state: InstalledState,
@@ -317,6 +332,8 @@ impl Default for PackageModelRust {
             updates: Vec::new(),
             orphans: Vec::new(),
             rows: Vec::new(),
+            name_lower: Vec::new(),
+            description_lower: Vec::new(),
             queue: HashMap::new(),
             state: InstalledState::new(&[], &[]),
             held_names: HashSet::new(),
@@ -359,7 +376,7 @@ impl PackageModelRust {
     /// it did not, only the rows whose fingerprint changed are reported, so the
     /// caller can emit `dataChanged` for those instead of rebuilding every
     /// delegate.
-    fn snapshot(
+    pub(crate) fn snapshot(
         &mut self,
         records: Vec<InstalledPackage>,
         installed: InstalledMap,
@@ -407,7 +424,7 @@ impl PackageModelRust {
     /// read — only the installed set, its `explicit`/`held` flags and the
     /// queue move. The record list follows the map, and every record keeps the
     /// description the read printed.
-    fn store_state(
+    pub(crate) fn store_state(
         &mut self,
         installed: InstalledMap,
         queue: Vec<QueueItem>,
@@ -439,6 +456,7 @@ impl PackageModelRust {
             .map(|item| (item.name, item.action))
             .collect();
         self.refresh_derived();
+        self.cache_lowercases();
 
         let rows = self.compute_rows();
         if rows != self.rows {
@@ -515,12 +533,38 @@ impl PackageModelRust {
         self.held_names = held;
     }
 
+    /// Rebuilds the lowercase search cache in place.
+    ///
+    /// Called from `install` only, after `snapshot` and the derived state are
+    /// final: a record list that did not move keeps its cache, and one that
+    /// did cannot leave a stale string behind. `clear` keeps the allocations
+    /// instead of rebuilding the vectors per refresh.
+    fn cache_lowercases(&mut self) {
+        self.name_lower.clear();
+        self.description_lower.clear();
+        self.name_lower.reserve(self.snapshot.len());
+        self.description_lower.reserve(self.snapshot.len());
+        for record in &self.snapshot {
+            self.name_lower.push(record.name.to_lowercase());
+            self.description_lower
+                .push(record.description.to_lowercase());
+        }
+    }
+
     /// Visible rows for the current filter and search.
     ///
     /// Built into a fresh vector so a caller can compare before committing: a
     /// keystroke in the search field that does not change the visible set must
     /// not reset the model, or QML loses the scroll position and selection.
     fn compute_rows(&self) -> Vec<u32> {
+        // The name sort below relies on this: `snapshot` and `store_state`
+        // both sort the records by name, so index order is name order.
+        debug_assert!(
+            self.snapshot
+                .windows(2)
+                .all(|pair| pair[0].name <= pair[1].name),
+            "the records must stay sorted by name"
+        );
         let mut candidates: Vec<u32> = (0..self.snapshot.len() as u32).collect();
         // The order belongs to the whole snapshot: sorting after filtering
         // would order the visible rows by the values of the rows that survived
@@ -528,13 +572,12 @@ impl PackageModelRust {
         // the list.
         match self.sort.to_string().as_str() {
             "size" => self.sort_by_size(&mut candidates),
-            _ => {
-                let descending = self.sort_descending;
-                candidates.sort_by(|left, right| {
-                    let order = self.name_of(left).cmp(self.name_of(right));
-                    if descending { order.reverse() } else { order }
-                });
-            }
+            // The records arrive sorted by name, so ascending needs no second
+            // sort; descending reverses. A reverse is only a descending sort
+            // because names are unique — a duplicate name would need a stable
+            // descending sort instead.
+            _ if self.sort_descending => candidates.reverse(),
+            _ => {}
         }
         let filter = self.filter.to_string();
         let search = self.search.to_string().to_lowercase();
@@ -593,7 +636,7 @@ impl PackageModelRust {
     }
 
     /// Commits `rows` as the visible set and keeps `count` in step.
-    fn assign_rows(&mut self, rows: Vec<u32>) {
+    pub(crate) fn assign_rows(&mut self, rows: Vec<u32>) {
         self.count = i32::try_from(rows.len()).unwrap_or(i32::MAX);
         self.rows = rows;
     }
@@ -634,17 +677,60 @@ impl PackageModelRust {
         }
     }
 
+    /// Whether the derived state calls `name` an orphan, for the tests.
+    #[cfg(test)]
+    pub(crate) fn is_orphan_for_test(&self, name: &str) -> bool {
+        self.state.is_orphan(name)
+    }
+
+    /// The visible row indices, for the tests.
+    #[cfg(test)]
+    pub(crate) fn row_indices(&self) -> Vec<u32> {
+        self.rows.clone()
+    }
+
+    /// What each visible row stands for, for the tests: the name and the
+    /// queue action, which is all a queue or hold click can move.
+    #[cfg(test)]
+    pub(crate) fn visible_rows(&self) -> Vec<VisibleRow> {
+        self.rows
+            .iter()
+            .map(|row| VisibleRow {
+                name: self.name_of(row).to_owned(),
+                queued: self.queue.get(self.name_of(row)).copied(),
+                update_to: self.state.update_to(self.name_of(row)).map(str::to_owned),
+            })
+            .collect()
+    }
+
+    /// Sets the filter and recomputes the visible rows, as the Qt setter does.
+    #[cfg(test)]
+    pub(crate) fn set_filter(&mut self, filter: &str) {
+        self.filter = QString::from(filter);
+        self.rebuild();
+    }
+
     /// All visible names, for the tests.
     #[cfg(test)]
-    fn visible_names(&self) -> Vec<&str> {
+    pub(crate) fn visible_names(&self) -> Vec<&str> {
         self.rows.iter().map(|row| self.name_of(row)).collect()
     }
 
     fn matches(&self, row: &u32, filter: &str, search: &str) -> bool {
         let name = self.name_of(row);
         if !search.is_empty() {
-            let description = self.snapshot[*row as usize].description.to_lowercase();
-            if !name.to_lowercase().contains(search) && !description.contains(search) {
+            // The cache is filled in `install`, right after the records and
+            // the derived state are final, and indexed like `snapshot`.
+            let index = *row as usize;
+            let name_hit = self
+                .name_lower
+                .get(index)
+                .is_some_and(|lower| lower.contains(search));
+            let description_hit = self
+                .description_lower
+                .get(index)
+                .is_some_and(|lower| lower.contains(search));
+            if !name_hit && !description_hit {
                 return false;
             }
         }
@@ -1719,6 +1805,165 @@ mod tests {
             model.visible_names(),
             vec!["linux", "vim", "curl", "bash"],
             "and still last when descending"
+        );
+    }
+
+    /// 1340 records, names sorted, descriptions two words each — the size of
+    /// this machine's installed set, so a test can time the real code paths.
+    fn scale_records(n: usize) -> Vec<InstalledPackage> {
+        (0..n)
+            .map(|i| {
+                record(
+                    &format!("pkg{i:04}-1.{i}_1"),
+                    &format!("Package number {i}"),
+                )
+            })
+            .collect()
+    }
+
+    fn scale_installed(n: usize) -> InstalledMap {
+        (0..n)
+            .map(|i| (format!("pkg{i:04}"), inst("1.0_1", true, false)))
+            .collect()
+    }
+
+    /// A model over `n` synthetic packages, sorted by name, Installed filter.
+    fn scale_model(n: usize) -> PackageModelRust {
+        let mut model = PackageModelRust::default();
+        install_records(
+            &mut model,
+            &scale_installed(n),
+            scale_records(n),
+            Vec::new(),
+            Vec::new(),
+        );
+        model
+    }
+
+    #[test]
+    fn name_order_is_the_snapshot_order_reversed_for_descending() {
+        // The records arrive name-sorted and the ascending path must not sort
+        // them again; descending reverses. Both must equal the full sort the
+        // code used to do, on the whole 1340-row set.
+        let mut model = scale_model(1340);
+        let sorted = {
+            let mut names: Vec<String> = model
+                .snapshot
+                .iter()
+                .map(|record| record.name.clone())
+                .collect();
+            names.sort();
+            names
+        };
+
+        model.set_sort("name", false);
+        assert_eq!(
+            model.visible_names(),
+            sorted,
+            "ascending is the record order"
+        );
+
+        model.set_sort("name", true);
+        let mut reversed = sorted.clone();
+        reversed.reverse();
+        assert_eq!(model.visible_names(), reversed, "descending is its reverse");
+    }
+
+    #[test]
+    fn a_store_change_refreshes_the_cached_lowercase_text() {
+        // A stale lowercase cache would keep matching a description the record
+        // no longer has: the old text must stop matching after the change.
+        let mut model = model();
+        set_filter(&mut model, "all");
+        model.search = QString::from("bourne");
+        model.rebuild();
+        assert_eq!(model.visible_names(), vec!["bash"], "matches the old text");
+
+        let mut changed = records();
+        changed[0].description = String::from("A different shell entirely");
+        let (_, rows, _) = model.snapshot(changed, installed(), Vec::new(), Vec::new(), Vec::new());
+        model.assign_rows(rows);
+
+        assert!(
+            model.visible_names().is_empty(),
+            "the previous description no longer matches"
+        );
+        model.search = QString::from("DIFFERENT");
+        model.rebuild();
+        assert_eq!(
+            model.visible_names(),
+            vec!["bash"],
+            "the new description matches case-insensitively"
+        );
+    }
+
+    #[test]
+    fn the_lowercase_cache_tracks_the_records_it_was_built_from() {
+        // The cache is indexed like `snapshot`: every record change that
+        // replaces the list must rebuild it, or a row would be tested against
+        // another row's text.
+        let mut model = scale_model(3);
+        set_filter(&mut model, "all");
+        model.search = QString::from("package number 1");
+        model.rebuild();
+        assert_eq!(
+            model.visible_names(),
+            vec!["pkg0001"],
+            "the description cache belongs to the record at the same index"
+        );
+
+        let mut renamed = scale_records(3);
+        renamed[0].name = String::from("bas");
+        let (_, rows, _) = model.snapshot(
+            renamed,
+            scale_installed(3),
+            Vec::new(),
+            Vec::new(),
+            Vec::new(),
+        );
+        model.assign_rows(rows);
+        model.search = QString::from("bas");
+        model.rebuild();
+        assert_eq!(
+            model.visible_names(),
+            vec!["bas"],
+            "the name cache follows the renamed record"
+        );
+        model.search = QString::from("pkg0000");
+        model.rebuild();
+        assert!(
+            model.visible_names().is_empty(),
+            "the record stopped matching its previous name"
+        );
+    }
+
+    #[test]
+    fn scale_search_timing_is_a_smoke_bound_not_a_budget() {
+        // Smoke bound only: a loaded machine must never fail the suite. The
+        // numbers are printed for the report; nothing asserts their size.
+        use std::time::Instant;
+
+        let mut model = scale_model(1340);
+        set_filter(&mut model, "all");
+        let mut per_call: Vec<f64> = Vec::with_capacity(30);
+        for _ in 0..30 {
+            let start = Instant::now();
+            model.search = QString::from("Number 12");
+            model.rebuild();
+            per_call.push(start.elapsed().as_secs_f64() * 1000.0);
+        }
+        assert!(
+            !model.visible_names().is_empty(),
+            "the needle matches rows: 12, 120-129, 1200-1299 minus the filter"
+        );
+        per_call.sort_by(|left, right| left.total_cmp(right));
+        let min = per_call[0];
+        let median = per_call[per_call.len() / 2];
+        let max = per_call[per_call.len() - 1];
+        eprintln!("scale_search_timing: min {min:.3} ms, median {median:.3} ms, max {max:.3} ms");
+        assert!(
+            max < 200.0,
+            "smoke bound (not a performance requirement): {max:.3} ms"
         );
     }
 }
