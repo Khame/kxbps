@@ -5,3 +5,5 @@ screenshots/
 *.pot~
 .qmlls.ini
 qmlls.ini
+__pycache__/
+*.pyc

@@ -248,7 +248,7 @@ Item {
             Layout.rightMargin: Kirigami.Units.largeSpacing
             Layout.bottomMargin: Kirigami.Units.smallSpacing
             visible: view.isListMode(modeCombo.currentText) && view.resultCount > 0
-            text: i18nd("kxbps", "%1 results", view.resultCount)
+            text: i18ndp("kxbps", "%1 result", "%1 results", view.resultCount)
             color: Kirigami.Theme.disabledTextColor
             font: Kirigami.Theme.smallFont
             elide: Text.ElideRight
