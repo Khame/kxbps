@@ -1,19 +1,26 @@
 // One `xbps-query` hit: the package row without the queue actions.
 //
-// Query results are `QVariantMap`s handed over by the catalog backend, so the
-// fields arrive as `modelData`, not as model roles. Widths come from the view
-// so the header and every result line up.
+// Query results are `QVariantMap`s handed over by the query backend, so the
+// fields arrive as `modelData`, not as model roles. A `-Rs` line carries the
+// package name, its version and its description, and nothing else: the
+// installed state is the tag, so a hit is either "Installed" or plain, never a
+// repository or a category xbps did not print. Widths come from the view so
+// the header and every result line up.
 
 import QtQuick
 import QtQuick.Controls as QQC2
 import QtQuick.Layouts
 import org.kde.kirigami as Kirigami
+import org.kde.ki18n 1.0
 
 QQC2.ItemDelegate {
     id: delegate
 
     property real versionWidth
-    property real sizeWidth
+    // The row whose facts the pane is showing; the view tracks it by pkgver.
+    property bool current: false
+
+    highlighted: delegate.current
 
     height: Kirigami.Units.gridUnit * 2.4
     implicitHeight: height
@@ -42,7 +49,17 @@ QQC2.ItemDelegate {
 
             QQC2.Label {
                 Layout.fillWidth: true
-                text: modelData.repo + " · " + modelData.category
+                text: modelData.installed ? i18nd("kxbps", "Installed") : ""
+                font: Kirigami.Theme.smallFont
+                color: modelData.installed ? Kirigami.Theme.positiveTextColor
+                                           : Kirigami.Theme.disabledTextColor
+                visible: modelData.installed
+                elide: Text.ElideRight
+            }
+
+            QQC2.Label {
+                Layout.fillWidth: true
+                text: modelData.short
                 font: Kirigami.Theme.smallFont
                 color: Kirigami.Theme.disabledTextColor
                 elide: Text.ElideRight
@@ -53,23 +70,11 @@ QQC2.ItemDelegate {
             Layout.preferredWidth: delegate.versionWidth
             Layout.minimumWidth: delegate.versionWidth
             Layout.maximumWidth: delegate.versionWidth
-            text: modelData.installedVersion !== ""
-                  ? modelData.installedVersion + " ✓"
-                  : modelData.version
-            color: modelData.installedVersion !== "" ? Kirigami.Theme.positiveTextColor
-                                                     : Kirigami.Theme.textColor
+            text: modelData.version
             font.family: "monospace"
             elide: Text.ElideRight
-        }
-
-        QQC2.Label {
-            Layout.preferredWidth: delegate.sizeWidth
-            Layout.minimumWidth: delegate.sizeWidth
-            Layout.maximumWidth: delegate.sizeWidth
-            horizontalAlignment: Text.AlignRight
-            text: modelData.size
-            font.family: "monospace"
-            elide: Text.ElideLeft
+            color: modelData.installed ? Kirigami.Theme.positiveTextColor
+                                       : Kirigami.Theme.textColor
         }
     }
 }
