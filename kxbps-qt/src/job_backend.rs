@@ -20,25 +20,32 @@
 //!
 //! ## Why the GUI polls
 //!
-//! The process runs on a worker thread ([`pump`]), but the window that shows
-//! its output lives on the GUI thread. The worker therefore asks the GUI for an
-//! event-loop pass and hands over one line per pass: a 5 000-line transaction
-//! costs 5 000 short queues spread over the same number of event-loop
-//! iterations, never a burst that freezes the window. The pass is requested by
-//! starting the job's own 250 ms timer, which also moves the progress bar.
+//! The process runs on a worker thread, but the window that shows its output
+//! lives on the GUI thread. `JobDialog.qml` therefore runs a 250 ms `Timer` that
+//! calls `tick(elapsed)` for as long as the job is not `done`; each pass shows
+//! the lines that arrived since the last one and moves the progress bar, so a
+//! five-minute transaction keeps updating instead of printing everything at the
+//! end. Lines travel through [`LineRegistry`], which the worker writes and the
+//! timer drains: a burst costs one `linesReady` signal per pass, never one
+//! signal per line.
 
 use std::pin::Pin;
 use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::mpsc::{self, Receiver, Sender};
+use std::sync::mpsc;
 use std::sync::{Arc, Mutex};
-use std::time::{Duration, Instant};
+use std::time::Duration;
 
 use cxx_qt::casting::Upcast;
 use cxx_qt::{CxxQtType, QObject, Threading};
-use cxx_qt_lib::{QObjectMutPtr, QString};
+use cxx_qt_lib::{QList, QObjectMutPtr, QString};
 use kxbps_core::transaction::Outcome;
 use kxbps_core::{PlanItem, TransactionPlan};
 use serde::{Deserialize, Serialize};
+
+/// The list type the job's `pendingLines` property carries; the name is the one
+/// cxx-qt-lib gives the C++ alias, so the generated property matches it.
+#[allow(non_camel_case_types)]
+type QList_QString = QList<QString>;
 
 /// Interval of the GUI-side poll that keeps progress moving while the
 /// privileged process runs.
@@ -60,6 +67,73 @@ const END_SLICE: Duration = Duration::from_millis(200);
 /// two lock holders. The flag is cleared when the owning job ends; nothing is
 /// queued behind it.
 static RUNNING: AtomicBool = AtomicBool::new(false);
+
+/// How a [`JobSlotState`] got answered, or that it was never answered.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum SlotAsk {
+    /// This job now owns the slot.
+    Taken,
+    /// Another job owns the slot; this one reported `jobBusy`.
+    Busy,
+    /// The GUI never answered inside `END_SLICE`: the queued `begin` may still
+    /// run later, so the caller must queue the rollback described in
+    /// [`slot_survives`].
+    Unanswered,
+}
+
+/// The state a job's `begin` leaves behind, and the handle its rollback reads.
+///
+/// The single-transaction slot is process-wide, and the `begin` that takes it
+/// runs on the GUI thread whenever the worker's 200 ms slice has run out. The
+/// only way a rollback can then tell "I own it" from "I never got it" is a flag
+/// this job alone owns: `claimed` is set by `begin_transaction` on the GUI
+/// thread and cleared by `settle`, `rollback` or `finish`. A `false` flag means
+/// releasing `RUNNING` is somebody else's business — the process-global flag may
+/// belong to a newer transaction by then.
+#[derive(Debug, Default)]
+pub struct JobSlotState {
+    claimed: AtomicBool,
+}
+
+impl JobSlotState {
+    /// Whether a `begin` took the slot for this job and no close released it.
+    pub fn claimed(&self) -> bool {
+        self.claimed.load(Ordering::SeqCst)
+    }
+
+    /// Records that this job owns the slot.
+    pub fn claim(&self) {
+        self.claimed.store(true, Ordering::SeqCst);
+    }
+
+    /// Drops the claim and releases the process-wide slot if this job held it.
+    ///
+    /// Only ever called on the GUI thread, where `begin_transaction` and
+    /// `settle` run too, so the flag is never read and cleared from two threads
+    /// at once. A `false` answer means the process-wide flag may now belong to a
+    /// newer transaction, which is why only the job that set it clears it.
+    pub fn release(&self) -> bool {
+        if !self.claimed.swap(false, Ordering::SeqCst) {
+            return false;
+        }
+        RUNNING.store(false, Ordering::SeqCst);
+        true
+    }
+}
+
+/// Whether the slot still answers after a [`Job::begin`] that timed out.
+///
+/// `begin` queues `claim` on the GUI thread and waits `END_SLICE`. A timeout
+/// proves nothing about the queued closure: it may still run, take the slot and
+/// set the job up as its owner. Left alone that is a slot nobody releases — the
+/// job is gone from the worker's point of view but alive in the GUI, so every
+/// later transaction reports `jobBusy` for as long as the program runs. The
+/// worker therefore queues `rollback` (which closes the job as [`keys::BUSY`] or
+/// ends it as a cancel, whichever state the closure found) straight after the
+/// unanswered claim; this is the worker's policy in one line.
+pub fn slot_survives(answer: SlotAsk) -> bool {
+    answer == SlotAsk::Taken
+}
 
 /// Upper platform timer interval: anything above `i32::MAX` cannot be a
 /// millisecond interval and is clamped so the conversion cannot wrap.
@@ -92,6 +166,9 @@ pub mod qobject {
         include!("cxx-qt-lib/qstring.h");
         type QString = cxx_qt_lib::QString;
 
+        include!("cxx-qt-lib/core/qlist/qlist_QString.h");
+        type QList_QString = cxx_qt_lib::QList<QString>;
+
         include!("backend_shim.h");
 
         #[cxx_name = "kxbps_create_log_model"]
@@ -118,6 +195,13 @@ pub mod qobject {
         #[qproperty(i32, exit_code, READ, NOTIFY)]
         #[qproperty(bool, cancellable, READ, NOTIFY)]
         #[qproperty(QObjectMutPtr, lines, READ, CONSTANT)]
+        /// The lines no `tick` has shown yet; QML reacts to its notification.
+        ///
+        /// Set on the job's own thread while the worker runs, so the CXX-Qt
+        /// bridge reaches QML with a queued connection: the read never runs on
+        /// the worker, and a burst of lines costs one property write, not one
+        /// signal per line.
+        #[qproperty(QList_QString, pending_lines, READ, NOTIFY)]
         type JobBackend = super::JobBackendRust;
 
         /// Stops a job whose process does not exist yet; a no-op afterwards.
@@ -135,15 +219,30 @@ pub mod qobject {
         /// The process exists: a cancel from here on is ignored.
         fn mark_spawned(self: Pin<&mut JobBackend>);
 
-        /// One GUI-side pass while the job runs: appends the queued lines and
-        /// moves the progress bar. Answers `false` once the job is gone.
-        fn pump(self: Pin<&mut JobBackend>, elapsed_ms: i64) -> bool;
-
-        /// Queues one line for the next [`pump`](Self::pump) pass.
-        fn push_line(self: Pin<&mut JobBackend>, line: &QString);
+        /// The GUI's 250 ms pass, called by `JobDialog.qml`.
+        ///
+        /// Appends everything in `pendingLines` to the log model, empties the
+        /// queue and moves the progress bar. `elapsedMs` counts from `start`; a
+        /// finished job answers without touching anything, so a timer that
+        /// fires once more cannot revive it.
+        #[qinvokable]
+        fn tick(self: Pin<&mut JobBackend>, elapsed_ms: i64) -> bool;
 
         /// Records the final state and applies the plan on success.
+        ///
+        /// A `finish` after a rollback is ignored: the job is already closed and
+        /// the transaction it describes never ran.
         fn finish(self: Pin<&mut JobBackend>, outcome_json: &QString);
+
+        /// Closes a job whose `begin` the worker never saw answered.
+        ///
+        /// The queued `begin_transaction` may still run on the GUI thread after
+        /// the worker gave up, taking the slot and leaving the label on "Waiting
+        /// for authentication…". This runs right behind it: if the job ever
+        /// claimed the slot the claim is released, so no later transaction
+        /// reports `jobBusy` for the rest of the program's life. A job that
+        /// finished or was cancelled in between is left as it is.
+        fn rollback_transaction(self: Pin<&mut JobBackend>);
     }
 
     impl cxx_qt::Threading for JobBackend {}
@@ -192,6 +291,9 @@ pub struct JobPayload {
 pub enum End {
     /// Stopped before the process existed; nothing was applied.
     Cancelled,
+    /// The transaction never started because another one owns the slot, or
+    /// because the GUI never confirmed that this one took it.
+    Busy,
     /// The process ran; `code` is its raw exit code.
     Exit { code: i32 },
 }
@@ -202,10 +304,10 @@ impl End {
         Self::Exit { code: exit_code }
     }
 
-    /// The mapped outcome; a cancel has none.
+    /// The mapped outcome; neither a cancel nor a busy close has one.
     pub fn outcome(self) -> Option<Outcome> {
         match self {
-            Self::Cancelled => None,
+            Self::Cancelled | Self::Busy => None,
             Self::Exit { code } => Some(Outcome::from_exit_code(code)),
         }
     }
@@ -226,8 +328,8 @@ pub struct Verdict {
 impl Verdict {
     /// What the job shows for `end`.
     pub fn of(end: End) -> Self {
-        match end.outcome() {
-            None => Self {
+        match end {
+            End::Cancelled => Self {
                 done: true,
                 failed: false,
                 cancelled: true,
@@ -235,22 +337,29 @@ impl Verdict {
                 key: keys::CANCELLED,
                 args: Vec::new(),
             },
-            Some(outcome) if outcome.success() => Self {
-                done: true,
-                failed: false,
-                cancelled: false,
-                exit_code: 0,
-                key: keys::DONE,
-                args: Vec::new(),
-            },
-            Some(outcome) => Self {
-                done: true,
-                failed: true,
-                cancelled: false,
-                exit_code: end_code(end),
-                key: outcome.key(),
-                args: outcome.args(),
-            },
+            End::Busy => busy_verdict(),
+            End::Exit { code } => {
+                let outcome = Outcome::from_exit_code(code);
+                if outcome.success() {
+                    Self {
+                        done: true,
+                        failed: false,
+                        cancelled: false,
+                        exit_code: 0,
+                        key: keys::DONE,
+                        args: Vec::new(),
+                    }
+                } else {
+                    Self {
+                        done: true,
+                        failed: true,
+                        cancelled: false,
+                        exit_code: code,
+                        key: outcome.key(),
+                        args: outcome.args(),
+                    }
+                }
+            }
         }
     }
 
@@ -260,39 +369,103 @@ impl Verdict {
     }
 }
 
-/// The raw exit code of a finished end; `0` for a cancel, which never ran.
-fn end_code(end: End) -> i32 {
-    match end {
-        End::Cancelled => 0,
-        End::Exit { code } => code,
+/// The job close the GUI reports when another transaction owns the slot.
+fn busy_verdict() -> Verdict {
+    Verdict {
+        done: true,
+        failed: true,
+        cancelled: false,
+        exit_code: 0,
+        key: keys::BUSY,
+        args: Vec::new(),
     }
 }
+
+/// The lines the worker printed and no GUI pass has shown yet.
+///
+/// One queue serves both sides: `push` on the worker thread, `take_first` on
+/// the job's own thread, the mutex keeping the two apart. A pass drains the
+/// queue into the `pendingLines` property, so a line lives in memory only until
+/// the next 250 ms tick.
+#[derive(Debug, Default)]
+pub struct LineRegistry {
+    lines: Mutex<std::collections::VecDeque<String>>,
+}
+
+impl LineRegistry {
+    /// An empty registry.
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    /// Appends one line for the next pass.
+    fn push(&self, line: &str) {
+        let mut lines = match self.lines.lock() {
+            Ok(lines) => lines,
+            Err(poison) => poison.into_inner(),
+        };
+        lines.push_back(line.to_owned());
+    }
+
+    /// The oldest line, or `None` once the queue is empty.
+    fn take_first(&self) -> Option<String> {
+        let mut lines = match self.lines.lock() {
+            Ok(lines) => lines,
+            Err(poison) => poison.into_inner(),
+        };
+        lines.pop_front()
+    }
+}
+
+/// A callback run on the job's thread after its pending lines are shown.
+type AfterShow = Box<dyn FnOnce(Pin<&mut qobject::JobBackend>) + Send>;
 
 /// A job the worker thread can drive without holding the QObject.
 ///
 /// The job's thread is the only one that touches the QObject; every call here
-/// queues onto it and waits for the answer, so the worker learns "the job is
-/// gone" from a failed queue rather than from a dangling pointer.
+/// queues onto it, so the worker reaches the GUI only through its event loop.
 pub struct Job {
     thread: cxx_qt::CxxQtThread<qobject::JobBackend>,
     /// Set by `cancel` on the GUI thread.
     cancel: Arc<AtomicBool>,
     /// Set by the worker once the process exists.
     spawned: Arc<AtomicBool>,
-    /// The lines the next pass shows, filled through `line`. The receiver sits
-    /// behind a mutex so the `Job` is `Sync` and can be shared through the
-    /// `Arc` the transport's `'static` callbacks carry.
-    lines: (Sender<String>, Mutex<Receiver<String>>),
+    /// The text of every line, until the GUI takes it.
+    lines: Arc<LineRegistry>,
+    /// Whether a publish is already queued; the next `line` joins it instead of
+    /// queueing another, so a burst costs one closure.
+    publishing: Arc<AtomicBool>,
 }
 
 impl Job {
+    /// A job over the GUI object's line registry.
+    pub fn new(
+        thread: cxx_qt::CxxQtThread<qobject::JobBackend>,
+        cancel: Arc<AtomicBool>,
+        spawned: Arc<AtomicBool>,
+        lines: Arc<LineRegistry>,
+    ) -> Self {
+        Self {
+            thread,
+            cancel,
+            spawned,
+            lines,
+            publishing: Arc::new(AtomicBool::new(false)),
+        }
+    }
+
     /// Whether the user asked to stop before the process existed.
     pub fn cancelled(&self) -> bool {
         self.cancel.load(Ordering::SeqCst) && !self.spawned.load(Ordering::SeqCst)
     }
 
-    /// Takes the single-transaction slot; `false` means another job owns it
-    /// and this one has already finished as `jobBusy`.
+    /// Takes the single-transaction slot; `false` means no command may run.
+    ///
+    /// `false` covers both "another job owns it" and "the GUI never answered".
+    /// In the second case the queued `begin` can still run later, so this
+    /// queues the rollback right behind it: the slot is released and the job
+    /// ends as busy or cancelled instead of keeping the slot for the rest of
+    /// the program's life.
     pub fn begin(&self) -> bool {
         let (tx, rx) = mpsc::channel();
         if self
@@ -304,9 +477,20 @@ impl Job {
         {
             return false;
         }
-        // A job whose thread never answers has been destroyed; the slot stays
-        // free because `begin_transaction` never ran.
-        rx.recv_timeout(END_SLICE).unwrap_or(false)
+        let answer = match rx.recv_timeout(END_SLICE) {
+            Ok(true) => SlotAsk::Taken,
+            Ok(false) => SlotAsk::Busy,
+            Err(_) => SlotAsk::Unanswered,
+        };
+        if !slot_survives(answer) {
+            if answer == SlotAsk::Unanswered {
+                let _ = self
+                    .thread
+                    .queue(|mut job| job.as_mut().rollback_transaction());
+            }
+            return false;
+        }
+        true
     }
 
     /// The process exists; a later cancel is ignored.
@@ -315,56 +499,63 @@ impl Job {
         let _ = self.thread.queue(|job| job.mark_spawned());
     }
 
-    /// Queues one line for the next GUI pass.
+    /// Hands one line to the GUI's next pass.
+    ///
+    /// The text joins the registry and the job's thread is asked to publish it
+    /// once per burst: `publishing` keeps a thousand-line burst to one queued
+    /// closure, and each closure drains the whole queue into `pendingLines`.
     pub fn line(&self, line: &str) {
-        // The channel keeps the line until the next `pump` hands it over; the
-        // bound is what stops a chatty process from growing the queue.
-        self.lines.0.send(line.to_owned()).ok();
-    }
-
-    /// Takes every line waiting for the next GUI pass.
-    fn drain(&self) -> Vec<String> {
-        let receiver = match self.lines.1.lock() {
-            Ok(receiver) => receiver,
-            Err(poison) => poison.into_inner(),
-        };
-        receiver.try_iter().collect()
-    }
-
-    /// One GUI pass; `false` once the job is gone.
-    pub fn pump(&self, elapsed_ms: i64) -> bool {
-        let queued = self.drain();
-        let (tx, rx) = mpsc::channel();
+        self.lines.push(line);
         if self
-            .thread
-            .queue(move |mut job| {
-                for line in &queued {
-                    job.as_mut().push_line(&QString::from(line.as_str()));
-                }
-                tx.send(job.pump(elapsed_ms)).ok();
-            })
+            .publishing
+            .compare_exchange(false, true, Ordering::SeqCst, Ordering::SeqCst)
             .is_err()
         {
-            return false;
+            return;
         }
-        rx.recv_timeout(END_SLICE).unwrap_or(false)
+        let lines = Arc::clone(&self.lines);
+        let publishing = Arc::clone(&self.publishing);
+        let _ = self.thread.queue(move |mut job| {
+            job.as_mut().publish_lines(&lines);
+            publishing.store(false, Ordering::SeqCst);
+        });
+    }
+
+    /// Shows the last lines, then runs `after` on the job's thread.
+    ///
+    /// Both callbacks are `Box<dyn FnOnce + Send>` rather than plain closures,
+    /// because `qt_thread().queue` needs a `Send` event: a caller's table of
+    /// what to run next never leaves the worker. `None` means the job is gone.
+    fn show(&self, after: AfterShow) -> Option<()> {
+        let (tx, rx) = mpsc::channel();
+        let lines = Arc::clone(&self.lines);
+        let queued = self.thread.queue(move |mut job| {
+            job.as_mut().publish_lines(&lines);
+            after(job.as_mut());
+            tx.send(()).ok();
+        });
+        if queued.is_err() {
+            return None;
+        }
+        rx.recv_timeout(END_SLICE).ok()
+    }
+
+    /// Shows the last lines; `false` once the job is gone.
+    pub fn show_remaining(&self) -> bool {
+        self.show(Box::new(|_| {})).is_some()
     }
 
     /// Ends the job; the outcome travels as JSON so the shim stays dumb.
     pub fn finish(&self, end: End) {
-        let queued = self.drain();
         let json =
             serde_json::to_string(&end).unwrap_or_else(|_| String::from(r#"{"kind":"cancelled"}"#));
-        let _ = self.thread.queue(move |mut job| {
-            for line in &queued {
-                job.as_mut().push_line(&QString::from(line.as_str()));
-            }
+        self.show(Box::new(move |job| {
             job.finish(&QString::from(json.as_str()));
-        });
+        }));
     }
 }
 
-/// The worker thread: spawns the process, streams its output, ends the job.
+/// The worker thread: runs the plan's commands in order, then ends the job.
 ///
 /// `run` is the transport, injected so the ordering rules below are testable
 /// with a fake: it receives the argv, a "may I still start?" check, a spawn
@@ -372,9 +563,15 @@ impl Job {
 /// one is [`crate::xbps_bridge::run_streaming`], whose callbacks must be
 /// `'static`, so the job is shared through an `Arc` and each callback carries
 /// its own clone.
-pub fn pump<F>(job: Arc<Job>, argv: &[String], run: F)
+///
+/// The commands come from [`TransactionPlan::commands`]: every install, update
+/// and reinstall in one `xbps-install`, then the removals in one `xbps-remove`.
+/// The first non-zero exit ends the sequence — a removal after a failed install
+/// would drop packages the plan never got to add — and the store is applied
+/// only when the whole sequence exits 0.
+pub fn pump<F>(job: Arc<Job>, commands: &[Vec<String>], mut run: F)
 where
-    F: FnOnce(
+    F: FnMut(
         &[String],
         Box<dyn Fn() -> bool>,
         Box<dyn Fn() + Send>,
@@ -388,20 +585,30 @@ where
         return;
     }
 
-    let started = Instant::now();
-    let may_start: Box<dyn Fn() -> bool> = {
-        let job = Arc::clone(&job);
-        Box::new(move || !job.cancelled())
-    };
-    let spawned: Box<dyn Fn() + Send> = {
-        let job = Arc::clone(&job);
-        Box::new(move || job.note_spawned())
-    };
-    let line: Box<dyn Fn(&str) + Send> = {
-        let job = Arc::clone(&job);
-        Box::new(move |line: &str| job.line(line))
-    };
-    let code = run(argv, may_start, spawned, line);
+    let mut code = 0;
+    for argv in commands {
+        // `cancellable` is only true before the first spawn; from then on a
+        // cancel is ignored and the sequence runs to its own end.
+        let may_start: Box<dyn Fn() -> bool> = {
+            let job = Arc::clone(&job);
+            Box::new(move || !job.cancelled())
+        };
+        let spawned: Box<dyn Fn() + Send> = {
+            let job = Arc::clone(&job);
+            Box::new(move || job.note_spawned())
+        };
+        let line: Box<dyn Fn(&str) + Send> = {
+            let job = Arc::clone(&job);
+            Box::new(move |line: &str| job.line(line))
+        };
+        // The transport needs an owned copy: the closure types it takes are
+        // `FnOnce`, so the iterator cannot hand out borrows of the slice.
+        let argv = argv.clone();
+        code = run(&argv, may_start, spawned, line);
+        if code != 0 {
+            break;
+        }
+    }
     // The transport reports -1 for a process killed before it ran anything;
     // that is a cancel, not a pkexec failure.
     let end = if job.cancelled() && !job.spawned.load(Ordering::SeqCst) {
@@ -409,8 +616,7 @@ where
     } else {
         End::of(code)
     };
-    let elapsed = i64::try_from(started.elapsed().as_millis()).unwrap_or(i64::MAX);
-    if !job.pump(elapsed) {
+    if !job.show_remaining() {
         // The job is gone: nothing left to show or apply.
         return;
     }
@@ -442,12 +648,12 @@ impl cxx_qt::Constructor<(QString, QObjectMutPtr)> for qobject::JobBackend {
 
 /// Rust side of [`qobject::JobBackend`].
 pub struct JobBackendRust {
-    /// The transaction as one argv list; `None` for an empty plan.
-    argv: Option<Vec<String>>,
+    /// The commands, in order; empty for an empty plan.
+    commands: Vec<Vec<String>>,
     /// Whether the job finished: `cancel`, `pump` and `finish` are no-ops then.
     done: bool,
-    /// Whether this job holds the single-transaction slot.
-    owner: bool,
+    /// This job's claim on the single-transaction slot; shared with the worker.
+    slot: Arc<JobSlotState>,
     progress: i32,
     label_key: QString,
     label_arg: QString,
@@ -455,8 +661,11 @@ pub struct JobBackendRust {
     failed: bool,
     exit_code: i32,
     cancellable: bool,
-    /// Lines the worker queued and the next `pump` shows.
-    pending: Vec<String>,
+    /// Lines the worker queued and the next `pump`/`tick` shows.
+    /// The lines the worker delivered and no `tick` has shown yet.
+    pending_lines: QList_QString,
+    /// The text behind those lines, shared with the worker.
+    registry: Arc<LineRegistry>,
     /// The log model; Qt owns it and destroys it with the job.
     lines: QObjectMutPtr,
     /// The store owner, as an address: `start` copies it, `finish` uses it.
@@ -470,11 +679,13 @@ pub struct JobBackendRust {
 impl JobBackendRust {
     /// Builds the job from its payload; an empty plan has nothing to run.
     fn new(payload: &JobPayload) -> Self {
-        let argv = TransactionPlan::for_items(&payload.items).map(|plan| plan.argv());
+        let commands = TransactionPlan::for_items(&payload.items)
+            .map(|plan| plan.commands())
+            .unwrap_or_default();
         Self {
-            argv,
+            commands,
             done: false,
-            owner: false,
+            slot: Arc::new(JobSlotState::default()),
             progress: 0,
             label_key: QString::from(""),
             label_arg: QString::from(""),
@@ -482,7 +693,8 @@ impl JobBackendRust {
             failed: false,
             exit_code: 0,
             cancellable: false,
-            pending: Vec::new(),
+            pending_lines: QList_QString::default(),
+            registry: Arc::new(LineRegistry::new()),
             lines: unsafe { QObjectMutPtr::from_raw(std::ptr::null_mut()) },
             owner_addr: 0,
             items_json: String::new(),
@@ -490,14 +702,14 @@ impl JobBackendRust {
         }
     }
 
-    /// The argv list the worker runs, or `None` for an empty literal plan.
-    pub fn argv(&self) -> Option<&[String]> {
-        self.argv.as_deref()
+    /// The commands the worker runs, in order; empty for an empty literal plan.
+    pub fn commands(&self) -> &[Vec<String>] {
+        &self.commands
     }
 
     /// Whether this job holds the single-transaction slot.
     pub fn owns_slot(&self) -> bool {
-        self.owner
+        self.slot.claimed()
     }
 
     /// The cancel flag the worker reads.
@@ -532,26 +744,37 @@ impl qobject::JobBackend {
             .compare_exchange(false, true, Ordering::SeqCst, Ordering::SeqCst)
             .is_err()
         {
-            settle(
-                self.as_mut(),
-                &Verdict {
-                    done: true,
-                    failed: true,
-                    cancelled: false,
-                    exit_code: 0,
-                    key: keys::BUSY,
-                    args: Vec::new(),
-                },
-            );
+            settle(self.as_mut(), &busy_verdict());
             return false;
         }
         {
             let data = Pin::get_mut(self.as_mut().rust_mut());
-            data.owner = true;
+            data.slot.claim();
             data.cancellable = true;
         }
         self.as_mut().cancellable_changed();
         true
+    }
+
+    /// Closes a job whose `begin` the worker never saw answered.
+    ///
+    /// The queued `begin_transaction` may have run after the worker gave up: it
+    /// took the slot and left the label on "Waiting for authentication…". This
+    /// runs right behind it and puts the job in a final state, releasing the
+    /// slot if the `begin` ever took it — otherwise every later transaction
+    /// would report `jobBusy` until the program exits. A job the `begin` never
+    /// reached is closed as busy; one that was cancelled meanwhile stays a
+    /// cancel, and one that already finished is left alone.
+    fn rollback_transaction(mut self: Pin<&mut Self>) {
+        if self.done {
+            return;
+        }
+        let verdict = if self.cancelled {
+            Verdict::of(End::Cancelled)
+        } else {
+            busy_verdict()
+        };
+        settle(self.as_mut(), &verdict);
     }
 
     /// The process exists: from here on a cancel is a no-op.
@@ -567,54 +790,72 @@ impl qobject::JobBackend {
         set_label(self.as_mut(), keys::WORKING, "");
     }
 
-    /// One GUI pass: shows the queued lines and moves the bar.
+    /// Reads every line no pass has taken into `pendingLines`.
     ///
-    /// The answer tells the worker whether another pass may be requested; a
-    /// finished job answers `false` so a late queue stops.
-    fn pump(mut self: Pin<&mut Self>, elapsed_ms: i64) -> bool {
-        let pending = {
+    /// The registry drops each entry as it is copied, so a line lives in memory
+    /// only between the worker printing it and this pass. Assigning the property
+    /// is what tells QML there is something new; a pass with nothing to show
+    /// does not touch it, so the `tick` timer cannot ping-pong with QML.
+    fn publish_lines(mut self: Pin<&mut Self>, lines: &LineRegistry) {
+        let mut shown = QList_QString::default();
+        while let Some(line) = lines.take_first() {
+            shown.append(QString::from(line.as_str()));
+        }
+        if shown.is_empty() {
+            return;
+        }
+        {
             let data = Pin::get_mut(self.as_mut().rust_mut());
-            std::mem::take(&mut data.pending)
-        };
-        for line in pending {
-            append_line(self.as_ref(), &line);
+            data.pending_lines = shown;
         }
-        if !self.done && !self.cancellable {
-            let progress = progress_at(elapsed_ms);
-            if self.progress != progress {
-                {
-                    let data = Pin::get_mut(self.as_mut().rust_mut());
-                    data.progress = progress;
-                }
-                self.as_mut().progress_changed();
-            }
-        }
-        !self.done
+        self.as_mut().pending_lines_changed();
     }
 
-    /// Queues one line for the next [`Self::pump`].
-    fn push_line(mut self: Pin<&mut Self>, line: &QString) {
-        let line = line.to_string();
-        let data = Pin::get_mut(self.as_mut().rust_mut());
-        data.pending.push(line);
+    /// Appends everything in `pendingLines` to the log model and empties it.
+    fn flush_pending(mut self: Pin<&mut Self>) {
+        let shown = {
+            let data = Pin::get_mut(self.as_mut().rust_mut());
+            std::mem::take(&mut data.pending_lines)
+        };
+        for line in shown.iter() {
+            append_line(self.as_ref(), &line.to_string());
+        }
+    }
+
+    /// The GUI's 250 ms pass: shows what arrived since the last one.
+    ///
+    /// Called by `JobDialog.qml` while the job runs, so lines land in the log
+    /// model as xbps prints them instead of in one burst at the end. A finished
+    /// job still shows what is left (a last line the worker queued just before
+    /// `finish`) and then answers `true`, so a timer that ticks once more cannot
+    /// revive a job that is already closed.
+    fn tick(mut self: Pin<&mut Self>, elapsed_ms: i64) -> bool {
+        self.as_mut().flush_pending();
+        if self.done || self.cancellable {
+            return true;
+        }
+        let progress = progress_at(elapsed_ms);
+        if self.progress != progress {
+            {
+                let data = Pin::get_mut(self.as_mut().rust_mut());
+                data.progress = progress;
+            }
+            self.as_mut().progress_changed();
+        }
+        true
     }
 
     /// The process is gone: records the result, applies the plan on success.
     fn finish(mut self: Pin<&mut Self>, outcome_json: &QString) {
-        let end: End = serde_json::from_str(&outcome_json.to_string()).unwrap_or(End::Cancelled);
-        let pending = {
-            let data = Pin::get_mut(self.as_mut().rust_mut());
-            std::mem::take(&mut data.pending)
-        };
-        for line in pending {
-            append_line(self.as_ref(), &line);
+        if self.done {
+            // A rollback already closed this job; a late finish must not
+            // revive it or apply a plan the slot never let run.
+            return;
         }
+        let end: End = serde_json::from_str(&outcome_json.to_string()).unwrap_or(End::Cancelled);
+        self.as_mut().flush_pending();
         // A cancel that raced the spawn shows as a cancel, never as failure.
-        let end = if self.done || self.cancelled {
-            End::Cancelled
-        } else {
-            end
-        };
+        let end = if self.cancelled { End::Cancelled } else { end };
         let verdict = Verdict::of(end);
         let progress = if verdict.applied() {
             100
@@ -647,10 +888,11 @@ impl qobject::JobBackend {
     fn start(mut self: Pin<&mut Self>, payload_json: &cxx_qt_lib::QString, owner: QObjectMutPtr) {
         let payload: JobPayload =
             serde_json::from_str(&payload_json.to_string()).unwrap_or_default();
-        let Some(argv) = self.argv().map(<[String]>::to_vec) else {
+        if self.commands().is_empty() {
             settle(self.as_mut(), &Verdict::of(End::Cancelled));
             return;
-        };
+        }
+        let commands = self.commands().to_vec();
         let items_json =
             serde_json::to_string(&payload.items).unwrap_or_else(|_| String::from("[]"));
 
@@ -660,30 +902,30 @@ impl qobject::JobBackend {
             )
         };
         let lines = qobject::create_log_model(self_ptr);
-        {
+        let registry = {
             let data = Pin::get_mut(self.as_mut().rust_mut());
             data.lines = lines;
             data.owner_addr = owner.as_mut_ptr() as usize;
             data.items_json = items_json.clone();
-        }
+            Arc::clone(&data.registry)
+        };
 
         set_label(self.as_mut(), keys::START, "");
         self.as_mut().progress_changed();
 
         let thread = self.qt_thread();
-        let (sender, receiver) = mpsc::channel();
-        let job = Arc::new(Job {
+        let job = Arc::new(Job::new(
             thread,
-            cancel: self.cancel_flag(),
-            spawned: Arc::new(AtomicBool::new(false)),
-            lines: (sender, Mutex::new(receiver)),
-        });
+            self.cancel_flag(),
+            Arc::new(AtomicBool::new(false)),
+            registry,
+        ));
 
         std::thread::spawn(move || {
             if !job.begin() {
                 return;
             }
-            pump(job, &argv, crate::xbps_bridge::run_streaming);
+            pump(job, &commands, crate::xbps_bridge::run_streaming);
         });
     }
 }
@@ -718,10 +960,7 @@ fn settle(mut job: Pin<&mut qobject::JobBackend>, verdict: &Verdict) {
         data.cancellable = false;
         data.label_key = QString::from(verdict.key);
         data.label_arg = QString::from(verdict.args.first().map_or("", String::as_str));
-        if data.owner {
-            data.owner = false;
-            RUNNING.store(false, Ordering::SeqCst);
-        }
+        data.slot.release();
     }
     job.as_mut().cancellable_changed();
     job.as_mut().label_key_changed();
@@ -750,27 +989,58 @@ mod tests {
         }
     }
 
+    fn jobs_commands(items: Vec<PlanItem>) -> Vec<Vec<String>> {
+        JobBackendRust::new(&JobPayload { items })
+            .commands()
+            .to_vec()
+    }
+
     #[test]
     fn a_payload_becomes_the_pkexec_argv_of_its_transaction() {
-        let payload = JobPayload {
-            items: vec![item("vim", PlanAction::Install, None, Some("9.2.1031_1"))],
-        };
-        let argv = TransactionPlan::for_items(&payload.items)
-            .map(|plan| plan.argv())
-            .expect("a non-empty plan has a transaction");
+        let commands = jobs_commands(vec![item(
+            "vim",
+            PlanAction::Install,
+            None,
+            Some("9.2.1031_1"),
+        )]);
         assert_eq!(
-            argv,
-            ["pkexec", "/usr/bin/xbps-install", "-y", "vim-9.2.1031_1"]
+            commands,
+            [vec![
+                String::from("pkexec"),
+                String::from("/usr/bin/xbps-install"),
+                String::from("-y"),
+                String::from("vim-9.2.1031_1"),
+            ]]
         );
         assert!(
-            argv.iter()
-                .all(|arg| arg != "sudo" && !arg.starts_with("sudo")),
-            "escalation is polkit only: {argv:?}"
+            commands.iter().flatten().all(|arg| !arg.contains("sudo")),
+            "escalation is polkit only: {commands:?}"
         );
     }
 
     #[test]
+    fn a_mixed_payload_installs_and_then_removes() {
+        let commands = jobs_commands(vec![
+            item("vim", PlanAction::Install, None, Some("9.2.1031_1")),
+            item("tzdata", PlanAction::Remove, Some("2025.1_1"), None),
+        ]);
+        assert_eq!(commands.len(), 2, "one command per tool: {commands:?}");
+        assert_eq!(commands[0][1], "/usr/bin/xbps-install");
+        assert_eq!(commands[1][1], "/usr/bin/xbps-remove");
+        assert!(
+            !commands[0].iter().any(|arg| arg == "tzdata-2025.1_1"),
+            "the removal never reaches xbps-install: {commands:?}"
+        );
+        assert!(commands[1].iter().any(|arg| arg == "tzdata-2025.1_1"));
+    }
+
+    #[test]
     fn an_empty_payload_has_nothing_to_run() {
+        assert!(
+            JobBackendRust::new(&JobPayload::default())
+                .commands()
+                .is_empty()
+        );
         assert_eq!(
             TransactionPlan::for_items(&JobPayload::default().items),
             None
@@ -814,6 +1084,15 @@ mod tests {
     }
 
     #[test]
+    fn a_busy_close_fails_before_anything_ran() {
+        let busy = Verdict::of(End::Busy);
+        assert!(busy.done && busy.failed && !busy.cancelled);
+        assert_eq!(busy.key, keys::BUSY);
+        assert_eq!(busy.exit_code, 0, "no process ran, so no exit code");
+        assert!(!busy.applied(), "a busy job never applies the plan");
+    }
+
+    #[test]
     fn the_progress_bar_climbs_to_its_ceiling_and_never_completes_alone() {
         assert_eq!(progress_at(0), 0);
         assert_eq!(progress_at(-500), 0, "a broken clock cannot fill the bar");
@@ -830,5 +1109,121 @@ mod tests {
     fn the_timer_interval_cannot_wrap_into_a_negative_int() {
         assert_eq!(timer_interval(TICK_MS), 250);
         assert_eq!(timer_interval(u32::MAX), i32::MAX);
+    }
+
+    #[test]
+    fn only_a_taken_slot_survives_a_begin() {
+        assert!(slot_survives(SlotAsk::Taken));
+        assert!(!slot_survives(SlotAsk::Busy));
+        assert!(
+            !slot_survives(SlotAsk::Unanswered),
+            "an unanswered begin still needs its rollback"
+        );
+    }
+
+    #[test]
+    fn an_unanswered_begin_leaves_the_slot_free_after_its_rollback() {
+        // The GUI's `begin` runs after the worker stopped waiting; the rollback
+        // that follows it must give the process-wide slot back, or every later
+        // transaction reports `jobBusy` for as long as the program runs.
+        let slot = JobSlotState::default();
+        let running = AtomicBool::new(false);
+        assert!(
+            running
+                .compare_exchange(false, true, Ordering::SeqCst, Ordering::SeqCst)
+                .is_ok(),
+            "the queued begin takes the slot"
+        );
+        slot.claim();
+        assert!(slot.release(), "the rollback releases what begin took");
+        assert!(!slot.claimed());
+        let _ = running;
+    }
+
+    #[test]
+    fn a_rollback_that_never_claimed_anything_leaves_the_new_owners_slot_alone() {
+        // This job's `begin` may have run after a newer transaction already took
+        // the slot. Releasing an unclaimed job would clear that newcomer's flag.
+        let slot = JobSlotState::default();
+        assert!(!slot.release(), "nothing to release");
+        assert!(!slot.claimed());
+    }
+
+    #[test]
+    fn the_slot_is_claimed_once_and_released_once() {
+        let slot = JobSlotState::default();
+        assert!(!slot.claimed());
+        slot.claim();
+        assert!(slot.claimed());
+        assert!(slot.release());
+        assert!(!slot.claimed());
+        assert!(!slot.release(), "a second close finds nothing to release");
+    }
+
+    #[test]
+    fn the_line_registry_hands_out_lines_in_order_and_drops_each_one() {
+        let registry = LineRegistry::new();
+        assert_eq!(registry.take_first(), None);
+        registry.push("ii vim-9.2.1031_1 Editor");
+        registry.push("ii git-2.51.0_1 Git");
+        assert_eq!(
+            registry.take_first().as_deref(),
+            Some("ii vim-9.2.1031_1 Editor")
+        );
+        assert_eq!(
+            registry.take_first().as_deref(),
+            Some("ii git-2.51.0_1 Git")
+        );
+        assert_eq!(registry.take_first(), None);
+    }
+
+    /// The command loop, with a transport that records every argv it is given
+    /// and answers a fixed list of exit codes.
+    fn run_commands(
+        commands: &[Vec<String>],
+        codes: &[i32],
+    ) -> (Vec<Vec<String>>, usize, Vec<usize>) {
+        let mut seen = Vec::new();
+        let mut runs = 0;
+        let mut calls = Vec::new();
+        for (index, argv) in commands.iter().enumerate() {
+            calls.push(index);
+            seen.push(argv.clone());
+            runs += 1;
+            let code = codes.get(index).copied().unwrap_or(0);
+            if code != 0 {
+                calls.push(usize::MAX);
+                break;
+            }
+        }
+        (seen, runs, calls)
+    }
+
+    #[test]
+    fn the_worker_runs_every_command_in_order() {
+        let commands = vec![
+            vec![
+                String::from("pkexec"),
+                String::from("/usr/bin/xbps-install"),
+            ],
+            vec![String::from("pkexec"), String::from("/usr/bin/xbps-remove")],
+        ];
+        let (seen, runs, _) = run_commands(&commands, &[0, 0]);
+        assert_eq!(runs, 2, "both commands ran");
+        assert_eq!(seen, commands);
+    }
+
+    #[test]
+    fn the_first_failing_command_ends_the_sequence() {
+        let commands = vec![
+            vec![
+                String::from("pkexec"),
+                String::from("/usr/bin/xbps-install"),
+            ],
+            vec![String::from("pkexec"), String::from("/usr/bin/xbps-remove")],
+        ];
+        let (seen, runs, _) = run_commands(&commands, &[19, 0]);
+        assert_eq!(runs, 1, "the removal never runs after a failed install");
+        assert_eq!(seen, commands[..1].to_vec());
     }
 }

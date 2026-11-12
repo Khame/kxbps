@@ -28,6 +28,28 @@ Kirigami.Dialog {
     readonly property bool running: job !== null && !job.done
     readonly property bool failed: job !== null && job.failed
 
+    // Milliseconds since the job was handed over; `tick` turns it into the bar.
+    property real jobElapsed: 0
+
+    // The GUI's 250 ms pass. It is what makes the log live: the worker queues
+    // lines and the job's `tick` appends them, so they land while xbps runs
+    // instead of in one burst after it exits. `interval` is the backend's
+    // `TICK_MS`; the timer only runs between the first spawn and `done`, so it
+    // never keeps a clock alive after the transaction.
+    Timer {
+        id: tickTimer
+        interval: 250
+        repeat: true
+        running: dialog.job !== null && !dialog.job.done
+        onTriggered: {
+            if (dialog.job === null || dialog.job.done) {
+                return
+            }
+            dialog.jobElapsed += interval
+            dialog.job.tick(Math.round(dialog.jobElapsed))
+        }
+    }
+
     title: i18nd("kxbps", "Transaction")
     preferredWidth: Kirigami.Units.gridUnit * 46
     maximumHeight: (parent ? parent.height : Kirigami.Units.gridUnit * 36) * 0.7
@@ -46,6 +68,7 @@ Kirigami.Dialog {
             installedBackend.release(previous)
         }
         job = value
+        jobElapsed = 0
         open()
         Qt.callLater(logList.positionViewAtEnd)
     }
