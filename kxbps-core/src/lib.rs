@@ -10,6 +10,7 @@ pub mod plan;
 pub mod probe;
 pub mod request;
 pub mod store;
+pub mod transaction;
 pub mod types;
 pub mod xbps;
 
@@ -26,9 +27,12 @@ pub use plan::{
 pub use probe::{PROBE_TIMEOUT, PROBE_TIMEOUT_MS, ProbeError, check_probe_url, measure};
 pub use request::{DryRun, PlanRequest, install_names, not_installed, remove_names};
 pub use store::{Store, StoreError, data_dir, installed_map};
+pub use transaction::{
+    Outcome, PKEXEC, Transaction, TransactionPlan, XPBS_INSTALL_PATH, XPBS_REMOVE_PATH, pkgvers,
+};
 pub use types::{
-    Blocked, DialogState, Inst, InstalledMap, Job, ListFilter, PlanAction, PlanItem, PlanReason,
-    Prefs, ProbeState, QueryMode, QueueAction, QueueItem, Repos, ViewId,
+    Blocked, DialogState, Inst, InstalledMap, ListFilter, PlanAction, PlanItem, PlanReason, Prefs,
+    ProbeState, QueryMode, QueueAction, QueueItem, Repos, ViewId,
 };
 pub use xbps::{
     InstallState, InstalledPackage, RepoEntry, SearchHit, SizeEntry, UpdateEntry, XbpsAction,

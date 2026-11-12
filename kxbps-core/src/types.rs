@@ -210,17 +210,6 @@ impl QueryMode {
     }
 }
 
-/// Progress of a running transaction.
-#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Eq)]
-pub struct Job {
-    /// Percent complete, 0-100 (the web app rounds before storing it).
-    pub progress: u8,
-    pub label: String,
-    pub done: bool,
-    pub cancelled: bool,
-    pub lines: Vec<String>,
-}
-
 /// Currently open modal dialog.
 ///
 /// The web app discriminates the union by `kind`; the tag keeps that shape on
