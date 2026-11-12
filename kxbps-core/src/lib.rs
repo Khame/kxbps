@@ -5,6 +5,7 @@
 
 pub mod engine;
 pub mod format;
+pub mod mirror_config;
 pub mod mirrors;
 pub mod plan;
 pub mod probe;
@@ -19,6 +20,11 @@ pub use engine::{
     repos_from_installed, update_signature_of,
 };
 pub use format::{ByteUnit, action_key, byte_decimals, format_bytes, reason_key};
+pub use mirror_config::{
+    BACKUP_SUFFIX, Backup, ConfigError, ParseReason, Previous, SYSTEM_CONFIG_PATH, SystemConfig,
+    check_base_url, check_repository_value, parse_repository_conf, read_config, render_config,
+    revert, snapshot_previous, write_config_atomic,
+};
 pub use mirrors::{DEFAULT_MIRROR, MIRRORS, MirrorInfo, Region};
 pub use plan::{
     Breaker, DryRunOutcome, EXIT_NOT_INSTALLED, EXIT_UNRESOLVED, is_already_installed,
