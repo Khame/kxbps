@@ -1,11 +1,12 @@
 // The running transaction, shown as the same log the drawer shows below.
 //
-// The dialog does not own the job while it is open: `Main.qml` keeps the job in
-// its own property so the log drawer and the status strip can read it after the
-// dialog is closed. Ownership moves here only when the next transaction starts
-// (`showJob`), which is the point the job backend promises to retain the job
-// until. Releasing it on close would empty the drawer the moment the user closes
-// the dialog.
+// Job retention contract: closing this dialog *hides* it, it does not release
+// the job. `Main.qml` keeps the job in `root.job` after Close so the status strip
+// and the log drawer stay readable, and ownership moves back here only when the
+// next transaction starts (`showJob`), which is the point the job backend promises
+// to retain the job until. Releasing on close would empty the drawer the moment
+// the user closes the dialog, so there is deliberately no `onClosed` release.
+// The next `showJob` releases the previous job when it takes the next one.
 //
 // The header label is passed in already translated by `Main.qml`, which owns the
 // one `jobLabel` switch the strip and the dialog share.
@@ -73,9 +74,8 @@ Kirigami.Dialog {
             onTriggered: if (dialog.job !== null) dialog.job.cancel()
         }
 
-        // Closing hides the dialog but does not release the job: Main keeps it
-        // so the status strip and the log drawer stay readable, and the next
-        // `showJob` releases it when the next transaction starts.
+        // Closing hides the dialog but does not release the job — see the
+        // retention contract at the top of this file.
         Kirigami.Action {
             id: closeAction
             text: i18nd("khaxbps", "Close")

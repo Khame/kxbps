@@ -136,6 +136,11 @@ Item {
             // The bulk action belongs to the Updates filter only. It sits in
             // this row, not the chip flow below, so appearing and disappearing
             // never pushes the filter chips around.
+            //
+            // Enablement follows the update count, never `packages.count`: the
+            // search field and the category combo narrow the visible rows, so a
+            // search that matches no update would otherwise disable the button
+            // while the system still has updates. Only a running job blocks it.
             QQC2.Button {
                 visible: view.packages.filter === "updates" && view.installedBackend.updatesCount > 0
                 text: i18nd("khaxbps", "Update all")

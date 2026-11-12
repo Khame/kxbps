@@ -3,6 +3,12 @@
 // Restoring is not a transaction: it rewrites the store in place, so there is
 // no plan to review and no job to watch. The warning is carried by the label in
 // the negative text colour; the buttons themselves stay the standard style.
+//
+// `restored()` is the only way out that touches the store. `Main.qml` listens to
+// it to drop the last transaction's result, because that result no longer
+// describes the store after a restore. Cancel emits nothing, so a cancel never
+// clears it — and it cannot be inferred from `stateRevision` either, since a
+// job finishing while the dialog is open advances that too.
 
 import QtQuick
 import QtQuick.Controls as QQC2
@@ -15,12 +21,16 @@ Kirigami.Dialog {
 
     property var installedBackend
 
+    // Emitted after the store has been rewritten back to the seed image.
+    signal restored()
+
     title: i18nd("khaxbps", "Restore the base image?")
     preferredWidth: Kirigami.Units.gridUnit * 40
     padding: Kirigami.Units.largeSpacing
 
     function restore() {
         installedBackend.reset()
+        restored()
         close()
     }
 
