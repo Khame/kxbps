@@ -173,13 +173,14 @@ impl RepoEntry {
 
 /// Splits `name-version_revision` into its name and version parts.
 ///
-/// xbps does not delimit the name: both halves may contain hyphens, and names
-/// may contain digits (`lib32-glibc`, `linux6.18-headers`, `python3`). The
-/// split is the last `-` whose remainder starts with a digit, which is what
-/// distinguishes `linux6.18-headers-6.18.63_1` (name `linux6.18-headers`) from
-/// a version that itself contains a hyphen such as `1.0-rc1_1`. The remainder
-/// must also end in a numeric `_revision`; a pkgver without one is a format
-/// change, so the caller fails loudly instead of inventing a split.
+/// xbps splits a pkgver at the last `-`: `xbps-query -R -p pkgname` returns
+/// everything before it, so the name is that prefix and the version is the
+/// rest. Both halves may contain hyphens and digits (`lib32-glibc`,
+/// `linux6.18-headers`, `python3`), and versions may start with a letter
+/// (`UEFITool-A76_1`, `mksh-R59c_2`), which is why nothing here looks at the
+/// version's first character. The version must end in a numeric `_revision`;
+/// a pkgver without one is a format change, so the caller fails loudly
+/// instead of inventing a split.
 ///
 /// # Examples
 ///
@@ -192,24 +193,19 @@ impl RepoEntry {
 ///     split_pkgver("linux6.18-headers-6.18.63_1"),
 ///     Some(("linux6.18-headers", "6.18.63_1"))
 /// );
+/// assert_eq!(split_pkgver("mksh-R59c_2"), Some(("mksh", "R59c_2")));
 /// assert_eq!(split_pkgver("foo-1.0"), None);
 /// ```
 pub fn split_pkgver(pkgver: &str) -> Option<(&str, &str)> {
-    for (index, _) in pkgver.match_indices('-').rev() {
-        let (name, tail) = pkgver.split_at(index);
-        let version = tail.get(1..)?;
-        if name.is_empty() || !version.starts_with(|c: char| c.is_ascii_digit()) {
-            continue;
-        }
-        let Some((_, revision)) = version.rsplit_once('_') else {
-            continue;
-        };
-        if revision.is_empty() || !revision.bytes().all(|b| b.is_ascii_digit()) {
-            continue;
-        }
-        return Some((name, version));
+    let (name, version) = pkgver.rsplit_once('-')?;
+    if name.is_empty() || version.is_empty() {
+        return None;
     }
-    None
+    let (_, revision) = version.rsplit_once('_')?;
+    if revision.is_empty() || !revision.bytes().all(|b| b.is_ascii_digit()) {
+        return None;
+    }
+    Some((name, version))
 }
 
 /// Parses `xbps-query -l`: `ii <pkgver> <description>`, one package per line.
@@ -275,7 +271,8 @@ pub fn parse_updates(input: &str) -> Result<Vec<UpdateEntry>, XbpsError> {
 }
 
 /// Parses `xbps-query -Rs <pattern>`: `[-] <pkgver> <description>` per hit,
-/// with `[ii]` instead of `[-]` for an installed package.
+/// with `[*]` instead of `[-]` for an installed package. xbps never prints
+/// `[ii]` here, even though `xbps-query -l` uses `ii` as its state column.
 ///
 /// Empty output means the pattern matched nothing and is a valid empty list.
 pub fn parse_search(input: &str) -> Result<Vec<SearchHit>, XbpsError> {
@@ -285,14 +282,10 @@ pub fn parse_search(input: &str) -> Result<Vec<SearchHit>, XbpsError> {
             .split_once(char::is_whitespace)
             .ok_or_else(|| malformed(line_no, line, "expected a state tag and a package name"))?;
         let installed = match tag {
-            "[ii]" => true,
+            "[*]" => true,
             "[-]" => false,
             _ => {
-                return Err(malformed(
-                    line_no,
-                    line,
-                    "expected [ii] or [-] as state tag",
-                ));
+                return Err(malformed(line_no, line, "expected [*] or [-] as state tag"));
             }
         };
         let (pkgver, description) = split_first_field(rest)
@@ -431,9 +424,10 @@ mod tests {
         let packages = parse_installed(
             "ii lib32-glibc-2.41_1 32-bit glibc\n\
              ii python3-3.13.1_1 Python 3\n\
-             ii linux6.18-headers-6.18.63_1 Headers\n",
+             ii linux6.18-headers-6.18.63_1 Headers\n\
+             ii UEFITool-A76_1 UEFI firmware tool\n",
         )
-        .expect("names with digits and hyphens parse");
+        .expect("names with digits, hyphens and letter versions parse");
         let names: Vec<(&str, &str)> = packages
             .iter()
             .map(|p| (p.name.as_str(), p.version.as_str()))
@@ -444,6 +438,7 @@ mod tests {
                 ("lib32-glibc", "2.41_1"),
                 ("python3", "3.13.1_1"),
                 ("linux6.18-headers", "6.18.63_1"),
+                ("UEFITool", "A76_1"),
             ]
         );
     }
@@ -551,17 +546,20 @@ mod tests {
     #[test]
     fn search_happy_path() {
         let hits = parse_search(SEARCH).expect("fixture parses");
-        assert_eq!(hits.len(), 8);
+        assert_eq!(hits.len(), 9);
         let first = &hits[0];
         assert_eq!(first.name, "apvlv");
         assert_eq!(first.version, "0.5.0_1");
         assert!(!first.installed);
         assert_eq!(first.description, "Vim-like PDF/DJVU/TXT viewer");
+        let installed = hits.last().expect("fixture has an installed hit");
+        assert_eq!(installed.name, "AppStream");
+        assert!(installed.installed);
     }
 
     #[test]
     fn search_marks_installed_hits() {
-        let hits = parse_search("[-] apvlv-0.5.0_1 Viewer\n[ii] vim-9.2.1031_1 Editor\n")
+        let hits = parse_search("[-] apvlv-0.5.0_1 Viewer\n[*] vim-9.2.1031_1 Editor\n")
             .expect("both tags parse");
         assert!(!hits[0].installed);
         assert!(hits[1].installed);
@@ -573,6 +571,8 @@ mod tests {
         let (line, text) = line_error(parse_search("[-] good-1.0_1 Fine\n[iu] bad-1.0_1 Odd\n"));
         assert_eq!(line, 2);
         assert_eq!(text, "[iu] bad-1.0_1 Odd");
+        // `ii` belongs to `xbps-query -l`, not to search output.
+        assert!(parse_search("[ii] vim-9.2.1031_1 Editor\n").is_err());
     }
 
     #[test]
@@ -635,7 +635,22 @@ mod tests {
     }
 
     #[test]
-    fn split_pkgver_handles_a_hyphenated_version() {
-        assert_eq!(split_pkgver("foo-1.0-rc1_1"), Some(("foo", "1.0-rc1_1")));
+    fn split_pkgver_handles_a_hyphenated_name() {
+        // xbps splits at the last hyphen, so the name is `foo-1.0`.
+        assert_eq!(split_pkgver("foo-1.0-rc1_1"), Some(("foo-1.0", "rc1_1")));
+    }
+
+    #[test]
+    fn split_pkgver_handles_letter_versions() {
+        assert_eq!(split_pkgver("UEFITool-A76_1"), Some(("UEFITool", "A76_1")));
+        assert_eq!(split_pkgver("mksh-R59c_2"), Some(("mksh", "R59c_2")));
+        assert_eq!(
+            split_pkgver("libui-32bit-alpha4.1_2"),
+            Some(("libui-32bit", "alpha4.1_2"))
+        );
+        assert_eq!(
+            split_pkgver("vapoursynth-devel-32bit-R66_4"),
+            Some(("vapoursynth-devel-32bit", "R66_4"))
+        );
     }
 }

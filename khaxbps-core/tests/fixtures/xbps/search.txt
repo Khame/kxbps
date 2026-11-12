@@ -6,3 +6,4 @@
 [-] iamb-0.13.1_1               Matrix client for Vim addicts
 [-] kakoune-2026.05.21_1        Selection-based vim-like editor with less keystrokes
 [-] neovide-0.16.2_1            No Nonsense Neovim Client in Rust
+[*] AppStream-1.1.2_1                     Tools and libraries to work with AppStream metadata

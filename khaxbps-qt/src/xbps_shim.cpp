@@ -64,6 +64,10 @@ QString khaxbps_run_xbps(const QString &argvJson, int timeoutMs)
     // Separate channels: stdout is data for the parsers, stderr is the error
     // text the UI shows when the command fails.
     process.setProcessChannelMode(QProcess::SeparateChannels);
+    // Nothing here ever writes to xbps. Without this the child inherits an open
+    // stdin pipe that the parent never closes, so a prompt would block until
+    // the timeout instead of reading EOF.
+    process.setStandardInputFile(QProcess::nullDevice());
 
     const int timeout = timeoutMs > 0 ? timeoutMs : DEFAULT_TIMEOUT_MS;
     QElapsedTimer elapsed;
