@@ -32,27 +32,27 @@ QQC2.ItemDelegate {
     onClicked: mirrorBackend.currentMirror = model.url
 
     function latencyText(state, ms) {
-        return state === "ok" ? i18nd("khaxbps", "%1 ms", ms) : ""
+        return state === "ok" ? i18nd("kxbps", "%1 ms", ms) : ""
     }
 
     function stateText(state, errorKey) {
         switch (state) {
         case "idle":
-            return i18nd("khaxbps", "Not probed")
+            return i18nd("kxbps", "Not probed")
         case "running":
-            return i18nd("khaxbps", "Probing")
+            return i18nd("kxbps", "Probing")
         case "ok":
-            return i18nd("khaxbps", "OK")
+            return i18nd("kxbps", "OK")
         }
         switch (errorKey) {
         case "plainHttp":
-            return i18nd("khaxbps", "Plain HTTP is not probed")
+            return i18nd("kxbps", "Plain HTTP is not probed")
         case "timeout":
-            return i18nd("khaxbps", "Timed out")
+            return i18nd("kxbps", "Timed out")
         case "noResponse":
-            return i18nd("khaxbps", "No response")
+            return i18nd("kxbps", "No response")
         }
-        return i18nd("khaxbps", "Failed")
+        return i18nd("kxbps", "Failed")
     }
 
     contentItem: RowLayout {
@@ -139,7 +139,7 @@ QQC2.ItemDelegate {
 
                 QQC2.Label {
                     visible: delegate.selected
-                    text: i18nd("khaxbps", "Active")
+                    text: i18nd("kxbps", "Active")
                     font: Kirigami.Theme.smallFont
                     color: delegate.highlighted ? Kirigami.Theme.highlightedTextColor : Kirigami.Theme.highlightColor
                 }

@@ -24,7 +24,7 @@ Kirigami.Dialog {
     // Emitted after the store has been rewritten back to the seed image.
     signal restored()
 
-    title: i18nd("khaxbps", "Restore the base image?")
+    title: i18nd("kxbps", "Restore the base image?")
     preferredWidth: Kirigami.Units.gridUnit * 40
     padding: Kirigami.Units.largeSpacing
 
@@ -41,25 +41,25 @@ Kirigami.Dialog {
         // Referenced by the footer list below.
         Kirigami.Action {
             id: cancelAction
-            text: i18nd("khaxbps", "Cancel")
+            text: i18nd("kxbps", "Cancel")
             onTriggered: dialog.reject()
         }
 
         Kirigami.Action {
             id: restoreAction
-            text: i18nd("khaxbps", "Restore")
+            text: i18nd("kxbps", "Restore")
             onTriggered: dialog.restore()
         }
 
         QQC2.Label {
             Layout.fillWidth: true
-            text: i18nd("khaxbps", "The queue and the installed packages go back to the seed image.")
+            text: i18nd("kxbps", "The queue and the installed packages go back to the seed image.")
             wrapMode: Text.WordWrap
         }
 
         QQC2.Label {
             Layout.fillWidth: true
-            text: i18nd("khaxbps", "This cannot be undone.")
+            text: i18nd("kxbps", "This cannot be undone.")
             color: Kirigami.Theme.negativeTextColor
             wrapMode: Text.WordWrap
         }

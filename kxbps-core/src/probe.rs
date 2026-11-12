@@ -8,7 +8,7 @@
 //!
 //! Nothing here returns user-facing text: [`ProbeError`] is an enum and
 //! [`ProbeError::key`] hands out a stable translation key, so QML can run
-//! `i18nd("khaxbps", …)` over it.
+//! `i18nd("kxbps", …)` over it.
 
 use std::time::{Duration, Instant};
 

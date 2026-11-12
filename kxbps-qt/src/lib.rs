@@ -1,4 +1,4 @@
-//! QML-facing bridge for Khaxbps.
+//! QML-facing bridge for KXbps.
 //!
 //! The QML module `org.kde.kxbps` is declared in `build.rs`; every `#[qml_element]`
 //! QObject in this file is registered into that module by `qmltyperegistrar`, so QML

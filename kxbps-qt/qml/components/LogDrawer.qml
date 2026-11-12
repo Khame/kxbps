@@ -31,15 +31,15 @@ Item {
 
     readonly property string stateWord: {
         if (!hasJob) {
-            return i18nd("khaxbps", "idle")
+            return i18nd("kxbps", "idle")
         }
         if (!job.done) {
-            return i18nd("khaxbps", "running")
+            return i18nd("kxbps", "running")
         }
         if (job.failed) {
-            return i18nd("khaxbps", "failed")
+            return i18nd("kxbps", "failed")
         }
-        return job.cancelled ? i18nd("khaxbps", "cancelled") : i18nd("khaxbps", "finished")
+        return job.cancelled ? i18nd("kxbps", "cancelled") : i18nd("kxbps", "finished")
     }
 
     implicitHeight: expanded && hasJob ? Math.max(collapsedHeight, Math.min(expandedHeight, maximumHeight))
@@ -84,7 +84,7 @@ Item {
             spacing: Kirigami.Units.smallSpacing
 
             QQC2.Label {
-                text: i18nd("khaxbps", "xbps log")
+                text: i18nd("kxbps", "xbps log")
                 font.bold: true
             }
 
@@ -96,7 +96,7 @@ Item {
             }
 
             QQC2.Label {
-                text: drawer.expanded ? i18nd("khaxbps", "Hide") : i18nd("khaxbps", "Show")
+                text: drawer.expanded ? i18nd("kxbps", "Hide") : i18nd("kxbps", "Show")
                 font: Kirigami.Theme.smallFont
                 color: Kirigami.Theme.disabledTextColor
             }

@@ -71,7 +71,7 @@ pub mod qobject {
 
 /// Translation keys the Qt layer emits instead of sentences.
 ///
-/// QML owns the mapping (`i18nd("khaxbps", …)`); Task 11 renders them. The same
+/// QML owns the mapping (`i18nd("kxbps", …)`); Task 11 renders them. The same
 /// bare-camelCase style as [`kxbps_core::probe::ProbeError::key`].
 pub mod keys {
     /// Title of the queue plan.

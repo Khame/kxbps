@@ -87,12 +87,12 @@ Item {
         const mode = modeCombo.currentText
         const query = searchField.text
         if (mode === "L") {
-            return i18nd("khaxbps", "xbps-query -L lists repositories; this app does not implement it yet.")
+            return i18nd("kxbps", "xbps-query -L lists repositories; this app does not implement it yet.")
         }
         if (query.length === 0 && view.isListMode(mode)) {
-            return i18nd("khaxbps", "Equivalent: %1", "xbps-query -" + mode)
+            return i18nd("kxbps", "Equivalent: %1", "xbps-query -" + mode)
         }
-        return i18nd("khaxbps", "Equivalent: %1", "xbps-query -" + mode + " " + query)
+        return i18nd("kxbps", "Equivalent: %1", "xbps-query -" + mode + " " + query)
     }
 
     function emptyText() {
@@ -102,9 +102,9 @@ Item {
             return ""
         }
         if (view.isListMode(modeCombo.currentText) || searchField.text.length > 0) {
-            return i18nd("khaxbps", "No matches.")
+            return i18nd("kxbps", "No matches.")
         }
-        return i18nd("khaxbps", "Type a query and choose a mode.")
+        return i18nd("kxbps", "Type a query and choose a mode.")
     }
 
     ColumnLayout {
@@ -122,14 +122,14 @@ Item {
                 id: modeCombo
                 model: view.modes
                 currentIndex: 0
-                Accessible.name: i18nd("khaxbps", "Query mode")
+                Accessible.name: i18nd("kxbps", "Query mode")
                 onActivated: view.run()
             }
 
             Kirigami.SearchField {
                 id: searchField
                 Layout.fillWidth: true
-                placeholderText: i18nd("khaxbps", "Query…")
+                placeholderText: i18nd("kxbps", "Query…")
                 onAccepted: view.run()
                 onTextChanged: debounce.restart()
             }

@@ -28,7 +28,7 @@ Kirigami.Dialog {
     readonly property bool running: job !== null && !job.done
     readonly property bool failed: job !== null && job.failed
 
-    title: i18nd("khaxbps", "Transaction")
+    title: i18nd("kxbps", "Transaction")
     preferredWidth: Kirigami.Units.gridUnit * 46
     maximumHeight: (parent ? parent.height : Kirigami.Units.gridUnit * 36) * 0.7
     padding: Kirigami.Units.largeSpacing
@@ -55,12 +55,12 @@ Kirigami.Dialog {
             return ""
         }
         if (job.failed) {
-            return i18nd("khaxbps", "Transaction failed (exit %1)", job.exitCode)
+            return i18nd("kxbps", "Transaction failed (exit %1)", job.exitCode)
         }
         if (job.cancelled) {
-            return i18nd("khaxbps", "Transaction cancelled")
+            return i18nd("kxbps", "Transaction cancelled")
         }
-        return i18nd("khaxbps", "Transaction finished")
+        return i18nd("kxbps", "Transaction finished")
     }
 
     ColumnLayout {
@@ -70,7 +70,7 @@ Kirigami.Dialog {
         // Referenced by the conditional footer list below.
         Kirigami.Action {
             id: cancelAction
-            text: i18nd("khaxbps", "Cancel")
+            text: i18nd("kxbps", "Cancel")
             onTriggered: if (dialog.job !== null) dialog.job.cancel()
         }
 
@@ -78,7 +78,7 @@ Kirigami.Dialog {
         // retention contract at the top of this file.
         Kirigami.Action {
             id: closeAction
-            text: i18nd("khaxbps", "Close")
+            text: i18nd("kxbps", "Close")
             onTriggered: dialog.close()
         }
 

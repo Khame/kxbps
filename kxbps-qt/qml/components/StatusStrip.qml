@@ -46,9 +46,9 @@ Rectangle {
     function queueText() {
         const count = strip.installedBackend.queueCount
         if (count === 0) {
-            return i18nd("khaxbps", "Queue is empty")
+            return i18nd("kxbps", "Queue is empty")
         }
-        return i18ndp("khaxbps", "%1 package queued", "%1 packages queued", count)
+        return i18ndp("kxbps", "%1 package queued", "%1 packages queued", count)
     }
 
     RowLayout {
@@ -77,7 +77,7 @@ Rectangle {
             }
 
             QQC2.Button {
-                text: i18nd("khaxbps", "Cancel")
+                text: i18nd("kxbps", "Cancel")
                 onClicked: strip.cancelRequested()
             }
         }
@@ -93,7 +93,7 @@ Rectangle {
             }
 
             QQC2.Button {
-                text: i18nd("khaxbps", "Review changes")
+                text: i18nd("kxbps", "Review changes")
                 enabled: strip.installedBackend.queueCount > 0
                 onClicked: strip.reviewRequested()
             }
@@ -109,7 +109,7 @@ Rectangle {
 
             QQC2.Label {
                 visible: strip.installedBackend.updatesCount > 0
-                text: i18ndp("khaxbps", "%1 update", "%1 updates", strip.installedBackend.updatesCount)
+                text: i18ndp("kxbps", "%1 update", "%1 updates", strip.installedBackend.updatesCount)
                 color: Kirigami.Theme.negativeTextColor
             }
 

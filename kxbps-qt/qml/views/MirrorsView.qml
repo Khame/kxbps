@@ -45,10 +45,10 @@ Item {
         anchors.top: parent.top
 
         QQC2.TabButton {
-            text: i18nd("khaxbps", "Mirrors")
+            text: i18nd("kxbps", "Mirrors")
         }
         QQC2.TabButton {
-            text: i18nd("khaxbps", "Repositories")
+            text: i18nd("kxbps", "Repositories")
         }
     }
 
@@ -68,7 +68,7 @@ Item {
                 Layout.rightMargin: Kirigami.Units.largeSpacing
                 Layout.topMargin: Kirigami.Units.smallSpacing
                 visible: view.mirrorBackend.probing
-                text: i18nd("khaxbps", "%1 of %2 mirrors probed",
+                text: i18nd("kxbps", "%1 of %2 mirrors probed",
                             view.mirrorBackend.finishedCount, view.mirrorBackend.model.count)
                 color: Kirigami.Theme.disabledTextColor
             }
@@ -116,7 +116,7 @@ Item {
 
                             QQC2.Label {
                                 Layout.fillWidth: true
-                                text: i18nd("khaxbps", "Server")
+                                text: i18nd("kxbps", "Server")
                                 font.bold: true
                                 color: Kirigami.Theme.disabledTextColor
                                 elide: Text.ElideRight
@@ -126,7 +126,7 @@ Item {
                                 Layout.preferredWidth: view.regionWidth
                                 Layout.minimumWidth: view.regionWidth
                                 Layout.maximumWidth: view.regionWidth
-                                text: i18nd("khaxbps", "Region")
+                                text: i18nd("kxbps", "Region")
                                 font.bold: true
                                 color: Kirigami.Theme.disabledTextColor
                             }
@@ -136,7 +136,7 @@ Item {
                                 Layout.minimumWidth: view.latencyWidth
                                 Layout.maximumWidth: view.latencyWidth
                                 horizontalAlignment: Text.AlignRight
-                                text: i18nd("khaxbps", "Latency")
+                                text: i18nd("kxbps", "Latency")
                                 font.bold: true
                                 color: Kirigami.Theme.disabledTextColor
                             }
@@ -145,7 +145,7 @@ Item {
                                 Layout.preferredWidth: view.stateWidth
                                 Layout.minimumWidth: view.stateWidth
                                 Layout.maximumWidth: view.stateWidth
-                                text: i18nd("khaxbps", "State")
+                                text: i18nd("kxbps", "State")
                                 font.bold: true
                                 color: Kirigami.Theme.disabledTextColor
                             }
@@ -161,7 +161,7 @@ Item {
                 QQC2.Label {
                     anchors.centerIn: parent
                     visible: view.mirrorBackend.model.count === 0
-                    text: i18nd("khaxbps", "No mirrors.")
+                    text: i18nd("kxbps", "No mirrors.")
                     color: Kirigami.Theme.disabledTextColor
                 }
             }
@@ -170,7 +170,7 @@ Item {
                 Layout.fillWidth: true
                 Layout.leftMargin: Kirigami.Units.largeSpacing
                 Layout.rightMargin: Kirigami.Units.largeSpacing
-                text: i18nd("khaxbps", "Saved in %1", "~/.local/share/kxbps/mirror.json")
+                text: i18nd("kxbps", "Saved in %1", "~/.local/share/kxbps/mirror.json")
                 font: Kirigami.Theme.smallFont
                 color: Kirigami.Theme.disabledTextColor
                 elide: Text.ElideRight
@@ -181,7 +181,7 @@ Item {
                 Layout.leftMargin: Kirigami.Units.largeSpacing
                 Layout.rightMargin: Kirigami.Units.largeSpacing
                 Layout.bottomMargin: Kirigami.Units.smallSpacing
-                text: i18nd("khaxbps", "Khaxbps keeps the selection in its own store; system configuration is not modified.")
+                text: i18nd("kxbps", "KXbps keeps the selection in its own store; system configuration is not modified.")
                 font: Kirigami.Theme.smallFont
                 color: Kirigami.Theme.disabledTextColor
                 wrapMode: Text.WordWrap
@@ -214,8 +214,8 @@ Item {
                     }
 
                     QQC2.Label {
-                        text: view.repoEnabled(modelData.repoPackage) ? i18nd("khaxbps", "Enabled")
-                                                                     : i18nd("khaxbps", "Disabled")
+                        text: view.repoEnabled(modelData.repoPackage) ? i18nd("kxbps", "Enabled")
+                                                                     : i18nd("kxbps", "Disabled")
                         color: view.repoEnabled(modelData.repoPackage) ? Kirigami.Theme.positiveTextColor
                                                                        : Kirigami.Theme.disabledTextColor
                     }
@@ -227,7 +227,7 @@ Item {
                 Layout.leftMargin: Kirigami.Units.largeSpacing
                 Layout.rightMargin: Kirigami.Units.largeSpacing
                 Layout.topMargin: Kirigami.Units.smallSpacing
-                text: i18nd("khaxbps", "Enabling a repository installs its void-repo package; that is a later task.")
+                text: i18nd("kxbps", "Enabling a repository installs its void-repo package; that is a later task.")
                 font: Kirigami.Theme.smallFont
                 color: Kirigami.Theme.disabledTextColor
                 wrapMode: Text.WordWrap

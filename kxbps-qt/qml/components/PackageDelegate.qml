@@ -62,7 +62,7 @@ Kirigami.SwipeListItem {
     swipe.right: QQC2.ToolButton {
         enabled: delegate.installed
         icon.name: model.held ? "object-unlocked" : "object-locked"
-        text: model.held ? i18nd("khaxbps", "Unhold") : i18nd("khaxbps", "Hold")
+        text: model.held ? i18nd("kxbps", "Unhold") : i18nd("kxbps", "Hold")
         onClicked: {
             delegate.installedBackend.toggleHold(model.name)
             delegate.swipe.close()
@@ -82,13 +82,13 @@ Kirigami.SwipeListItem {
     function queueActionLabel(action) {
         switch (action) {
         case "install":
-            return i18nd("khaxbps", "Install")
+            return i18nd("kxbps", "Install")
         case "remove":
-            return i18nd("khaxbps", "Remove")
+            return i18nd("kxbps", "Remove")
         case "update":
-            return i18nd("khaxbps", "Update")
+            return i18nd("kxbps", "Update")
         case "unqueued":
-            return i18nd("khaxbps", "Unqueue")
+            return i18nd("kxbps", "Unqueue")
         }
         return action
     }
@@ -199,7 +199,7 @@ Kirigami.SwipeListItem {
                 Pill {
                     id: heldPill
                     visible: model.held
-                    text: i18nd("khaxbps", "Held")
+                    text: i18nd("kxbps", "Held")
                 }
 
                 // The queue pill outranks the static Explicit label: it is the
@@ -221,7 +221,7 @@ Kirigami.SwipeListItem {
                              && (heldPill.visible ? heldPill.implicitWidth + Kirigami.Units.smallSpacing : 0)
                                 + (queuedPill.visible ? queuedPill.implicitWidth + Kirigami.Units.smallSpacing : 0)
                                 + explicitPill.implicitWidth <= delegate.stateWidth
-                    text: i18nd("khaxbps", "Explicit")
+                    text: i18nd("kxbps", "Explicit")
                 }
             }
         }
@@ -263,7 +263,7 @@ Kirigami.SwipeListItem {
                 display: QQC2.AbstractButton.IconOnly
                 enabled: delegate.installed
                 icon.name: model.held ? "object-unlocked" : "object-locked"
-                text: model.held ? i18nd("khaxbps", "Unhold") : i18nd("khaxbps", "Hold")
+                text: model.held ? i18nd("kxbps", "Unhold") : i18nd("kxbps", "Hold")
                 Accessible.name: text
                 onClicked: delegate.installedBackend.toggleHold(model.name)
             }

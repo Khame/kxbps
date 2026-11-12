@@ -1,4 +1,4 @@
-//! Domain types shared by every Khaxbps layer.
+//! Domain types shared by every KXbps layer.
 //!
 //! These mirror `qxbps/src/lib/xbps/types.ts` one-to-one, including the JSON
 //! spelling of every string union, so the same data can be exchanged with the

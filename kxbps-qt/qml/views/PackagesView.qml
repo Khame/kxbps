@@ -67,17 +67,17 @@ Item {
 
     function emptyText() {
         if (packages.search.length > 0) {
-            return i18nd("khaxbps", "No package matches “%1”.", packages.search)
+            return i18nd("kxbps", "No package matches “%1”.", packages.search)
         }
         switch (packages.filter) {
         case "installed":
-            return i18nd("khaxbps", "No packages installed.")
+            return i18nd("kxbps", "No packages installed.")
         case "updates":
-            return i18nd("khaxbps", "Everything is up to date.")
+            return i18nd("kxbps", "Everything is up to date.")
         case "queued":
-            return i18nd("khaxbps", "Nothing queued. Add packages from the list.")
+            return i18nd("kxbps", "Nothing queued. Add packages from the list.")
         }
-        return i18nd("khaxbps", "No packages.")
+        return i18nd("kxbps", "No packages.")
     }
 
     ColumnLayout {
@@ -92,7 +92,7 @@ Item {
             Layout.topMargin: Kirigami.Units.smallSpacing
             visible: catalogBackend.error.length > 0
             color: Kirigami.Theme.negativeTextColor
-            text: i18nd("khaxbps", "Could not load the package catalog: %1", catalogBackend.error)
+            text: i18nd("kxbps", "Could not load the package catalog: %1", catalogBackend.error)
             wrapMode: Text.WordWrap
         }
 
@@ -105,7 +105,7 @@ Item {
             Layout.topMargin: Kirigami.Units.smallSpacing
             visible: installedBackend.error.length > 0
             color: Kirigami.Theme.neutralTextColor
-            text: i18nd("khaxbps", "Could not save the system state: %1", installedBackend.error)
+            text: i18nd("kxbps", "Could not save the system state: %1", installedBackend.error)
             wrapMode: Text.WordWrap
         }
 
@@ -119,7 +119,7 @@ Item {
             Kirigami.SearchField {
                 id: searchField
                 Layout.fillWidth: true
-                placeholderText: i18nd("khaxbps", "Search packages…")
+                placeholderText: i18nd("kxbps", "Search packages…")
                 onTextChanged: view.packages.search = text
             }
 
@@ -128,7 +128,7 @@ Item {
                 // The model's sentinel for "no category" is `all`; the first
                 // entry clears the filter and the ten catalog categories follow
                 // as raw tokens.
-                model: [i18nd("khaxbps", "All categories")].concat(view.categories)
+                model: [i18nd("kxbps", "All categories")].concat(view.categories)
                 currentIndex: 0
                 onActivated: view.packages.category = index === 0 ? "all" : view.categories[index - 1]
             }
@@ -143,7 +143,7 @@ Item {
             // while the system still has updates. Only a running job blocks it.
             QQC2.Button {
                 visible: view.packages.filter === "updates" && view.installedBackend.updatesCount > 0
-                text: i18nd("khaxbps", "Update all")
+                text: i18nd("kxbps", "Update all")
                 icon.name: "system-software-update"
                 highlighted: true
                 enabled: view.installedBackend.updatesCount > 0
@@ -168,13 +168,13 @@ Item {
                 // Tokens are exactly the ones `PackageModelRust::matches`
                 // accepts; the labels are the only translated part.
                 model: [
-                    { token: "all", label: i18nd("khaxbps", "All") },
-                    { token: "installed", label: i18nd("khaxbps", "Installed") },
-                    { token: "updates", label: i18nd("khaxbps", "Updates") },
-                    { token: "explicit", label: i18nd("khaxbps", "Explicit") },
-                    { token: "orphans", label: i18nd("khaxbps", "Orphans") },
-                    { token: "held", label: i18nd("khaxbps", "Held") },
-                    { token: "queued", label: i18nd("khaxbps", "Queued") }
+                    { token: "all", label: i18nd("kxbps", "All") },
+                    { token: "installed", label: i18nd("kxbps", "Installed") },
+                    { token: "updates", label: i18nd("kxbps", "Updates") },
+                    { token: "explicit", label: i18nd("kxbps", "Explicit") },
+                    { token: "orphans", label: i18nd("kxbps", "Orphans") },
+                    { token: "held", label: i18nd("kxbps", "Held") },
+                    { token: "queued", label: i18nd("kxbps", "Queued") }
                 ]
 
                 delegate: QQC2.Button {
@@ -247,7 +247,7 @@ Item {
 
                             QQC2.Label {
                                 Layout.fillWidth: true
-                                text: i18nd("khaxbps", "Package")
+                                text: i18nd("kxbps", "Package")
                                 font.bold: true
                                 color: Kirigami.Theme.disabledTextColor
                                 elide: Text.ElideRight
@@ -257,7 +257,7 @@ Item {
                                 Layout.preferredWidth: view.versionWidth
                                 Layout.minimumWidth: view.versionWidth
                                 Layout.maximumWidth: view.versionWidth
-                                text: i18nd("khaxbps", "Version")
+                                text: i18nd("kxbps", "Version")
                                 font.bold: true
                                 color: Kirigami.Theme.disabledTextColor
                             }
@@ -267,7 +267,7 @@ Item {
                                 Layout.minimumWidth: view.sizeWidth
                                 Layout.maximumWidth: view.sizeWidth
                                 horizontalAlignment: Text.AlignRight
-                                text: i18nd("khaxbps", "Size")
+                                text: i18nd("kxbps", "Size")
                                 font.bold: true
                                 color: Kirigami.Theme.disabledTextColor
                             }
@@ -276,7 +276,7 @@ Item {
                                 Layout.preferredWidth: view.stateWidth
                                 Layout.minimumWidth: view.stateWidth
                                 Layout.maximumWidth: view.stateWidth
-                                text: i18nd("khaxbps", "State")
+                                text: i18nd("kxbps", "State")
                                 font.bold: true
                                 color: Kirigami.Theme.disabledTextColor
                             }

@@ -35,7 +35,7 @@ impl ByteUnit {
 ///
 /// Returns the value and its unit; the value is already rounded to the number of
 /// decimals the web app's `toFixed` would use ([`byte_decimals`]), so QML can
-/// render `i18nd("khaxbps", "%1 %2", value, unit)`. Negative values keep their
+/// render `i18nd("kxbps", "%1 %2", value, unit)`. Negative values keep their
 /// sign (the size of a removal is a negative disk delta) while the magnitude
 /// picks the unit.
 pub fn format_bytes(n: i64) -> (f64, ByteUnit) {

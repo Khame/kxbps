@@ -1,9 +1,9 @@
 #!/usr/bin/env node
-// Regenerates khaxbps-qt/resources/catalog.json from the web app's package table.
+// Regenerates kxbps-qt/resources/catalog.json from the web app's package table.
 //
 // The web app (qxbps, TypeScript) is the authoritative source for the catalog, so the
 // Rust build never hand-maintains package data: this script imports `PACKAGES` from
-// `catalog.ts` and serialises it in the field order of `khaxbps_core::types::Pkg`.
+// `catalog.ts` and serialises it in the field order of `kxbps_core::types::Pkg`.
 //
 // Usage:
 //   node scripts/gen-catalog.mjs ../qxbps/src/lib/xbps/catalog.ts
@@ -29,7 +29,7 @@ const CATEGORIES = new Set([
 ]);
 
 const repoRoot = resolve(dirname(fileURLToPath(import.meta.url)), "..");
-const outputPath = resolve(repoRoot, "khaxbps-qt/resources/catalog.json");
+const outputPath = resolve(repoRoot, "kxbps-qt/resources/catalog.json");
 
 const sourcePath = process.argv[2];
 if (!sourcePath) {

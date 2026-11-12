@@ -113,15 +113,15 @@ Flickable {
 
     function queueLabel() {
         if (pane.info.queuedAction !== "") {
-            return i18nd("khaxbps", "Remove from queue")
+            return i18nd("kxbps", "Remove from queue")
         }
         if (pane.info.isUpdate) {
-            return i18nd("khaxbps", "Queue update")
+            return i18nd("kxbps", "Queue update")
         }
         if (pane.installed) {
-            return i18nd("khaxbps", "Queue removal")
+            return i18nd("kxbps", "Queue removal")
         }
-        return i18nd("khaxbps", "Add to queue")
+        return i18nd("kxbps", "Add to queue")
     }
 
     function queueToken() {
@@ -178,7 +178,7 @@ Flickable {
 
             QQC2.Button {
                 visible: pane.installed
-                text: pane.info.held ? i18nd("khaxbps", "Unhold") : i18nd("khaxbps", "Hold")
+                text: pane.info.held ? i18nd("kxbps", "Unhold") : i18nd("kxbps", "Hold")
                 icon.name: pane.info.held ? "object-unlocked" : "object-locked"
                 onClicked: pane.installedBackend.toggleHold(pane.packageName)
             }
@@ -204,19 +204,19 @@ Flickable {
             rowSpacing: Kirigami.Units.smallSpacing
 
             QQC2.Label {
-                text: i18nd("khaxbps", "Installed version")
+                text: i18nd("kxbps", "Installed version")
                 color: Kirigami.Theme.disabledTextColor
             }
             QQC2.Label {
                 Layout.fillWidth: true
                 Layout.minimumWidth: 0
-                text: pane.installed ? pane.info.installedVersion : i18nd("khaxbps", "Not installed")
+                text: pane.installed ? pane.info.installedVersion : i18nd("kxbps", "Not installed")
                 font.family: "monospace"
                 elide: Text.ElideRight
             }
 
             QQC2.Label {
-                text: i18nd("khaxbps", "Repository version")
+                text: i18nd("kxbps", "Repository version")
                 color: Kirigami.Theme.disabledTextColor
             }
             QQC2.Label {
@@ -228,7 +228,7 @@ Flickable {
             }
 
             QQC2.Label {
-                text: i18nd("khaxbps", "Size")
+                text: i18nd("kxbps", "Size")
                 color: Kirigami.Theme.disabledTextColor
             }
             QQC2.Label {
@@ -239,7 +239,7 @@ Flickable {
             }
 
             QQC2.Label {
-                text: i18nd("khaxbps", "Download")
+                text: i18nd("kxbps", "Download")
                 color: Kirigami.Theme.disabledTextColor
             }
             QQC2.Label {
@@ -250,7 +250,7 @@ Flickable {
             }
 
             QQC2.Label {
-                text: i18nd("khaxbps", "License")
+                text: i18nd("kxbps", "License")
                 color: Kirigami.Theme.disabledTextColor
             }
             QQC2.Label {
@@ -261,7 +261,7 @@ Flickable {
             }
 
             QQC2.Label {
-                text: i18nd("khaxbps", "Repository")
+                text: i18nd("kxbps", "Repository")
                 color: Kirigami.Theme.disabledTextColor
             }
             QQC2.Label {
@@ -273,7 +273,7 @@ Flickable {
             }
 
             QQC2.Label {
-                text: i18nd("khaxbps", "State")
+                text: i18nd("kxbps", "State")
                 color: Kirigami.Theme.disabledTextColor
             }
             QQC2.Label {
@@ -281,21 +281,21 @@ Flickable {
                 Layout.minimumWidth: 0
                 // A package that is not installed is neither explicit nor a
                 // dependency; `explicit` is simply false for it.
-                text: !pane.installed ? i18nd("khaxbps", "Not installed")
-                      : (pane.orphan ? i18nd("khaxbps", "Orphan")
-                                     : (pane.info.explicit ? i18nd("khaxbps", "Explicit")
-                                                           : i18nd("khaxbps", "Dependency")))
+                text: !pane.installed ? i18nd("kxbps", "Not installed")
+                      : (pane.orphan ? i18nd("kxbps", "Orphan")
+                                     : (pane.info.explicit ? i18nd("kxbps", "Explicit")
+                                                           : i18nd("kxbps", "Dependency")))
                 elide: Text.ElideRight
             }
 
             QQC2.Label {
-                text: i18nd("khaxbps", "Held")
+                text: i18nd("kxbps", "Held")
                 color: Kirigami.Theme.disabledTextColor
             }
             QQC2.Label {
                 Layout.fillWidth: true
                 Layout.minimumWidth: 0
-                text: pane.info.held ? i18nd("khaxbps", "Held") : i18nd("khaxbps", "Not held")
+                text: pane.info.held ? i18nd("kxbps", "Held") : i18nd("kxbps", "Not held")
             }
         }
 
@@ -303,7 +303,7 @@ Flickable {
             Layout.fillWidth: true
             Layout.minimumWidth: 0
             Layout.topMargin: Kirigami.Units.smallSpacing
-            text: i18nd("khaxbps", "Depends")
+            text: i18nd("kxbps", "Depends")
             font.bold: true
         }
         QQC2.Label {
@@ -311,7 +311,7 @@ Flickable {
             Layout.minimumWidth: 0
             text: pane.info.depends !== undefined && pane.info.depends.length > 0
                   ? pane.info.depends
-                  : i18nd("khaxbps", "No dependencies")
+                  : i18nd("kxbps", "No dependencies")
             elide: Text.ElideRight
 
             QQC2.ToolTip.visible: dependsHover.hovered && text.length > 0
@@ -326,13 +326,13 @@ Flickable {
             Layout.fillWidth: true
             Layout.minimumWidth: 0
             Layout.topMargin: Kirigami.Units.smallSpacing
-            text: i18nd("khaxbps", "Required by")
+            text: i18nd("kxbps", "Required by")
             font.bold: true
         }
         QQC2.Label {
             Layout.fillWidth: true
             Layout.minimumWidth: 0
-            text: pane.dependents.length > 0 ? pane.dependents.join(", ") : i18nd("khaxbps", "Nothing depends on it")
+            text: pane.dependents.length > 0 ? pane.dependents.join(", ") : i18nd("kxbps", "Nothing depends on it")
             elide: Text.ElideRight
 
             QQC2.ToolTip.visible: requiredByHover.hovered && text.length > 0
@@ -371,7 +371,7 @@ Flickable {
             Layout.minimumWidth: 0
             Layout.topMargin: Kirigami.Units.smallSpacing
             visible: pane.blockedNames.length > 0
-            text: i18nd("khaxbps", "Cannot be removed: %1 depends on it.", pane.blockedNames.join(", "))
+            text: i18nd("kxbps", "Cannot be removed: %1 depends on it.", pane.blockedNames.join(", "))
             color: Kirigami.Theme.negativeTextColor
             wrapMode: Text.WordWrap
         }

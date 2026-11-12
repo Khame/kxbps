@@ -90,13 +90,13 @@ Kirigami.Dialog {
     function actionText(key) {
         switch (key) {
         case "install":
-            return i18nd("khaxbps", "Install")
+            return i18nd("kxbps", "Install")
         case "remove":
-            return i18nd("khaxbps", "Remove")
+            return i18nd("kxbps", "Remove")
         case "update":
-            return i18nd("khaxbps", "Update")
+            return i18nd("kxbps", "Update")
         case "reinstall":
-            return i18nd("khaxbps", "Reinstall")
+            return i18nd("kxbps", "Reinstall")
         }
         // A key the QML layer does not know yet must still name the action.
         return key
@@ -105,13 +105,13 @@ Kirigami.Dialog {
     function reasonText(key) {
         switch (key) {
         case "requested":
-            return i18nd("khaxbps", "Requested")
+            return i18nd("kxbps", "Requested")
         case "dependency":
-            return i18nd("khaxbps", "Dependency")
+            return i18nd("kxbps", "Dependency")
         case "reverse":
-            return i18nd("khaxbps", "Reverse dependency")
+            return i18nd("kxbps", "Reverse dependency")
         case "orphan":
-            return i18nd("khaxbps", "Orphan")
+            return i18nd("kxbps", "Orphan")
         }
         return key
     }
@@ -135,19 +135,19 @@ Kirigami.Dialog {
         }
         switch (plan.titleKey) {
         case "planQueue":
-            return i18nd("khaxbps", "Apply queued changes")
+            return i18nd("kxbps", "Apply queued changes")
         case "planSystem":
-            return i18nd("khaxbps", "System upgrade")
+            return i18nd("kxbps", "System upgrade")
         case "planInstall":
-            return i18nd("khaxbps", "Install packages")
+            return i18nd("kxbps", "Install packages")
         case "planRemove":
-            return i18nd("khaxbps", "Remove %1", plan.titleArgs[0] || "")
+            return i18nd("kxbps", "Remove %1", plan.titleArgs[0] || "")
         case "planCascade":
-            return i18nd("khaxbps", "Remove %1 and its dependents", plan.titleArgs[0] || "")
+            return i18nd("kxbps", "Remove %1 and its dependents", plan.titleArgs[0] || "")
         }
         // Notices and errors carry no title key of their own.
         return plan.titleKey.length > 0 ? plan.titleKey
-                                        : i18nd("khaxbps", "Transaction plan")
+                                        : i18nd("kxbps", "Transaction plan")
     }
 
     function noticeText() {
@@ -156,13 +156,13 @@ Kirigami.Dialog {
         }
         switch (plan.noticeKey) {
         case "emptyQueue":
-            return i18nd("khaxbps", "The queue does not change the system.")
+            return i18nd("kxbps", "The queue does not change the system.")
         case "emptyInstall":
-            return i18nd("khaxbps", "Nothing to install.")
+            return i18nd("kxbps", "Nothing to install.")
         case "emptySystem":
-            return i18nd("khaxbps", "The system is up to date.")
+            return i18nd("kxbps", "The system is up to date.")
         case "emptyRemove":
-            return i18nd("khaxbps", "Nothing to remove.")
+            return i18nd("kxbps", "Nothing to remove.")
         }
         return plan.noticeKey
     }
@@ -173,16 +173,16 @@ Kirigami.Dialog {
         }
         switch (plan.errorKey) {
         case "errorUnknownPackage":
-            return i18nd("khaxbps", "The catalog does not know %1.", plan.errorArgs[0] || "")
+            return i18nd("kxbps", "The catalog does not know %1.", plan.errorArgs[0] || "")
         case "errorRepoDisabled":
-            return i18nd("khaxbps", "%1 lives in the disabled %2 repository.",
+            return i18nd("kxbps", "%1 lives in the disabled %2 repository.",
                          plan.errorArgs[0] || "", plan.errorArgs[1] || "")
         case "errorDependencyRepoDisabled":
-            return i18nd("khaxbps", "%1 needs %2 from the disabled %3 repository.",
+            return i18nd("kxbps", "%1 needs %2 from the disabled %3 repository.",
                          plan.errorArgs[0] || "", plan.errorArgs[1] || "",
                          plan.errorArgs[2] || "")
         case "errorNotInstalled":
-            return i18nd("khaxbps", "Not installed: %1", plan.errorArgs[0] || "")
+            return i18nd("kxbps", "Not installed: %1", plan.errorArgs[0] || "")
         }
         return plan.errorKey
     }
@@ -192,7 +192,7 @@ Kirigami.Dialog {
             return ""
         }
         if (plan.noteKey === "noteHeld") {
-            return i18nd("khaxbps", "Held packages skipped: %1", plan.noteArgs[0] || "")
+            return i18nd("kxbps", "Held packages skipped: %1", plan.noteArgs[0] || "")
         }
         return plan.noteKey
     }
@@ -204,12 +204,12 @@ Kirigami.Dialog {
             return ""
         }
         if (plan.diskDelta > 0) {
-            return i18nd("khaxbps", "Disk change: +%1", plan.diskDeltaText)
+            return i18nd("kxbps", "Disk change: +%1", plan.diskDeltaText)
         }
         if (plan.diskDelta < 0) {
-            return i18nd("khaxbps", "Disk change: −%1", plan.diskDeltaText)
+            return i18nd("kxbps", "Disk change: −%1", plan.diskDeltaText)
         }
-        return i18nd("khaxbps", "Disk change: 0")
+        return i18nd("kxbps", "Disk change: 0")
     }
 
     ColumnLayout {
@@ -225,20 +225,20 @@ Kirigami.Dialog {
         // conditional list below is evaluated.
         Kirigami.Action {
             id: cancelAction
-            text: i18nd("khaxbps", "Cancel")
+            text: i18nd("kxbps", "Cancel")
             onTriggered: dialog.reject()
         }
 
         Kirigami.Action {
             id: applyAction
-            text: i18nd("khaxbps", "Apply")
+            text: i18nd("kxbps", "Apply")
             enabled: dialog.canApply
             onTriggered: dialog.apply()
         }
 
         Kirigami.Action {
             id: closeAction
-            text: i18nd("khaxbps", "Close")
+            text: i18nd("kxbps", "Close")
             onTriggered: dialog.close()
         }
 
@@ -251,7 +251,7 @@ Kirigami.Dialog {
 
             QQC2.Label {
                 Layout.fillWidth: true
-                text: i18nd("khaxbps", "Package")
+                text: i18nd("kxbps", "Package")
                 font.bold: true
                 color: Kirigami.Theme.disabledTextColor
                 elide: Text.ElideRight
@@ -261,7 +261,7 @@ Kirigami.Dialog {
                 Layout.preferredWidth: Kirigami.Units.gridUnit * 8
                 Layout.minimumWidth: Kirigami.Units.gridUnit * 8
                 Layout.maximumWidth: Kirigami.Units.gridUnit * 8
-                text: i18nd("khaxbps", "Action")
+                text: i18nd("kxbps", "Action")
                 font.bold: true
                 color: Kirigami.Theme.disabledTextColor
             }
@@ -270,7 +270,7 @@ Kirigami.Dialog {
                 Layout.preferredWidth: Kirigami.Units.gridUnit * 11
                 Layout.minimumWidth: Kirigami.Units.gridUnit * 11
                 Layout.maximumWidth: Kirigami.Units.gridUnit * 11
-                text: i18nd("khaxbps", "Version")
+                text: i18nd("kxbps", "Version")
                 font.bold: true
                 color: Kirigami.Theme.disabledTextColor
             }
@@ -280,7 +280,7 @@ Kirigami.Dialog {
                 Layout.minimumWidth: Kirigami.Units.gridUnit * 4.5
                 Layout.maximumWidth: Kirigami.Units.gridUnit * 4.5
                 horizontalAlignment: Text.AlignRight
-                text: i18nd("khaxbps", "Size")
+                text: i18nd("kxbps", "Size")
                 font.bold: true
                 color: Kirigami.Theme.disabledTextColor
             }
@@ -370,7 +370,7 @@ Kirigami.Dialog {
 
                     QQC2.Label {
                         Layout.fillWidth: true
-                        text: i18nd("khaxbps", "Needed by: %1", modelData.neededBy.join(", "))
+                        text: i18nd("kxbps", "Needed by: %1", modelData.neededBy.join(", "))
                         wrapMode: Text.WordWrap
                         color: Kirigami.Theme.disabledTextColor
                     }
@@ -378,7 +378,7 @@ Kirigami.Dialog {
             }
 
             QQC2.Button {
-                text: i18nd("khaxbps", "Review blocked packages")
+                text: i18nd("kxbps", "Review blocked packages")
                 onClicked: dialog.requestBlocked()
             }
         }
@@ -416,13 +416,13 @@ Kirigami.Dialog {
             spacing: 0
 
             QQC2.Label {
-                text: i18ndp("khaxbps", "%1 package", "%1 packages",
+                text: i18ndp("kxbps", "%1 package", "%1 packages",
                              dialog.plan !== null ? dialog.plan.count : 0)
                 font: Kirigami.Theme.smallFont
             }
 
             QQC2.Label {
-                text: i18nd("khaxbps", "Download: %1",
+                text: i18nd("kxbps", "Download: %1",
                             dialog.plan !== null ? dialog.plan.downloadText : "")
                 font: Kirigami.Theme.smallFont
                 color: Kirigami.Theme.disabledTextColor

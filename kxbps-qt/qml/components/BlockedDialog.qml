@@ -20,7 +20,7 @@ Kirigami.Dialog {
 
     signal cascadeRequested(var cascadePlan)
 
-    title: i18nd("khaxbps", "Cannot remove")
+    title: i18nd("kxbps", "Cannot remove")
     preferredWidth: Kirigami.Units.gridUnit * 40
     maximumHeight: (parent ? parent.height : Kirigami.Units.gridUnit * 36) * 0.7
     padding: Kirigami.Units.largeSpacing
@@ -67,13 +67,13 @@ Kirigami.Dialog {
         // Referenced by the footer list below.
         Kirigami.Action {
             id: cancelAction
-            text: i18nd("khaxbps", "Cancel")
+            text: i18nd("kxbps", "Cancel")
             onTriggered: dialog.reject()
         }
 
         Kirigami.Action {
             id: cascadeAction
-            text: i18nd("khaxbps", "Remove together with them")
+            text: i18nd("kxbps", "Remove together with them")
             onTriggered: dialog.cascade()
         }
 
@@ -95,7 +95,7 @@ Kirigami.Dialog {
 
                 QQC2.Label {
                     Layout.fillWidth: true
-                    text: i18nd("khaxbps", "Needed by: %1", modelData.neededBy.join(", "))
+                    text: i18nd("kxbps", "Needed by: %1", modelData.neededBy.join(", "))
                     color: Kirigami.Theme.disabledTextColor
                     wrapMode: Text.WordWrap
                 }

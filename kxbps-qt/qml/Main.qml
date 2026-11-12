@@ -16,7 +16,7 @@ Kirigami.ApplicationWindow {
     minimumHeight: Kirigami.Units.gridUnit * 26
     // QQmlApplicationEngine does not show the root window on its own.
     visible: true
-    title: i18nd("khaxbps", "Khaxbps")
+    title: i18nd("kxbps", "KXbps")
 
     // The window draws its own header; Kirigami's application toolbar would put
     // the page title above it a second time.
@@ -47,21 +47,21 @@ Kirigami.ApplicationWindow {
         }
         switch (job.labelKey) {
         case "jobSync":
-            return i18nd("khaxbps", "Synchronising the repository index…")
+            return i18nd("kxbps", "Synchronising the repository index…")
         case "jobDownload":
-            return job.labelArg.length > 0 ? i18nd("khaxbps", "Downloading %1…", job.labelArg)
-                                           : i18nd("khaxbps", "Downloading packages…")
+            return job.labelArg.length > 0 ? i18nd("kxbps", "Downloading %1…", job.labelArg)
+                                           : i18nd("kxbps", "Downloading packages…")
         case "jobUnpack":
-            return job.labelArg.length > 0 ? i18nd("khaxbps", "Unpacking %1…", job.labelArg)
-                                           : i18nd("khaxbps", "Unpacking packages…")
+            return job.labelArg.length > 0 ? i18nd("kxbps", "Unpacking %1…", job.labelArg)
+                                           : i18nd("kxbps", "Unpacking packages…")
         case "jobRemove":
-            return i18nd("khaxbps", "Removing %1…", job.labelArg)
+            return i18nd("kxbps", "Removing %1…", job.labelArg)
         case "jobDone":
-            return i18nd("khaxbps", "Finished.")
+            return i18nd("kxbps", "Finished.")
         case "jobCancelled":
-            return i18nd("khaxbps", "Cancelled.")
+            return i18nd("kxbps", "Cancelled.")
         case "jobFailed":
-            return i18nd("khaxbps", "Transaction failed")
+            return i18nd("kxbps", "Transaction failed")
         }
         return ""
     }
@@ -104,48 +104,48 @@ Kirigami.ApplicationWindow {
     // must not keep saying "Installed".
     function headerTitle() {
         if (section === "query") {
-            return i18nd("khaxbps", "Query")
+            return i18nd("kxbps", "Query")
         }
         if (section === "mirrors") {
-            return i18nd("khaxbps", "Mirrors")
+            return i18nd("kxbps", "Mirrors")
         }
         switch (installedBackend.packages.filter) {
         case "installed":
-            return i18nd("khaxbps", "Installed")
+            return i18nd("kxbps", "Installed")
         case "updates":
-            return i18nd("khaxbps", "Updates")
+            return i18nd("kxbps", "Updates")
         case "all":
-            return i18nd("khaxbps", "Available")
+            return i18nd("kxbps", "Available")
         case "queued":
-            return i18nd("khaxbps", "Queue")
+            return i18nd("kxbps", "Queue")
         case "explicit":
-            return i18nd("khaxbps", "Explicit")
+            return i18nd("kxbps", "Explicit")
         case "orphans":
-            return i18nd("khaxbps", "Orphans")
+            return i18nd("kxbps", "Orphans")
         case "held":
-            return i18nd("khaxbps", "Held")
+            return i18nd("kxbps", "Held")
         }
-        return i18nd("khaxbps", "Packages")
+        return i18nd("kxbps", "Packages")
     }
 
     function headerSubtitle() {
         if (section === "query") {
-            return i18ndp("khaxbps", "%1 result", "%1 results", queryView.resultCount)
+            return i18ndp("kxbps", "%1 result", "%1 results", queryView.resultCount)
         }
         if (section === "mirrors") {
             if (mirrorBackend.probing) {
-                return i18nd("khaxbps", "%1 of %2 mirrors probed",
+                return i18nd("kxbps", "%1 of %2 mirrors probed",
                              mirrorBackend.finishedCount, mirrorBackend.model.count)
             }
-            return i18ndp("khaxbps", "%1 mirror", "%1 mirrors", mirrorBackend.model.count)
+            return i18ndp("kxbps", "%1 mirror", "%1 mirrors", mirrorBackend.model.count)
         }
         const filter = installedBackend.packages.filter
         const count = installedBackend.packages.count
         if (filter === "installed" || filter === "updates" || filter === "all") {
-            return i18ndp("khaxbps", "%1 package · %2 in repository",
+            return i18ndp("kxbps", "%1 package · %2 in repository",
                           "%1 packages · %2 in repository", count, catalogIndex.length)
         }
-        return i18ndp("khaxbps", "%1 package", "%1 packages", count)
+        return i18ndp("kxbps", "%1 package", "%1 packages", count)
     }
 
     // Plan and job objects are C++-parented children of the backend, so the
@@ -271,7 +271,7 @@ Kirigami.ApplicationWindow {
 
                     NavItem {
                         Layout.fillWidth: true
-                        label: i18nd("khaxbps", "Installed")
+                        label: i18nd("kxbps", "Installed")
                         highlighted: root.section === "packages"
                                      && installedBackend.packages.filter === "installed"
                         onClicked: root.selectFilter("installed")
@@ -279,7 +279,7 @@ Kirigami.ApplicationWindow {
 
                     NavItem {
                         Layout.fillWidth: true
-                        label: i18nd("khaxbps", "Updates")
+                        label: i18nd("kxbps", "Updates")
                         badgeText: installedBackend.updatesCount > 0 ? String(installedBackend.updatesCount) : ""
                         badgeAlert: true
                         highlighted: root.section === "packages"
@@ -289,7 +289,7 @@ Kirigami.ApplicationWindow {
 
                     NavItem {
                         Layout.fillWidth: true
-                        label: i18nd("khaxbps", "Available")
+                        label: i18nd("kxbps", "Available")
                         highlighted: root.section === "packages"
                                      && installedBackend.packages.filter === "all"
                         onClicked: root.selectFilter("all")
@@ -297,7 +297,7 @@ Kirigami.ApplicationWindow {
 
                     NavItem {
                         Layout.fillWidth: true
-                        label: i18nd("khaxbps", "Queue")
+                        label: i18nd("kxbps", "Queue")
                         badgeText: installedBackend.queueCount > 0 ? String(installedBackend.queueCount) : ""
                         highlighted: root.section === "packages"
                                      && installedBackend.packages.filter === "queued"
@@ -317,21 +317,21 @@ Kirigami.ApplicationWindow {
                     QQC2.Label {
                         Layout.fillWidth: true
                         Layout.leftMargin: Kirigami.Units.largeSpacing
-                        text: i18nd("khaxbps", "Manage")
+                        text: i18nd("kxbps", "Manage")
                         font: Kirigami.Theme.smallFont
                         color: Kirigami.Theme.disabledTextColor
                     }
 
                     NavItem {
                         Layout.fillWidth: true
-                        label: i18nd("khaxbps", "Query")
+                        label: i18nd("kxbps", "Query")
                         highlighted: root.section === "query"
                         onClicked: root.section = "query"
                     }
 
                     NavItem {
                         Layout.fillWidth: true
-                        label: i18nd("khaxbps", "Mirrors")
+                        label: i18nd("kxbps", "Mirrors")
                         highlighted: root.section === "mirrors"
                         onClicked: root.section = "mirrors"
                     }
@@ -358,7 +358,7 @@ Kirigami.ApplicationWindow {
 
                         QQC2.Label {
                             Layout.fillWidth: true
-                            text: i18nd("khaxbps", "Void Linux")
+                            text: i18nd("kxbps", "Void Linux")
                             font: Kirigami.Theme.smallFont
                             color: Kirigami.Theme.disabledTextColor
                             elide: Text.ElideRight
@@ -406,7 +406,7 @@ Kirigami.ApplicationWindow {
 
                         QQC2.Button {
                             visible: root.section === "mirrors"
-                            text: i18nd("khaxbps", "Probe all")
+                            text: i18nd("kxbps", "Probe all")
                             icon.name: "network-connect"
                             enabled: !mirrorBackend.probing
                             onClicked: mirrorBackend.probeAll()
@@ -417,7 +417,7 @@ Kirigami.ApplicationWindow {
                         QQC2.ToolButton {
                             id: menuButton
                             icon.name: "application-menu"
-                            Accessible.name: i18nd("khaxbps", "Application menu")
+                            Accessible.name: i18nd("kxbps", "Application menu")
                             onClicked: menu.open()
 
                             QQC2.Menu {
@@ -426,12 +426,12 @@ Kirigami.ApplicationWindow {
                                 width: Kirigami.Units.gridUnit * 14
 
                                 QQC2.MenuItem {
-                                    text: i18nd("khaxbps", "About Khaxbps")
+                                    text: i18nd("kxbps", "About KXbps")
                                     onTriggered: aboutDialog.open()
                                 }
 
                                 QQC2.MenuItem {
-                                    text: i18nd("khaxbps", "Restore base image")
+                                    text: i18nd("kxbps", "Restore base image")
                                     onTriggered: resetDialog.open()
                                 }
                             }

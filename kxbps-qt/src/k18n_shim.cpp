@@ -28,7 +28,7 @@
 
 void kxbps_setup_i18n(QQmlEngine &engine)
 {
-    KLocalizedString::setApplicationDomain("khaxbps");
+    KLocalizedString::setApplicationDomain("kxbps");
     engine.rootContext()->setContextObject(new KLocalizedContext(&engine));
 }
 

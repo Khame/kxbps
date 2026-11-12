@@ -1,11 +1,13 @@
-# Polish translation for Khaxbps.
-# Copyright (C) 2026 Khaxbps contributors
-# This file is distributed under the same license as the Khaxbps package.
+# Polish translation for KXbps.
+# Copyright (C) 2026 KXbps contributors
+# This file is distributed under the same license as the KXbps package.
 msgid ""
 msgstr ""
-"Project-Id-Version: khaxbps 0.1.0\n"
+"Project-Id-Version: kxbps 0.1.0\n"
 "Language-Team: Polish\n"
 "Language: pl\n"
 "MIME-Version: 1.0\n"
 "Content-Type: text/plain; charset=UTF-8\n"
 "Content-Transfer-Encoding: 8bit\n"
+"Plural-Forms: nplurals=3; plural=(n==1 ? 0 : n%10>=2 && n%10<=4 && (n%100<10 "
+"|| n%100>=20) ? 1 : 2);\n"
