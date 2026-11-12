@@ -38,6 +38,7 @@ Item {
     // versions are 77 px each, the arrow 13 px and the two gaps 8 px. 10 gu
     // (180 px) fits it; the name column still has 263 px for 141 px of text.
     readonly property real versionWidth: Kirigami.Units.gridUnit * 10
+    readonly property real sizeWidth: Kirigami.Units.gridUnit * 4.5
     readonly property real stateWidth: Kirigami.Units.gridUnit * 7
 
     // At 14 gridUnits the fact label column (141 px) leaves only ~87 px for
@@ -259,6 +260,14 @@ Item {
                                 font.bold: true
                                 color: Kirigami.Theme.disabledTextColor
                                 elide: Text.ElideRight
+
+                                MouseArea {
+                                    anchors.fill: parent
+                                    onClicked: {
+                                        view.packages.sort = "name"
+                                        view.packages.sortDescending = false
+                                    }
+                                }
                             }
 
                             QQC2.Label {
@@ -268,6 +277,30 @@ Item {
                                 text: i18nd("kxbps", "Version")
                                 font.bold: true
                                 color: Kirigami.Theme.disabledTextColor
+                            }
+
+                            QQC2.Label {
+                                Layout.preferredWidth: view.sizeWidth
+                                Layout.minimumWidth: view.sizeWidth
+                                Layout.maximumWidth: view.sizeWidth
+                                horizontalAlignment: Text.AlignRight
+                                text: i18nd("kxbps", "Size")
+                                font.bold: true
+                                color: Kirigami.Theme.disabledTextColor
+
+                                // The whole list is sorted, not the visible
+                                // rows: `PackageModel` orders every candidate
+                                // before filtering. First click is largest
+                                // first, the second reverses it.
+                                MouseArea {
+                                    anchors.fill: parent
+                                    onClicked: {
+                                        const already = view.packages.sort === "size"
+                                        view.packages.sort = "size"
+                                        view.packages.sortDescending =
+                                            already ? !view.packages.sortDescending : true
+                                    }
+                                }
                             }
 
                             QQC2.Label {
@@ -285,6 +318,7 @@ Item {
                         width: list.width
                         installedBackend: view.installedBackend
                         versionWidth: view.versionWidth
+                        sizeWidth: view.sizeWidth
                         stateWidth: view.stateWidth
                         selected: view.selectedName === model.name
                                   && view.selectedPkgver === view.pkgverOf(model, model.name)

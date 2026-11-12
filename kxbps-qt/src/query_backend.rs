@@ -427,6 +427,12 @@ impl QueryBackendRust {
             queued,
             update_to,
             description: Some(&hit.description),
+            // A `-Rs` line names no size; the list column for a search result
+            // stays empty rather than borrowing the installed package's size
+            // for a repository hit of another version.
+            size: None,
+            update_size: None,
+            download: None,
         };
         let mut map = QMap::default();
         for (_, name) in package_model::ROLES {

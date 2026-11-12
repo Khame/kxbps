@@ -1519,6 +1519,10 @@ mod tests {
             ("-m", manual),
             ("-H", held),
             ("-O", orphans),
+            // The three bulk size takes are decoration: an empty answer is a
+            // valid "no sizes", and these tests are about the package lists.
+            ("-p", ""),
+            ("-R", ""),
         ]
         .into_iter()
         .map(|(mode, stdout)| {

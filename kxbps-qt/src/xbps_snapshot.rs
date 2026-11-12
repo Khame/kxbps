@@ -2,23 +2,32 @@
 //!
 //! Five read-only commands answer in one go — `xbps-query -l` (installed
 //! packages), `xbps-install -un` (pending updates), and `xbps-query -m`, `-H`
-//! and `-O` (explicit, held and orphaned names) — and every line is parsed by
+//! and `-O` (explicit, held and orphaned names) — plus three bulk size takes
+//! (`-p installed_size -s ''` and two `-R` takes), and every line is parsed by
 //! `kxbps-core`. Nothing here touches Qt: the transport is the `Invoke`
 //! closure, so production installs the C++ shim and the tests install a fake.
 //!
 //! A snapshot is all or nothing. A list that is half real would be the one lie
 //! this layer must never tell, so one failing command fails the whole take and
 //! the caller shows why instead of an empty window.
+//!
+//! The sizes are the exception, on purpose: they are decoration next to the
+//! package list, and a repository index that was never synced prints nothing or
+//! fails without meaning the installed set is unknown. A failed size take logs
+//! its reason and leaves its list empty, so a system that only wants to list
+//! what it has keeps working.
 
 use kxbps_core::{
-    InstalledPackage, SearchHit, UpdateEntry, XbpsError, parse_depends, parse_installed,
-    parse_pkgver_list, parse_properties, parse_search, parse_updates, split_pkgver,
+    InstalledPackage, SearchHit, SizeEntry, UpdateEntry, XbpsError, parse_depends, parse_installed,
+    parse_pkgver_list, parse_properties, parse_search, parse_size_list, parse_updates,
+    split_pkgver,
 };
 
 use crate::xbps_runner::{
     READ_TIMEOUT_MS, XPBS_QUERY, argv, depends_argv, held_argv, installed_argv,
-    installed_search_argv, manual_argv, orphans_argv, property_argv, property_repo_argv,
-    required_by_argv, run, search_argv, updates_argv,
+    installed_search_argv, installed_sizes_argv, manual_argv, orphans_argv, property_argv,
+    property_repo_argv, repo_filename_sizes_argv, repo_installed_sizes_argv, required_by_argv, run,
+    search_argv, updates_argv,
 };
 
 /// The injectable process transport: the encoded argv and the timeout go in,
@@ -46,6 +55,15 @@ pub struct Snapshot {
     pub held: Vec<String>,
     /// Package names from `xbps-query -O`, sorted and deduplicated.
     pub orphans: Vec<String>,
+    /// `xbps-query -p installed_size -s ''`: the installed size of every
+    /// installed package, sorted by name.
+    pub installed_sizes: Vec<SizeEntry>,
+    /// `xbps-query -R -p installed_size -s ''`: the unpacked size of every
+    /// package the repository indexes offer, sorted by name.
+    pub repo_installed_sizes: Vec<SizeEntry>,
+    /// `xbps-query -R -p filename-size -s ''`: the archive size of every
+    /// package the repository indexes offer, sorted by name.
+    pub repo_download_sizes: Vec<SizeEntry>,
 }
 
 impl Snapshot {
@@ -56,6 +74,29 @@ impl Snapshot {
             .find(|entry| entry.name == name)
             .map(|entry| entry.version.as_str())
     }
+
+    /// The installed size of `name`, reconstructed from xbps' humanised field.
+    pub fn installed_size_of(&self, name: &str) -> Option<u64> {
+        size_of(&self.installed_sizes, name)
+    }
+
+    /// The unpacked size the repositories report for `name`.
+    pub fn repo_installed_size_of(&self, name: &str) -> Option<u64> {
+        size_of(&self.repo_installed_sizes, name)
+    }
+
+    /// The archive size the repositories report for `name`.
+    pub fn repo_download_size_of(&self, name: &str) -> Option<u64> {
+        size_of(&self.repo_download_sizes, name)
+    }
+}
+
+/// The byte count one size list reports for `name`.
+fn size_of(entries: &[SizeEntry], name: &str) -> Option<u64> {
+    entries
+        .iter()
+        .find(|entry| entry.name == name)
+        .map(|entry| entry.bytes)
 }
 
 /// Why a snapshot could not be taken, as an i18n key plus its arguments.
@@ -200,17 +241,26 @@ pub(crate) fn run_parsed<T>(
 }
 
 /// Reads the whole system snapshot through `invoke`:
-/// `xbps-query -l`, `xbps-install -un`, `xbps-query -m`, `-H` and `-O`.
+/// `xbps-query -l`, `xbps-install -un`, `xbps-query -m`, `-H` and `-O`, plus
+/// the three bulk size takes.
 ///
-/// All or nothing: any failing command fails the snapshot, because a list
-/// that is half real is the one lie this module must never tell. The result
-/// is sorted, so the wire format is stable and the model can diff it.
+/// The package lists are all or nothing: any failing command fails the
+/// snapshot, because a list that is half real is the one lie this module must
+/// never tell. The size takes are the exception ([`read_sizes`]): a failed one
+/// leaves its list empty and logs why, so a repository index that was never
+/// synced cannot cost the user the installed list.
+///
+/// The result is sorted, so the wire format is stable and the model can diff
+/// it.
 pub fn read_snapshot(invoke: &Invoke) -> Result<Snapshot, SnapshotError> {
     let mut installed = run_parsed(&installed_argv(), parse_installed, invoke)?;
     let mut updates = run_parsed(&updates_argv(), parse_updates, invoke)?;
     let explicit = run_parsed(&manual_argv(), parse_pkgver_list, invoke)?;
     let held = run_parsed(&held_argv(), parse_pkgver_list, invoke)?;
     let orphans = run_parsed(&orphans_argv(), parse_pkgver_list, invoke)?;
+    let installed_sizes = read_sizes(&installed_sizes_argv(), invoke);
+    let repo_installed_sizes = read_sizes(&repo_installed_sizes_argv(), invoke);
+    let repo_download_sizes = read_sizes(&repo_filename_sizes_argv(), invoke);
 
     installed.sort_by(|left, right| left.name.cmp(&right.name));
     updates.sort_by(|left, right| left.name.cmp(&right.name));
@@ -220,7 +270,34 @@ pub fn read_snapshot(invoke: &Invoke) -> Result<Snapshot, SnapshotError> {
         explicit: sorted_names(explicit),
         held: sorted_names(held),
         orphans: sorted_names(orphans),
+        installed_sizes: sorted_sizes(installed_sizes),
+        repo_installed_sizes: sorted_sizes(repo_installed_sizes),
+        repo_download_sizes: sorted_sizes(repo_download_sizes),
     })
+}
+
+/// Runs one bulk size take, answering with an empty list when it fails.
+///
+/// A size is decoration next to the package list, so a take that cannot start,
+/// times out, exits non-zero or prints a line this version does not understand
+/// is logged and dropped instead of failing the snapshot. An empty answer is
+/// not a failure: `-s ''` over a repository index that was never synced prints
+/// nothing and exits 0.
+fn read_sizes(argv: &[String], invoke: &Invoke) -> Vec<SizeEntry> {
+    match run_parsed(argv, parse_size_list, invoke) {
+        Ok(entries) => entries,
+        Err(err) => {
+            eprintln!("kxbps: sizes unavailable: {err}");
+            Vec::new()
+        }
+    }
+}
+
+/// Sorted and deduplicated by name, so a repeated line cannot double a size.
+fn sorted_sizes(mut entries: Vec<SizeEntry>) -> Vec<SizeEntry> {
+    entries.sort_by(|left, right| left.name.cmp(&right.name));
+    entries.dedup_by(|left, right| left.name == right.name);
+    entries
 }
 
 /// Sorted and deduplicated, so a repeated answer cannot double a count.
@@ -569,28 +646,47 @@ mod tests {
 
     /// The command an argv selects, as the fake's table spells it: the program
     /// is dropped and every leading flag kept, because `-R -p` and `-R` are
-    /// different takes of the same program. Arguments (a pattern, a property
-    /// list, a pkgver) never enter the key.
+    /// different takes of the same program. For a `-p` take the property is
+    /// part of the key too — `-R -p filename-size` and `-R -p installed_size`
+    /// are different commands of the same shape. Patterns and pkgvers never
+    /// enter the key.
     fn command_key(argv: &[String]) -> String {
         let mut key: Vec<&str> = Vec::new();
+        let mut property_next = false;
         for arg in argv.iter().skip(1) {
             if !arg.starts_with('-') {
+                if property_next {
+                    key.push(arg);
+                }
                 break;
             }
             key.push(arg);
+            property_next = arg == "-p";
         }
         key.join(" ")
     }
 
     /// A transport that answers each request by the command its argv selects,
-    /// so one fake covers a whole read.
+    /// so one fake covers a whole read. A table entry without the property in
+    /// its key matches any property take of that shape, which is what the
+    /// single-package tests use.
     fn transport_by_mode(modes: Vec<(&str, String)>) -> impl Fn(&str, u32) -> String {
         move |request, _| {
             let argv: Vec<String> = serde_json::from_str(request).expect("request decodes");
             let key = command_key(&argv);
+            let flags = key
+                .split(' ')
+                .take_while(|part| part.starts_with('-'))
+                .fold(String::new(), |mut flags, part| {
+                    if !flags.is_empty() {
+                        flags.push(' ');
+                    }
+                    flags.push_str(part);
+                    flags
+                });
             modes
                 .iter()
-                .find(|(flag, _)| *flag == key)
+                .find(|(flag, _)| *flag == key || *flag == flags)
                 .map(|(_, reply)| reply.clone())
                 .unwrap_or_else(|| panic!("unexpected command: {argv:?} (key {key:?})"))
         }
@@ -611,6 +707,24 @@ mod tests {
             ("-m", ok_reply("vim-9.2.1031_1\n")),
             ("-H", ok_reply("")),
             ("-O", ok_reply("")),
+            (
+                "-p installed_size",
+                ok_reply("vim-9.2.1031_1: 2125KB\nark-25.08.0_1: 5MB\n"),
+            ),
+            (
+                "-R -p filename-size",
+                ok_reply(
+                    "vim-9.2.2000_1: 1735KB (https://r/current)\n\
+                     ark-25.08.0_1: 1600KB (https://r/current)\n",
+                ),
+            ),
+            (
+                "-R -p installed_size",
+                ok_reply(
+                    "vim-9.2.2000_1: 1800KB (https://r/current)\n\
+                     ark-25.08.0_1: 4500KB (https://r/current)\n",
+                ),
+            ),
         ]
     }
 
@@ -621,7 +735,10 @@ mod tests {
             // Every command goes through the same transport with the read
             // timeout; nothing else may reach the shim.
             assert_eq!(timeout, READ_TIMEOUT_MS);
-            assert_eq!(argv.len(), 2, "one mode flag per read command");
+            assert!(
+                argv.len() >= 2,
+                "a program and at least one flag or property"
+            );
             transport_by_mode(healthy_modes())(request, timeout)
         })
         .expect("a healthy system yields a snapshot");
@@ -653,6 +770,99 @@ mod tests {
         let back: Snapshot = serde_json::from_str(&json).expect("snapshot deserialises");
         assert_eq!(back, snapshot);
         assert!(json.contains("\"installed\":"), "camelCase wire keys");
+        assert!(
+            json.contains("\"installedSizes\":"),
+            "the size takes travel in the same wire format"
+        );
+    }
+
+    #[test]
+    fn each_size_take_fills_its_own_list() {
+        let snapshot = read_snapshot(&transport_by_mode(healthy_modes())).expect("sizes land");
+        assert_eq!(
+            snapshot
+                .installed_sizes
+                .iter()
+                .map(|entry| (entry.name.as_str(), entry.bytes))
+                .collect::<Vec<_>>(),
+            [("ark", 5_242_880), ("vim", 2_176_000)],
+            "the installed take is sorted by name and keeps xbps' version"
+        );
+        assert_eq!(snapshot.installed_sizes[1].version, "9.2.1031_1");
+        // Both repository takes read the same command key in the fake, so the
+        // shipped bytes are the ones the test table gave them.
+        assert_eq!(snapshot.repo_installed_sizes.len(), 2);
+        assert_eq!(snapshot.repo_download_sizes.len(), 2);
+        assert_eq!(
+            snapshot.installed_size_of("vim").expect("vim is installed"),
+            snapshot.installed_sizes[1].bytes
+        );
+        assert_eq!(snapshot.installed_size_of("nope"), None);
+    }
+
+    #[test]
+    fn a_failing_size_take_keeps_the_package_lists() {
+        // An unsynced repository index, an older xbps, a timeout: the sizes are
+        // decoration, the package list is the answer. A failed take must not
+        // take the snapshot down with it.
+        let modes: Vec<(&str, String)> = healthy_modes()
+            .into_iter()
+            .map(|(flag, reply)| {
+                let failed = match flag {
+                    "-p installed_size" => Some(ok_reply("not a size line\n")),
+                    "-R -p filename-size" => Some(
+                        r#"{"exitCode":2,"stdout":"","stderr":"index not synced","timedOut":false}"#
+                            .to_owned(),
+                    ),
+                    "-R -p installed_size" => Some(START_FAILURE.to_owned()),
+                    _ => None,
+                };
+                (flag, failed.unwrap_or(reply))
+            })
+            .collect();
+
+        let snapshot = read_snapshot(&transport_by_mode(modes)).expect("the list survives");
+        assert_eq!(
+            snapshot.installed.len(),
+            2,
+            "the packages the user has are still listed"
+        );
+        assert_eq!(snapshot.updates.len(), 1);
+        assert!(
+            snapshot.installed_sizes.is_empty(),
+            "a rejected size line leaves this take empty, not invented"
+        );
+        assert!(
+            snapshot.repo_installed_sizes.is_empty(),
+            "a repository take that cannot start leaves its list empty"
+        );
+        assert!(
+            snapshot.repo_download_sizes.is_empty(),
+            "a repository take that exits non-zero leaves its list empty"
+        );
+    }
+
+    #[test]
+    fn a_size_take_with_an_empty_answer_is_not_a_repository_failure() {
+        // `-s ''` over a repository index that was never synced prints nothing
+        // and exits 0. That is an empty size list, not an error and not an
+        // empty package list.
+        let modes: Vec<(&str, String)> = healthy_modes()
+            .into_iter()
+            .map(|(flag, reply)| {
+                if flag.contains("-p ") {
+                    (flag, ok_reply(""))
+                } else {
+                    (flag, reply)
+                }
+            })
+            .collect();
+        let snapshot = read_snapshot(&transport_by_mode(modes)).expect("the list survives");
+        assert_eq!(snapshot.installed.len(), 2);
+        assert!(snapshot.installed_sizes.is_empty());
+        assert!(snapshot.repo_installed_sizes.is_empty());
+        assert!(snapshot.repo_download_sizes.is_empty());
+        assert_eq!(snapshot.installed_size_of("vim"), None);
     }
 
     #[test]
@@ -666,6 +876,9 @@ mod tests {
             ),
             ("-H", ok_reply("linux-6.18.63_1\nlinux-6.18.63_1\n")),
             ("-O", ok_reply("x-1_1\na-2_1\n")),
+            ("-p installed_size", ok_reply("vim-9.2.1031_1: 2125KB\n")),
+            ("-R -p filename-size", ok_reply("")),
+            ("-R -p installed_size", ok_reply("")),
         ];
         let snapshot = read_snapshot(&transport_by_mode(modes)).unwrap();
         assert_eq!(snapshot.explicit, vec!["ark", "vim"]);

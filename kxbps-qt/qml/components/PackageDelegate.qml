@@ -19,6 +19,7 @@ Kirigami.SwipeListItem {
 
     property var installedBackend
     property real versionWidth
+    property real sizeWidth
     property real stateWidth
     // Driven by the selected name, not `ListView.currentIndex`: a filter change
     // resets the model and would drop the current index, while the details pane
@@ -160,6 +161,31 @@ Kirigami.SwipeListItem {
                     font.family: "monospace"
                     elide: Text.ElideRight
                 }
+            }
+        }
+
+        // Installed size, or the new version's size on an update row. The
+        // tooltip carries the other two numbers, so one narrow column still
+        // tells the whole story.
+        QQC2.Label {
+            Layout.preferredWidth: delegate.sizeWidth
+            Layout.minimumWidth: delegate.sizeWidth
+            Layout.maximumWidth: delegate.sizeWidth
+            horizontalAlignment: Text.AlignRight
+            text: model.isUpdate ? model.updateSize : model.size
+            font.family: "monospace"
+            elide: Text.ElideLeft
+
+            QQC2.ToolTip.visible: sizeHover.containsMouse
+            QQC2.ToolTip.text: model.isUpdate
+                ? i18nd("kxbps", "Installed %1, download %2, new version %3",
+                        model.size, model.download, model.updateSize)
+                : i18nd("kxbps", "Installed %1", model.size)
+
+            MouseArea {
+                id: sizeHover
+                anchors.fill: parent
+                hoverEnabled: true
             }
         }
 

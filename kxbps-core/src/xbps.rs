@@ -976,6 +976,17 @@ mod tests {
     }
 
     #[test]
+    fn size_list_parses_the_four_digit_megabytes_the_repository_printer_emits() {
+        // The real `-R` take prints past 1024 MB without switching unit
+        // (`0ad-data-1: 1633MB`), so a GB-only parser would reject it and take
+        // the whole repository size list down with it.
+        let entries =
+            parse_size_list("0ad-data-0.28.0_1: 1633MB (https://repo-de.voidlinux.org/current)\n")
+                .expect("a four-digit megabyte value parses");
+        assert_eq!(entries[0].bytes, 1_712_324_608);
+    }
+
+    #[test]
     fn size_list_accepts_an_empty_answer() {
         assert_eq!(parse_size_list(""), Ok(Vec::new()));
     }

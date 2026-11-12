@@ -141,6 +141,27 @@ pub fn orphans_argv() -> Vec<String> {
     argv(XPBS_QUERY, &["-O"])
 }
 
+/// `xbps-query -p installed_size -s ''`: the installed size of every installed
+/// package in one take.
+///
+/// The empty pattern is one argv element; it is the documented way to make
+/// `-s` match every package without a shell expanding anything.
+pub fn installed_sizes_argv() -> Vec<String> {
+    argv(XPBS_QUERY, &["-p", "installed_size", "-s", ""])
+}
+
+/// `xbps-query -R -p filename-size -s ''`: the archive size of every package
+/// the repository indexes offer.
+pub fn repo_filename_sizes_argv() -> Vec<String> {
+    argv(XPBS_QUERY, &["-R", "-p", "filename-size", "-s", ""])
+}
+
+/// `xbps-query -R -p installed_size -s ''`: the unpacked size of every package
+/// the repository indexes offer.
+pub fn repo_installed_sizes_argv() -> Vec<String> {
+    argv(XPBS_QUERY, &["-R", "-p", "installed_size", "-s", ""])
+}
+
 /// Encodes an argv list for the shim.
 pub fn argv_json(argv: &[String]) -> Result<String, RunnerError> {
     if argv.is_empty() || argv[0].is_empty() {
@@ -204,6 +225,30 @@ mod tests {
         assert_eq!(
             search_argv("vim plugin"),
             ["xbps-query", "-Rs", "vim plugin"]
+        );
+    }
+
+    #[test]
+    fn the_bulk_size_takes_use_an_empty_pattern_as_one_argument() {
+        // `-s ''` is what makes xbps print every package; the empty string is
+        // one argv element and never a shell artifact.
+        assert_eq!(
+            installed_sizes_argv(),
+            ["xbps-query", "-p", "installed_size", "-s", ""]
+        );
+        assert_eq!(
+            repo_filename_sizes_argv(),
+            ["xbps-query", "-R", "-p", "filename-size", "-s", ""]
+        );
+        assert_eq!(
+            repo_installed_sizes_argv(),
+            ["xbps-query", "-R", "-p", "installed_size", "-s", ""]
+        );
+        let encoded = argv_json(&repo_filename_sizes_argv()).expect("argv encodes");
+        assert_eq!(
+            serde_json::from_str::<Vec<String>>(&encoded).expect("decodes"),
+            ["xbps-query", "-R", "-p", "filename-size", "-s", ""],
+            "the empty pattern survives the round trip as its own element"
         );
     }
 

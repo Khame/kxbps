@@ -71,6 +71,10 @@ pub mod qobject {
         #[qml_uncreatable]
         #[qproperty(QString, filter, READ, WRITE = set_filter, NOTIFY)]
         #[qproperty(QString, search, READ, WRITE = set_search, NOTIFY)]
+        // `name` (default) or `size`; the key `compute_rows` sorts every
+        // candidate by before filtering. `sortDescending` is its direction.
+        #[qproperty(QString, sort, READ, WRITE = set_sort, NOTIFY)]
+        #[qproperty(bool, sort_descending, READ, WRITE = set_sort_descending, NOTIFY)]
         #[qproperty(i32, count, READ, NOTIFY)]
         type PackageModel = super::PackageModelRust;
 
@@ -100,6 +104,8 @@ pub mod qobject {
 
         fn set_filter(self: Pin<&mut PackageModel>, value: QString);
         fn set_search(self: Pin<&mut PackageModel>, value: QString);
+        fn set_sort(self: Pin<&mut PackageModel>, value: QString);
+        fn set_sort_descending(self: Pin<&mut PackageModel>, value: bool);
 
         // Pushes a whole `Snapshot` (see `xbps_snapshot`) plus the queue; called
         // by the installed backend through `kxbps_package_model_set_snapshot`.
@@ -141,6 +147,12 @@ pub mod role {
     pub const QUEUED_ACTION: i32 = USER_ROLE + 6;
     pub const IS_UPDATE: i32 = USER_ROLE + 7;
     pub const UPDATE_VERSION: i32 = USER_ROLE + 8;
+    pub const SIZE: i32 = USER_ROLE + 9;
+    pub const SIZE_BYTES: i32 = USER_ROLE + 10;
+    pub const UPDATE_SIZE: i32 = USER_ROLE + 11;
+    pub const UPDATE_SIZE_BYTES: i32 = USER_ROLE + 12;
+    pub const DOWNLOAD: i32 = USER_ROLE + 13;
+    pub const DOWNLOAD_BYTES: i32 = USER_ROLE + 14;
 }
 
 /// Role ids and the names QML sees, in declaration order.
@@ -148,7 +160,11 @@ pub mod role {
 /// `data()` and the `QVariantMap`s built by `QueryBackend` share this table, so
 /// a delegate reading `model.installedVersion` and a query result reading
 /// `result.installedVersion` always agree.
-pub const ROLES: [(i32, &str); 9] = [
+///
+/// The `*Bytes` roles carry the sortable value and an invalid `QVariant` when
+/// the size is unknown; the display roles carry the humanised text or an empty
+/// string. A size the read did not report is never a zero.
+pub const ROLES: [(i32, &str); 15] = [
     (role::NAME, "name"),
     (role::VERSION, "version"),
     (role::SHORT, "short"),
@@ -158,6 +174,12 @@ pub const ROLES: [(i32, &str); 9] = [
     (role::QUEUED_ACTION, "queuedAction"),
     (role::IS_UPDATE, "isUpdate"),
     (role::UPDATE_VERSION, "updateVersion"),
+    (role::SIZE, "size"),
+    (role::SIZE_BYTES, "sizeBytes"),
+    (role::UPDATE_SIZE, "updateSize"),
+    (role::UPDATE_SIZE_BYTES, "updateSizeBytes"),
+    (role::DOWNLOAD, "download"),
+    (role::DOWNLOAD_BYTES, "downloadBytes"),
 ];
 
 /// Everything one row needs beyond the record itself.
@@ -170,6 +192,22 @@ pub struct RowView<'a> {
     pub update_to: Option<&'a str>,
     /// The record's own description.
     pub description: Option<&'a str>,
+    /// The installed size of the installed version, if the read reported one.
+    pub size: Option<u64>,
+    /// The unpacked size of the version an update would install: the exact
+    /// `xbps-install -un` value, otherwise the repository's rounded one.
+    pub update_size: Option<u64>,
+    /// The archive a queued install or update would download: the exact
+    /// `-un` value for an update, otherwise the repository's `filename-size`.
+    pub download: Option<u64>,
+}
+
+impl RowView<'_> {
+    /// The size the list shows: the new version's when the row has an update,
+    /// the installed one otherwise.
+    pub fn displayed_size(&self) -> Option<u64> {
+        self.update_size.or(self.size)
+    }
 }
 
 /// Updates and orphans derived from one installed snapshot.
@@ -221,6 +259,12 @@ pub fn role_value(role: i32, row: &RowView<'_>) -> QVariant {
         role::QUEUED_ACTION => text(row.queued.map_or("", queue_key)),
         role::IS_UPDATE => boolean(row.update_to.is_some()),
         role::UPDATE_VERSION => text(row.update_to.unwrap_or("")),
+        role::SIZE => size_text(row.size),
+        role::SIZE_BYTES => size_bytes(row.size),
+        role::UPDATE_SIZE => size_text(row.update_size),
+        role::UPDATE_SIZE_BYTES => size_bytes(row.update_size),
+        role::DOWNLOAD => size_text(row.download),
+        role::DOWNLOAD_BYTES => size_bytes(row.download),
         _ => QVariant::default(),
     }
 }
@@ -250,8 +294,18 @@ pub struct PackageModelRust {
     /// Updates, held names and orphans derived from the snapshot.
     state: InstalledState,
     held_names: HashSet<String>,
+    /// name -> bytes, from the installed size take of the last read.
+    installed_sizes: HashMap<String, u64>,
+    /// name -> bytes, from the repository unpacked-size take.
+    repo_installed_sizes: HashMap<String, u64>,
+    /// name -> bytes, from the repository archive-size take.
+    repo_download_sizes: HashMap<String, u64>,
+    /// name -> exact sizes of a pending update, from `xbps-install -un`.
+    update_sizes: HashMap<String, (u64, u64)>,
     filter: QString,
     search: QString,
+    sort: QString,
+    sort_descending: bool,
     count: i32,
 }
 
@@ -266,9 +320,15 @@ impl Default for PackageModelRust {
             queue: HashMap::new(),
             state: InstalledState::new(&[], &[]),
             held_names: HashSet::new(),
+            installed_sizes: HashMap::new(),
+            repo_installed_sizes: HashMap::new(),
+            repo_download_sizes: HashMap::new(),
+            update_sizes: HashMap::new(),
             // The window opens on the installed list.
             filter: QString::from("installed"),
             search: QString::from(""),
+            sort: QString::from("name"),
+            sort_descending: false,
             count: 0,
         }
     }
@@ -317,6 +377,7 @@ impl PackageModelRust {
         };
         self.snapshot
             .sort_by(|left, right| left.name.cmp(&right.name));
+        self.set_updates(&updates);
         self.updates = updates;
         self.orphans = orphans;
         self.install(installed, queue)
@@ -413,6 +474,16 @@ impl PackageModelRust {
         let version = installed
             .map(|inst| inst.version.as_str())
             .unwrap_or(record.version.as_str());
+        let size = self.installed_sizes.get(name).copied();
+        // Only a pending update has a "new version" size: the exact one from
+        // `xbps-install -un`. The repository archive size is what a queued
+        // install would fetch, so it is reported even without an update; the
+        // repository unpacked size is not a new version, so it never fills
+        // `update_size`.
+        let (update_size, download) = match self.update_sizes.get(name) {
+            Some((installed_size, download_size)) => (Some(*installed_size), Some(*download_size)),
+            None => (None, self.repo_download_sizes.get(name).copied()),
+        };
         RowView {
             name,
             version,
@@ -420,6 +491,9 @@ impl PackageModelRust {
             queued: self.queue.get(name).copied(),
             update_to: self.state.update_to(name),
             description: Some(record.description.as_str()),
+            size,
+            update_size,
+            download,
         }
     }
 
@@ -448,15 +522,87 @@ impl PackageModelRust {
     /// not reset the model, or QML loses the scroll position and selection.
     fn compute_rows(&self) -> Vec<u32> {
         let mut candidates: Vec<u32> = (0..self.snapshot.len() as u32).collect();
-        // `xbps-query -l` prints in name order already; sorting here too keeps
-        // the list stable when a record list arrives from another source.
-        candidates.sort_by(|left, right| self.name_of(left).cmp(self.name_of(right)));
+        // The order belongs to the whole snapshot: sorting after filtering
+        // would order the visible rows by the values of the rows that survived
+        // the filter, so the same package could move when a keystroke narrows
+        // the list.
+        match self.sort.to_string().as_str() {
+            "size" => self.sort_by_size(&mut candidates),
+            _ => {
+                let descending = self.sort_descending;
+                candidates.sort_by(|left, right| {
+                    let order = self.name_of(left).cmp(self.name_of(right));
+                    if descending { order.reverse() } else { order }
+                });
+            }
+        }
         let filter = self.filter.to_string();
         let search = self.search.to_string().to_lowercase();
         candidates
             .into_iter()
             .filter(|row| self.matches(row, &filter, &search))
             .collect()
+    }
+
+    /// Orders candidates by their displayed size, the unknown ones last.
+    fn sort_by_size(&self, candidates: &mut [u32]) {
+        let descending = self.sort_descending;
+        candidates.sort_by(|left, right| {
+            let left_size = self.display_size_of(left);
+            let right_size = self.display_size_of(right);
+            // A row with no size is not a zero-byte row: it goes to the end in
+            // both directions, so the user can ignore the unknown tail instead
+            // of finding it at the top of a descending list.
+            match (left_size, right_size) {
+                (Some(left_size), Some(right_size)) => {
+                    let order = left_size.cmp(&right_size);
+                    if descending { order.reverse() } else { order }
+                }
+                (Some(_), None) => std::cmp::Ordering::Less,
+                (None, Some(_)) => std::cmp::Ordering::Greater,
+                (None, None) => std::cmp::Ordering::Equal,
+            }
+            .then_with(|| self.name_of(left).cmp(self.name_of(right)))
+        });
+    }
+
+    /// The size the list shows for a row: the new version's when it has an
+    /// update, the installed size otherwise.
+    fn display_size_of(&self, row: &u32) -> Option<u64> {
+        let name = self.name_of(row);
+        match self.update_sizes.get(name) {
+            Some((installed_size, _)) => Some(*installed_size),
+            None => self.installed_sizes.get(name).copied(),
+        }
+    }
+
+    /// Replaces the three size maps and the exact update sizes.
+    ///
+    /// The maps live in the snapshot, so a successful read always ships all
+    /// three; a failed size take ships an empty map for its take, and the rows
+    /// then report no size instead of a stale one.
+    fn set_sizes(
+        &mut self,
+        installed_sizes: HashMap<String, u64>,
+        repo_installed_sizes: HashMap<String, u64>,
+        repo_download_sizes: HashMap<String, u64>,
+    ) {
+        self.installed_sizes = installed_sizes;
+        self.repo_installed_sizes = repo_installed_sizes;
+        self.repo_download_sizes = repo_download_sizes;
+    }
+
+    /// The exact sizes of the pending updates, from `xbps-install -un`.
+    fn set_updates(&mut self, updates: &[UpdateEntry]) {
+        self.update_sizes = updates
+            .iter()
+            .map(|update| {
+                (
+                    update.name.clone(),
+                    (update.installed_size, update.download_size),
+                )
+            })
+            .collect();
     }
 
     /// Commits `rows` as the visible set and keeps `count` in step.
@@ -479,6 +625,15 @@ impl PackageModelRust {
         }
         self.assign_rows(rows);
         true
+    }
+
+    /// Sets the sort key and direction the way the Qt setters do, for the
+    /// tests that drive the model without a `Pin`.
+    #[cfg(test)]
+    fn set_sort(&mut self, key: &str, descending: bool) {
+        self.sort = QString::from(key);
+        self.sort_descending = descending;
+        self.rebuild();
     }
 
     /// Everything the installed/queue snapshot feeds one row.
@@ -598,6 +753,28 @@ impl qobject::PackageModel {
         self.as_mut().search_changed();
     }
 
+    fn set_sort(mut self: Pin<&mut Self>, value: cxx_qt_lib::QString) {
+        // Only the two keys the model knows: an unknown word is the name
+        // order, which is what the header falls back to.
+        let value = match value.to_string().as_str() {
+            "size" => cxx_qt_lib::QString::from("size"),
+            _ => cxx_qt_lib::QString::from("name"),
+        };
+        if self.sort == value {
+            return;
+        }
+        apply_change(self.as_mut(), |model| model.sort = value.clone());
+        self.as_mut().sort_changed();
+    }
+
+    fn set_sort_descending(mut self: Pin<&mut Self>, value: bool) {
+        if self.sort_descending == value {
+            return;
+        }
+        apply_change(self.as_mut(), |model| model.sort_descending = value);
+        self.as_mut().sort_descending_changed();
+    }
+
     /// Replaces the whole state from the backend, with the snapshot the read
     /// layer took.
     ///
@@ -623,6 +800,11 @@ impl qobject::PackageModel {
             serde_json::from_str(&queue_json.to_string()).unwrap_or_default();
         let (rows_changed, rows, affected) = {
             let data = Pin::get_mut(self.as_mut().rust_mut());
+            data.set_sizes(
+                sizes_of(&snapshot.installed_sizes),
+                sizes_of(&snapshot.repo_installed_sizes),
+                sizes_of(&snapshot.repo_download_sizes),
+            );
             data.snapshot(
                 snapshot.installed,
                 installed,
@@ -737,6 +919,25 @@ fn boolean(value: bool) -> QVariant {
     QVariant::from(&value)
 }
 
+/// The humanised size, or an empty string when the read reported none: a row
+/// with no size must not render `0 B`.
+fn size_text(bytes: Option<u64>) -> QVariant {
+    match bytes {
+        Some(bytes) => text(&format_size(bytes)),
+        // Unknown is not zero: an invalid variant keeps QML from printing "0 B".
+        None => QVariant::default(),
+    }
+}
+
+/// The raw byte count for sorting; invalid when unknown, so QML's comparison
+/// sees "no value" rather than zero.
+fn size_bytes(bytes: Option<u64>) -> QVariant {
+    match bytes {
+        Some(bytes) => QVariant::from(&bytes),
+        None => QVariant::default(),
+    }
+}
+
 /// `4.0 MiB`, using the core's thresholds and the web app's decimal count.
 pub(crate) fn format_size(bytes: u64) -> String {
     let bytes = i64::try_from(bytes).unwrap_or(i64::MAX);
@@ -756,6 +957,18 @@ pub(crate) fn queue_key(action: QueueAction) -> &'static str {
         QueueAction::Remove => "remove",
         QueueAction::Update => "update",
     }
+}
+
+/// A size list as the `name -> bytes` map the model sorts on.
+///
+/// xbps prints one line per package, so a repeated name is a broken answer;
+/// the first one wins and the rest are dropped rather than summed.
+pub(crate) fn sizes_of(entries: &[kxbps_core::SizeEntry]) -> HashMap<String, u64> {
+    let mut sizes: HashMap<String, u64> = HashMap::with_capacity(entries.len());
+    for entry in entries {
+        sizes.entry(entry.name.clone()).or_insert(entry.bytes);
+    }
+    sizes
 }
 
 #[cfg(test)]
@@ -1093,7 +1306,7 @@ mod tests {
 
     #[test]
     fn roles_cover_every_documented_name() {
-        assert_eq!(ROLES.len(), 9);
+        assert_eq!(ROLES.len(), 15);
         let names: Vec<&str> = ROLES.iter().map(|(_, name)| *name).collect();
         assert_eq!(
             names,
@@ -1107,6 +1320,12 @@ mod tests {
                 "queuedAction",
                 "isUpdate",
                 "updateVersion",
+                "size",
+                "sizeBytes",
+                "updateSize",
+                "updateSizeBytes",
+                "download",
+                "downloadBytes",
             ]
         );
     }
@@ -1226,5 +1445,262 @@ mod tests {
         assert_eq!(ranges(&[]), Vec::new());
         assert_eq!(ranges(&[3]), vec![(3, 3)]);
         assert_eq!(ranges(&[1, 2, 3, 7, 9, 10]), vec![(1, 3), (7, 7), (9, 10)]);
+    }
+
+    /// The size maps a snapshot carries: installed sizes, the repository's
+    /// unpacked sizes, and the repository's archive sizes.
+    fn sizes() -> (
+        HashMap<String, u64>,
+        HashMap<String, u64>,
+        HashMap<String, u64>,
+    ) {
+        let map = |pairs: [(&str, u64); 4]| -> HashMap<String, u64> {
+            pairs
+                .into_iter()
+                .map(|(name, bytes)| (name.to_owned(), bytes))
+                .collect()
+        };
+        (
+            map([
+                ("bash", 9_000_000),
+                ("curl", 1_200_000),
+                ("linux", 500_000_000),
+                ("vim", 2_200_000),
+            ]),
+            map([
+                ("bash", 9_100_000),
+                ("curl", 1_300_000),
+                ("linux", 510_000_000),
+                ("vim", 1_800_000),
+            ]),
+            map([
+                ("bash", 2_000_000),
+                ("curl", 300_000),
+                ("linux", 150_000_000),
+                ("vim", 1_700_000),
+            ]),
+        )
+    }
+
+    fn model_with_sizes(updates: Vec<UpdateEntry>) -> PackageModelRust {
+        let (installed_sizes, repo_installed, repo_download) = sizes();
+        let mut model = PackageModelRust::default();
+        model.set_sizes(installed_sizes, repo_installed, repo_download);
+        install_records(&mut model, &installed(), records(), updates, Vec::new());
+        model
+    }
+
+    fn string_of(variant: QVariant) -> Option<String> {
+        variant.value::<QString>().map(|text| text.to_string())
+    }
+
+    fn bytes_of(variant: QVariant) -> Option<u64> {
+        variant.value::<u64>()
+    }
+
+    /// The six size roles of the row called `name`.
+    fn size_roles(model: &PackageModelRust, name: &str) -> [QVariant; 6] {
+        let row = model
+            .rows
+            .iter()
+            .find(|row| model.name_of(row) == name)
+            .unwrap_or_else(|| panic!("{name} is not visible"));
+        let view = model.row_view(row);
+        [
+            role_value(role::SIZE, &view),
+            role_value(role::SIZE_BYTES, &view),
+            role_value(role::UPDATE_SIZE, &view),
+            role_value(role::UPDATE_SIZE_BYTES, &view),
+            role_value(role::DOWNLOAD, &view),
+            role_value(role::DOWNLOAD_BYTES, &view),
+        ]
+    }
+
+    #[test]
+    fn an_installed_row_shows_the_installed_size() {
+        let model = model_with_sizes(Vec::new());
+        let [
+            size,
+            size_bytes,
+            update,
+            update_bytes,
+            download,
+            download_bytes,
+        ] = size_roles(&model, "vim");
+        assert_eq!(string_of(size).as_deref(), Some("2.1 MiB"));
+        assert_eq!(bytes_of(size_bytes), Some(2_200_000));
+        assert_eq!(string_of(update), None, "no update, no new size");
+        assert_eq!(bytes_of(update_bytes), None);
+        assert_eq!(
+            string_of(download).as_deref(),
+            Some("1.6 MiB"),
+            "the repository archive size is what a queued install would fetch"
+        );
+        assert_eq!(bytes_of(download_bytes), Some(1_700_000));
+    }
+
+    #[test]
+    fn an_update_row_shows_the_new_size_and_the_exact_download() {
+        // The exact sizes the dry run reported win over the rounded repository
+        // metadata: the index only printed a humanised value.
+        let mut update = update("linux-6.19.0_1");
+        update.installed_size = 600_000_000;
+        update.download_size = 160_000_000;
+        let model = model_with_sizes(vec![update]);
+        let [
+            size,
+            size_bytes,
+            update_size,
+            update_bytes,
+            download,
+            download_bytes,
+        ] = size_roles(&model, "linux");
+        assert_eq!(
+            string_of(size).as_deref(),
+            Some("476.8 MiB"),
+            "the version the user has keeps its installed size"
+        );
+        assert_eq!(bytes_of(size_bytes), Some(500_000_000));
+        assert_eq!(
+            string_of(update_size).as_deref(),
+            Some("572.2 MiB"),
+            "the new version's unpacked size"
+        );
+        assert_eq!(bytes_of(update_bytes), Some(600_000_000));
+        assert_eq!(string_of(download).as_deref(), Some("152.6 MiB"));
+        assert_eq!(bytes_of(download_bytes), Some(160_000_000));
+    }
+
+    #[test]
+    fn a_row_without_a_size_reports_nothing_rather_than_zero() {
+        let (installed_sizes, repo_installed, repo_download) = sizes();
+        let mut model = PackageModelRust::default();
+        // The maps arrive with `curl` missing from all three takes: the row is
+        // still there, its sizes are simply unknown.
+        let without = |map: HashMap<String, u64>| {
+            map.into_iter()
+                .filter(|(name, _)| name != "curl")
+                .collect::<HashMap<_, _>>()
+        };
+        model.set_sizes(
+            without(installed_sizes),
+            without(repo_installed),
+            without(repo_download),
+        );
+        install_records(&mut model, &installed(), records(), Vec::new(), Vec::new());
+
+        let [
+            size,
+            size_bytes,
+            _update,
+            _update_bytes,
+            download,
+            download_bytes,
+        ] = size_roles(&model, "curl");
+        assert_eq!(string_of(size), None, "no size is not zero bytes");
+        assert_eq!(bytes_of(size_bytes), None);
+        assert_eq!(string_of(download), None);
+        assert_eq!(bytes_of(download_bytes), None);
+    }
+
+    #[test]
+    fn sorting_by_size_orders_the_whole_list_before_the_filter() {
+        let mut model = model_with_sizes(Vec::new());
+        set_filter(&mut model, "all");
+        model.set_sort("size", false);
+        assert_eq!(
+            model.visible_names(),
+            vec!["curl", "vim", "bash", "linux"],
+            "ascending by installed bytes"
+        );
+
+        model.set_sort("size", true);
+        assert_eq!(
+            model.visible_names(),
+            vec!["linux", "bash", "vim", "curl"],
+            "descending by installed bytes"
+        );
+
+        // The order belongs to the whole snapshot: a search keeps the relative
+        // order of the rows it keeps. "i" matches every fixture row (bash and
+        // curl through their descriptions); descending by size that is
+        // linux, bash, vim, curl.
+        model.search = QString::from("i");
+        model.rebuild();
+        assert_eq!(model.visible_names(), vec!["linux", "bash", "vim", "curl"]);
+
+        model.set_sort("name", false);
+        assert_eq!(model.visible_names(), vec!["bash", "curl", "linux", "vim"]);
+        model.set_sort("name", true);
+        assert_eq!(
+            model.visible_names(),
+            vec!["vim", "linux", "curl", "bash"],
+            "the name order reverses too"
+        );
+    }
+
+    #[test]
+    fn sorting_by_size_before_filtering_is_not_a_visible_rows_sort() {
+        // `ark` (5 MB) sorts last by name among the visible rows, and a
+        // visible-only sort that ran after filtering would have left it there.
+        // The full-list ascending sort puts it between curl (1.2 MB) and vim
+        // (2.2 MB). The query keeps ark and vim, whose relative order is the
+        // full-list one: vim after ark.
+        let (mut installed_sizes, repo_installed, repo_download) = sizes();
+        installed_sizes.insert("ark".to_owned(), 5_000_000);
+        let mut model = PackageModelRust::default();
+        model.set_sizes(installed_sizes, repo_installed, repo_download);
+        let with_ark: InstalledMap = installed()
+            .into_iter()
+            .chain([("ark".to_owned(), inst("25.08.0_1", true, false))])
+            .collect();
+        let mut records = records();
+        records.push(record("ark-25.08.0_1", "Archives"));
+        install_records(&mut model, &with_ark, records, Vec::new(), Vec::new());
+        set_filter(&mut model, "all");
+
+        model.set_sort("size", false);
+        assert_eq!(
+            model.visible_names(),
+            vec!["curl", "vim", "ark", "bash", "linux"],
+            "the whole snapshot is ordered by size"
+        );
+
+        model.search = QString::from("ar");
+        model.rebuild();
+        assert_eq!(
+            model.visible_names(),
+            vec!["ark"],
+            "a filter keeps the full-list order of the rows it kept"
+        );
+    }
+
+    #[test]
+    fn a_row_without_a_size_sorts_last_in_both_directions() {
+        let (installed_sizes, repo_installed, repo_download) = sizes();
+        let mut model = PackageModelRust::default();
+        model.set_sizes(
+            installed_sizes
+                .into_iter()
+                .filter(|(name, _)| name != "bash")
+                .collect(),
+            repo_installed,
+            repo_download,
+        );
+        install_records(&mut model, &installed(), records(), Vec::new(), Vec::new());
+        set_filter(&mut model, "all");
+
+        model.set_sort("size", false);
+        assert_eq!(
+            model.visible_names(),
+            vec!["curl", "vim", "linux", "bash"],
+            "an unknown size is last when ascending"
+        );
+        model.set_sort("size", true);
+        assert_eq!(
+            model.visible_names(),
+            vec!["linux", "vim", "curl", "bash"],
+            "and still last when descending"
+        );
     }
 }
