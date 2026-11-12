@@ -141,7 +141,8 @@ Item {
                 text: i18nd("khaxbps", "Update all")
                 icon.name: "system-software-update"
                 highlighted: true
-                enabled: (view.job === null || view.job.done) && view.packages.count > 0
+                enabled: view.installedBackend.updatesCount > 0
+                         && (view.job === null || view.job.done)
                 onClicked: view.updateAllRequested()
             }
         }

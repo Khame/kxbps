@@ -40,6 +40,9 @@ Kirigami.ApplicationWindow {
     // next one.
     property var job: null
     property bool showJobResult: false
+    // `stateRevision` when the reset dialog opened. Restore advances it; Cancel
+    // does not, so the two can be told apart when the dialog closes.
+    property int revisionBeforeReset: -1
 
     readonly property string jobLabel: {
         if (job === null) {
@@ -225,6 +228,14 @@ Kirigami.ApplicationWindow {
     ResetDialog {
         id: resetDialog
         installedBackend: installedBackend
+        onOpened: root.revisionBeforeReset = installedBackend.stateRevision
+        // Restore rewrites the whole store, so the last transaction's result no
+        // longer describes it. Cancel leaves the revision untouched.
+        onClosed: {
+            if (installedBackend.stateRevision !== root.revisionBeforeReset) {
+                root.showJobResult = false
+            }
+        }
     }
 
     AboutDialog {

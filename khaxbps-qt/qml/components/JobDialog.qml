@@ -73,6 +73,9 @@ Kirigami.Dialog {
             onTriggered: if (dialog.job !== null) dialog.job.cancel()
         }
 
+        // Closing hides the dialog but does not release the job: Main keeps it
+        // so the status strip and the log drawer stay readable, and the next
+        // `showJob` releases it when the next transaction starts.
         Kirigami.Action {
             id: closeAction
             text: i18nd("khaxbps", "Close")
