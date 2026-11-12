@@ -163,6 +163,12 @@ pub mod qobject {
         #[qinvokable]
         fn reset(self: Pin<&mut InstalledBackend>);
 
+        /// Whether the installed set holds `name`. A view that needs one
+        /// package's state reads the list it already shows, rather than asking
+        /// xbps for the package.
+        #[qinvokable]
+        fn is_installed(self: &InstalledBackend, name: &QString) -> bool;
+
         #[qinvokable]
         fn release(self: &InstalledBackend, object: QObjectMutPtr);
 
@@ -409,6 +415,10 @@ impl qobject::InstalledBackend {
         };
         let json = serde_json::to_string(&payload).unwrap_or_else(|_| String::from("{}"));
         qobject::start_job(self.parent_ptr(), &QString::from(json.as_str()))
+    }
+
+    fn is_installed(&self, name: &cxx_qt_lib::QString) -> bool {
+        self.store.installed.contains_key(&name.to_string())
     }
 
     fn reset(mut self: Pin<&mut Self>) {

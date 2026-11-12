@@ -1,10 +1,12 @@
-// Everything the catalog knows about one package, with the two actions that
-// make sense from a list: queue a change and hold the package.
+// Everything xbps reports about one package, with the two actions that make
+// sense from a list: queue a change and hold the package.
 //
-// The pane reads `catalogBackend.get(name)` instead of the model row, because
-// QML cannot index a `QAbstractItemModel` by row number. Reverse dependencies
-// are not exposed by any backend, so they are computed here from the catalog
-// listing the window read once at startup (115 entries: a linear scan).
+// The pane reads `catalogBackend.get(pkgver)` instead of the model row, because
+// QML cannot index a `QAbstractItemModel` by row number. The facts come from
+// xbps itself: the owner calls `requestFacts(pkgver)` when the selection moves,
+// and `factsRevision` says when the answer can be read. Both the dependencies
+// and the reverse dependencies are xbps' own lists (`-x` and `-X`), so nothing
+// here scans another list to guess them.
 //
 // Two placements, one file: a side pane on wide views, a drawer on narrow ones
 // (see `PackagesView`).
@@ -24,21 +26,45 @@ Flickable {
 
     property var catalogBackend
     property var installedBackend
-    property var catalogIndex: []
+    // The selected package as `name-version_revision`; empty closes the pane.
     property string packageName: ""
 
     // Bumped when the store changes, so `info` re-reads the snapshot: the
     // backend hands out a copy and has no notify signal for `get()`.
     property int refreshToken: 0
     property var blockedNames: []
+    // The selection the blocked names belong to, so re-reading a fact does not
+    // rebuild the plan.
+    property string blockedPkgver: ""
 
     readonly property var info: {
         pane.refreshToken
-        return pane.packageName.length > 0 ? pane.catalogBackend.get(pane.packageName) : ({})
+        pane.catalogBackend.factsRevision
+        if (pane.packageName.length === 0) {
+            return ({})
+        }
+        if (pane.catalogBackend.factsPkgver !== pane.packageName) {
+            // The selection moved on: the previous facts are not this package.
+            return ({})
+        }
+        return pane.catalogBackend.get(pane.packageName)
     }
-    readonly property bool installed: pane.info.installedVersion !== undefined && pane.info.installedVersion.length > 0
-    readonly property var dependents: pane.packageName.length > 0 ? pane.requiredBy(pane.packageName) : []
+    readonly property bool installed: pane.info.installed === true
+    readonly property var dependents: pane.info.requiredBy !== undefined && pane.info.requiredBy.length > 0
+                                     ? pane.info.requiredBy.split(", ") : []
     readonly property bool orphan: pane.installed && !pane.info.explicit && pane.dependents.length === 0
+
+    // The version, even before the facts arrive: the pkgver carries it.
+    readonly property string version: pane.catalogBackend.versionOf(pane.packageName)
+    readonly property string name: pane.info.name !== undefined
+                                  ? pane.info.name
+                                  : pane.packageName.split("-")[0]
+    // The facts failed to load: say so rather than showing blanks.
+    // The half of the read that mirrors `packageName`, so a check that needs
+    // `info` waits for the facts instead of reading a map for another package.
+    readonly property string factsPkgver: pane.catalogBackend.factsPkgver
+    readonly property string errorKey: pane.catalogBackend.factsError
+    readonly property var errorArgs: pane.catalogBackend.factsErrorArgs
 
     clip: true
     contentWidth: width
@@ -46,8 +72,22 @@ Flickable {
     boundsBehavior: Flickable.StopAtBounds
     QQC2.ScrollBar.vertical: QQC2.ScrollBar {}
 
-    onPackageNameChanged: pane.refreshBlocked()
+    onPackageNameChanged: {
+        pane.blockedNames = []
+        pane.blockedPkgver = ""
+        if (pane.packageName.length > 0 && pane.catalogBackend) {
+            pane.catalogBackend.requestFacts(pane.packageName)
+        }
+        pane.refreshBlocked()
+    }
     onRefreshTokenChanged: pane.refreshBlocked()
+
+    Connections {
+        target: pane.catalogBackend
+        function onFactsRevisionChanged() {
+            pane.refreshBlocked()
+        }
+    }
 
     Connections {
         target: pane.installedBackend
@@ -58,23 +98,24 @@ Flickable {
         }
     }
 
-    function dependsOf(pkg) {
-        return pkg.depends.length > 0 ? pkg.depends.split(", ") : []
-    }
-
-    // Installed packages whose `depends` names this one.
-    function requiredBy(name) {
-        const out = []
-        for (let i = 0; i < pane.catalogIndex.length; ++i) {
-            const pkg = pane.catalogIndex[i]
-            if (pkg.installedVersion === "") {
-                continue
-            }
-            if (pane.dependsOf(pkg).indexOf(name) >= 0) {
-                out.push(pkg.name)
-            }
+    // The one sentence for failed facts, chosen by the key the backend sent.
+    function errorText(key, args) {
+        const a = args.length > 0 ? args[0] : ""
+        const b = args.length > 1 ? args[1] : ""
+        const c = args.length > 2 ? args[2] : ""
+        switch (key) {
+        case "errorXbpsStart":
+            return i18nd("kxbps", "Could not run %1: %2", a, b)
+        case "errorXbpsTimeout":
+            return i18nd("kxbps", "%1 did not answer within %2 seconds.", a, b)
+        case "errorXbpsExit":
+            return i18nd("kxbps", "%1 failed with exit code %2: %3", a, b, c)
+        case "errorXbpsOutput":
+            return i18nd("kxbps", "%1 printed a line this version does not understand (line %2): %3", a, b, c)
+        case "errorXbpsEmpty":
+            return i18nd("kxbps", "%1 printed nothing.", a)
         }
-        return out
+        return i18nd("kxbps", "Could not read the package: %1", a)
     }
 
     // A queued removal that would break the system: the plan lists the
@@ -82,33 +123,39 @@ Flickable {
     // reference has to be released as soon as the names are copied out.
     function refreshBlocked() {
         pane.blockedNames = []
-        if (!pane.installedBackend || pane.packageName.length === 0) {
+        if (!pane.installedBackend || pane.packageName.length === 0 || !pane.installed) {
             return
         }
-        // A fresh read, not `info`: a handler runs before the `info` binding is
-        // re-evaluated, so reading it here would see the previous queue state.
-        const info = pane.catalogBackend.get(pane.packageName)
-        if (info.queuedAction !== "remove") {
+        if (pane.factsPkgver !== pane.packageName || pane.info.queuedAction !== "remove") {
             return
         }
-        const plan = pane.installedBackend.openRemove(pane.packageName, false)
-        if (!plan) {
+        pane.readBlocked()
+    }
+
+    // Reads the plan for the current selection; the caller guarantees that the
+    // selection is installed, its facts answered and it is queued for removal.
+    function readBlocked() {
+        if (pane.blockedPkgver === pane.packageName) {
             return
         }
-        const blocked = plan.blocked
-        for (let i = 0; i < blocked.length; ++i) {
-            if (blocked[i].name !== pane.packageName) {
-                continue
+        pane.blockedPkgver = pane.packageName
+        const names = []
+        const plan = pane.installedBackend.openRemove(pane.info.name, false)
+        if (plan) {
+            const blocked = plan.blocked
+            for (let i = 0; i < blocked.length; ++i) {
+                if (blocked[i].name !== pane.info.name) {
+                    continue
+                }
+                const neededBy = blocked[i].neededBy
+                for (let j = 0; j < neededBy.length; ++j) {
+                    names.push(neededBy[j])
+                }
+                break
             }
-            const names = []
-            const neededBy = blocked[i].neededBy
-            for (let j = 0; j < neededBy.length; ++j) {
-                names.push(neededBy[j])
-            }
-            pane.blockedNames = names
-            break
+            pane.installedBackend.release(plan)
         }
-        pane.installedBackend.release(plan)
+        pane.blockedNames = names
     }
 
     function queueLabel() {
@@ -143,7 +190,7 @@ Flickable {
         QQC2.Label {
             Layout.fillWidth: true
             Layout.minimumWidth: 0
-            text: pane.info.name !== undefined ? pane.info.name : ""
+            text: pane.name
             font.bold: true
             elide: Text.ElideRight
         }
@@ -155,6 +202,16 @@ Flickable {
             text: pane.info.short !== undefined ? pane.info.short : ""
             wrapMode: Text.WordWrap
             color: Kirigami.Theme.disabledTextColor
+        }
+
+        // A package xbps refused to describe: the sentence, not empty fields.
+        QQC2.Label {
+            Layout.fillWidth: true
+            Layout.minimumWidth: 0
+            visible: pane.errorKey.length > 0
+            text: visible ? pane.errorText(pane.errorKey, pane.errorArgs) : ""
+            color: Kirigami.Theme.negativeTextColor
+            wrapMode: Text.WordWrap
         }
 
         RowLayout {
@@ -169,9 +226,9 @@ Flickable {
                                             : (pane.installed ? "list-remove" : "list-add"))
                 onClicked: {
                     if (pane.info.queuedAction !== "") {
-                        pane.installedBackend.removeQueued(pane.packageName)
+                        pane.installedBackend.removeQueued(pane.name)
                     } else {
-                        pane.installedBackend.toggleQueue(pane.packageName, pane.queueToken())
+                        pane.installedBackend.toggleQueue(pane.name, pane.queueToken())
                     }
                 }
             }
@@ -180,7 +237,7 @@ Flickable {
                 visible: pane.installed
                 text: pane.info.held ? i18nd("kxbps", "Unhold") : i18nd("kxbps", "Hold")
                 icon.name: pane.info.held ? "object-unlocked" : "object-locked"
-                onClicked: pane.installedBackend.toggleHold(pane.packageName)
+                onClicked: pane.installedBackend.toggleHold(pane.name)
             }
 
             Item {
@@ -222,7 +279,7 @@ Flickable {
             QQC2.Label {
                 Layout.fillWidth: true
                 Layout.minimumWidth: 0
-                text: pane.info.version !== undefined ? pane.info.version : ""
+                text: pane.version
                 font.family: "monospace"
                 elide: Text.ElideRight
             }
@@ -343,9 +400,6 @@ Flickable {
             }
         }
 
-        // A Label rather than `Kirigami.LinkButton`: the longest homepage in
-        // the catalog is 75 characters, and a button clips its text instead of
-        // eliding it.
         QQC2.Label {
             Layout.fillWidth: true
             Layout.minimumWidth: 0

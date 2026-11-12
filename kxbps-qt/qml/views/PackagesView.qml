@@ -21,16 +21,16 @@ Item {
     property var packages
     property var installedBackend
     property var catalogBackend
-    property var catalogIndex: []
     // The current or last finished job: Update all must not start a second
     // transaction on top of a running one.
     property var job
 
     signal updateAllRequested()
 
-    // QML cannot index the model by row, so the selected package travels as its
-    // name and the details pane reads it back through `catalogBackend.get()`.
+    // The selected row, as the `name-version_revision` xbps prints: the details
+    // pane reads that one package's facts back through `catalogBackend.get()`.
     property string selectedName: ""
+    property string selectedPkgver: ""
 
     // Fixed column widths, shared by the header and the delegates. The actions
     // are an overlay on the row's right edge, so they do not get a column.
@@ -51,18 +51,42 @@ Item {
     // it; the default (64) and minimum (48) sit outside that band.
     readonly property bool wide: width >= Kirigami.Units.gridUnit * 46
 
-    // Derived from the catalog, not a hardcoded list: a category the catalog
-    // does not use is not a category this app may offer.
+    // The category role id, read from the model's own role names so the
+    // number never drifts from `ROLES`.
+    readonly property int categoryRole: {
+        const names = view.packages.roleNames()
+        for (const id in names) {
+            if (names[id] === "category") {
+                return Number(id)
+            }
+        }
+        return -1
+    }
+
+    // The rows the list shows, not a second catalog read: a category counts
+    // when a visible package has it.
     readonly property var categories: {
         const seen = []
-        for (let i = 0; i < catalogIndex.length; ++i) {
-            const category = catalogIndex[i].category
-            if (category.length > 0 && seen.indexOf(category) < 0) {
+        const role = view.categoryRole
+        if (role < 0) {
+            return seen
+        }
+        for (let i = 0; i < view.packages.rowCount(); ++i) {
+            const category = view.packages.data(view.packages.index(i, 0, null), role)
+            if (category !== undefined && category.length > 0
+                    && seen.indexOf(category) < 0) {
                 seen.push(category)
             }
         }
         seen.sort()
         return seen
+    }
+
+    // The row as xbps names it: `installedVersion` is the version the system
+    // has, `version` the repository's.
+    function pkgverOf(pkg, name) {
+        const version = pkg.installedVersion !== "" ? pkg.installedVersion : pkg.version
+        return name + "-" + version
     }
 
     function emptyText() {
@@ -328,8 +352,10 @@ Item {
                         sizeWidth: view.sizeWidth
                         stateWidth: view.stateWidth
                         selected: view.selectedName === model.name
+                                  && view.selectedPkgver === view.pkgverOf(model, model.name)
                         onClicked: {
                             view.selectedName = model.name
+                            view.selectedPkgver = view.pkgverOf(model, model.name)
                             list.currentIndex = index
                             if (!view.wide) {
                                 detailsDrawer.open()
@@ -363,8 +389,8 @@ Item {
                 Layout.fillHeight: true
                 catalogBackend: view.catalogBackend
                 installedBackend: view.installedBackend
-                catalogIndex: view.catalogIndex
-                packageName: view.selectedName
+                // The installed version when there is one, the list's otherwise.
+                packageName: view.selectedPkgver
             }
         }
     }
@@ -385,15 +411,17 @@ Item {
         // window edge would sit on top of the log drawer.
         handleVisible: false
         width: Kirigami.Units.gridUnit * 26
-        onClosed: view.selectedName = ""
+        onClosed: {
+            view.selectedName = ""
+            view.selectedPkgver = ""
+        }
 
         DetailsPane {
             width: detailsDrawer.width
             height: detailsDrawer.height
             catalogBackend: view.catalogBackend
             installedBackend: view.installedBackend
-            catalogIndex: view.catalogIndex
-            packageName: view.selectedName
+            packageName: view.selectedPkgver
         }
     }
 }

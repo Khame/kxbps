@@ -16,7 +16,6 @@ Item {
     id: view
 
     property var mirrorBackend
-    property var catalogBackend
     property var installedBackend
 
     readonly property real selectionWidth: Kirigami.Units.gridUnit * 2
@@ -25,17 +24,15 @@ Item {
     readonly property real stateWidth: Kirigami.Units.gridUnit * 12
 
     // A repository is enabled when its `void-repo-*` package is installed,
-    // which is exactly what `repos_from_installed` reads in the core. `get()`
-    // has no notify signal, so the counter is read to make the binding
-    // re-evaluate after a transaction.
+    // which is exactly what `repos_from_installed` reads in the core. The row
+    // is already in the installed list, so the check reads the list itself
+    // instead of asking xbps for one package per row.
     function repoEnabled(repoPackage) {
-        view.installedBackend.installedCount
         if (repoPackage.length === 0) {
             // `current` has no toggle package.
             return true
         }
-        const info = view.catalogBackend.get(repoPackage)
-        return info.installedVersion !== undefined && info.installedVersion.length > 0
+        return view.installedBackend.isInstalled(repoPackage)
     }
 
     QQC2.TabBar {

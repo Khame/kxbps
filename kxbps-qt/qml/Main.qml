@@ -27,13 +27,6 @@ Kirigami.ApplicationWindow {
     // their own.
     property string section: "packages"
 
-    // The whole catalog, read through the query façade because QML cannot index
-    // the package model by row. The details pane uses it for reverse
-    // dependencies and the query view narrows the argument-less modes with it.
-    // Refreshed after every store change: a map carries the installed and queue
-    // snapshot it was built from.
-    property var catalogIndex: []
-
     // The current or last finished job. It is kept until the next transaction
     // starts, so the status strip and the log drawer stay readable after the
     // JobDialog closes; the dialog releases the previous job when it takes the
@@ -91,10 +84,6 @@ Kirigami.ApplicationWindow {
         owner: installedBackend
     }
 
-    function refreshCatalogIndex() {
-        catalogIndex = catalogBackend.search("", "L", "")
-    }
-
     function selectFilter(token) {
         section = "packages"
         installedBackend.packages.filter = token
@@ -142,8 +131,9 @@ Kirigami.ApplicationWindow {
         const filter = installedBackend.packages.filter
         const count = installedBackend.packages.count
         if (filter === "installed" || filter === "updates" || filter === "all") {
-            return i18ndp("kxbps", "%1 package · %2 in repository",
-                          "%1 packages · %2 in repository", count, catalogIndex.length)
+            // The list is the installed set xbps reported; a repository count
+            // would need a second read this header does not make.
+            return i18ndp("kxbps", "%1 package", "%1 packages", count)
         }
         return i18ndp("kxbps", "%1 package", "%1 packages", count)
     }
@@ -185,10 +175,9 @@ Kirigami.ApplicationWindow {
             }
         }
         // One revision per store mutation, including the hold toggle the
-        // counters cannot see. The catalog snapshot carries installed and held
-        // flags, so it has to be re-read.
+        // counters cannot see. The query façade receives the same snapshot, so
+        // nothing else has to be refreshed here.
         function onStateRevisionChanged() {
-            root.refreshCatalogIndex()
         }
     }
 
@@ -242,7 +231,6 @@ Kirigami.ApplicationWindow {
         // catalog fills the first frame rather than an empty window.
         installedBackend.packages.filter = "installed"
         installedBackend.reload()
-        root.refreshCatalogIndex()
     }
 
     pageStack.initialPage: Kirigami.Page {
@@ -460,7 +448,6 @@ Kirigami.ApplicationWindow {
                         packages: installedBackend.packages
                         installedBackend: installedBackend
                         catalogBackend: catalogBackend
-                        catalogIndex: root.catalogIndex
                         job: root.job
                         onUpdateAllRequested: root.openSystemPlan()
                     }
@@ -468,12 +455,10 @@ Kirigami.ApplicationWindow {
                     QueryView {
                         id: queryView
                         catalogBackend: catalogBackend
-                        catalogIndex: root.catalogIndex
                     }
 
                     MirrorsView {
                         mirrorBackend: mirrorBackend
-                        catalogBackend: catalogBackend
                         installedBackend: installedBackend
                     }
                 }
