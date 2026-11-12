@@ -1,0 +1,5 @@
+14835 https://repo-de.voidlinux.org/current (RSA signed)
+    5 https://khame.github.io/void-packages/ (RSA signed)
+   21 https://repo-de.voidlinux.org/current/multilib/nonfree (RSA signed)
+ 5745 https://repo-de.voidlinux.org/current/multilib (RSA signed)
+   67 https://repo-de.voidlinux.org/current/nonfree (RSA signed)

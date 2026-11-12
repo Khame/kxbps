@@ -1,0 +1,6 @@
+ii AppStream-1.1.2_1                         Tools and libraries to work with AppStream metadata
+ii AppStream-qt-1.1.2_1                      Tools and libraries to work with AppStream metadata - qt6 interface library
+ii CoinMP-1.8.4_2                            Library that supports most of Coin CLP, CBC and CGL
+ii linux6.18-headers-6.18.62_1               Linux kernel and modules (6.18 series) - source headers for 3rd party modules
+ii python3-3.14.8_1                          Python programming language (3.14 series)
+ii python3-Jinja2-3.1.6_2                    Fast and expressive template engine

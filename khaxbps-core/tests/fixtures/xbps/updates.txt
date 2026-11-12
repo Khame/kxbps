@@ -1,0 +1,7 @@
+chromium-157.0.8103.50_1 update x86_64 https://repo-de.voidlinux.org/current 426243959 153176879
+git-2.56.1_1 update x86_64 https://repo-de.voidlinux.org/current 51838534 10613258
+linux6.18-6.18.63_1 update x86_64 https://repo-de.voidlinux.org/current 188948935 182720662
+linux6.18-headers-6.18.63_1 update x86_64 https://repo-de.voidlinux.org/current 64047915 13809344
+linux7.3-7.3.4_1 update x86_64 https://repo-de.voidlinux.org/current 181320739 174933274
+linux7.3-headers-7.3.4_1 update x86_64 https://repo-de.voidlinux.org/current 68236874 14589995
+plasma-desktop-6.7.5_3 update x86_64 https://repo-de.voidlinux.org/current 43512092 20149245

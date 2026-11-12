@@ -10,6 +10,7 @@ pub mod mirrors;
 pub mod probe;
 pub mod store;
 pub mod types;
+pub mod xbps;
 
 pub use catalog::{Catalog, CatalogError, SECURITY_UPDATES, is_security_update, repo_enabled};
 pub use engine::{
@@ -24,4 +25,8 @@ pub use types::{
     Blocked, Category, DialogState, Inst, InstalledMap, Job, ListFilter, Pkg, PlanAction, PlanItem,
     PlanReason, Prefs, ProbeState, QueryMode, QueueAction, QueueItem, RepoId, Repos, UpdateInfo,
     ViewId,
+};
+pub use xbps::{
+    InstallState, InstalledPackage, RepoEntry, SearchHit, UpdateEntry, XbpsAction, XbpsError,
+    parse_installed, parse_property, parse_repos, parse_search, parse_updates, split_pkgver,
 };

@@ -21,6 +21,7 @@ pub mod package_model;
 pub mod plan_backend;
 pub mod prefs_backend;
 pub mod queue_model;
+pub mod xbps_runner;
 
 #[cxx_qt::bridge]
 pub mod qobject {

@@ -1,0 +1,8 @@
+[-] apvlv-0.5.0_1               Vim-like PDF/DJVU/TXT viewer
+[-] bob-4.1.7_1                 Version manager for neovim
+[-] felix-2.16.1_1              TUI file manager with vim-like key mapping
+[-] gvim-9.2.1031_1             Vim editor (vi clone) - GTK+ GUI
+[-] gvim-huge-9.2.1031_1        Vim editor (vi clone) - GTK+ GUI - Huge (all features enabled)
+[-] iamb-0.13.1_1               Matrix client for Vim addicts
+[-] kakoune-2026.05.21_1        Selection-based vim-like editor with less keystrokes
+[-] neovide-0.16.2_1            No Nonsense Neovim Client in Rust
