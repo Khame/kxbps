@@ -14,11 +14,11 @@
 use crate::xbps_runner::{READ_TIMEOUT_MS, XPBS_INSTALL, XPBS_REMOVE, argv};
 use crate::xbps_snapshot::{Invoke, SnapshotError};
 use kxbps_core::{
-    Catalog, DryRun, InstalledMap, Plan, PlanRequest, QueueItem, Repos, XbpsError,
-    is_already_installed, is_not_installed, missing_package, parse_breakers, parse_updates,
+    DryRun, InstalledMap, Plan, PlanRequest, QueueItem, XbpsError, is_already_installed,
+    is_not_installed, missing_package, parse_breakers, parse_updates,
 };
 
-use crate::plan_backend::{PlanPayload, keys as plan_keys, repo_key};
+use crate::plan_backend::{PlanPayload, keys as plan_keys};
 
 /// Why a plan could not be produced: the i18n key plus its `%1…` arguments.
 ///
@@ -28,16 +28,6 @@ use crate::plan_backend::{PlanPayload, keys as plan_keys, repo_key};
 pub enum PlanError {
     /// The package is not in any repository (`%1` = name).
     UnknownPackage(String),
-    /// The package only exists in a repository the user left disabled
-    /// (`%1` = name, `%2` = repo key).
-    RepoDisabled { package: String, repo: String },
-    /// A dependency only exists in a disabled repository (`%1` = name,
-    /// `%2` = dependency, `%3` = repo key).
-    DependencyRepoDisabled {
-        package: String,
-        dependency: String,
-        repo: String,
-    },
     /// An update was requested for a package that is not installed (`%1` =
     /// joined names).
     NotInstalled(Vec<String>),
@@ -51,8 +41,6 @@ impl PlanError {
     pub fn key(&self) -> &'static str {
         match self {
             Self::UnknownPackage(_) => plan_keys::ERROR_UNKNOWN_PACKAGE,
-            Self::RepoDisabled { .. } => plan_keys::ERROR_REPO_DISABLED,
-            Self::DependencyRepoDisabled { .. } => plan_keys::ERROR_DEPENDENCY_REPO_DISABLED,
             Self::NotInstalled(_) => plan_keys::ERROR_NOT_INSTALLED,
             Self::Xbps(err) => err.key(),
         }
@@ -62,12 +50,6 @@ impl PlanError {
     pub fn args(&self) -> Vec<String> {
         match self {
             Self::UnknownPackage(name) => vec![name.clone()],
-            Self::RepoDisabled { package, repo } => vec![package.clone(), repo.clone()],
-            Self::DependencyRepoDisabled {
-                package,
-                dependency,
-                repo,
-            } => vec![package.clone(), dependency.clone(), repo.clone()],
             Self::NotInstalled(names) => vec![names.join(", ")],
             Self::Xbps(err) => err.args(),
         }
@@ -258,8 +240,6 @@ fn parse_table(program: String, stdout: &str) -> Result<Vec<kxbps_core::UpdateEn
 /// like the dialog refuses to apply anything it may not.
 pub fn queue_payload(
     installed: &InstalledMap,
-    repos: &Repos,
-    catalog: &Catalog,
     queue: &[QueueItem],
     invoke: &Invoke,
 ) -> PlanPayload {
@@ -269,15 +249,14 @@ pub fn queue_payload(
     let (install, remove) = queue_requests(queue);
     let mut items = Vec::new();
     if !install.names.is_empty() {
-        let install = match precheck(&install, repos, catalog) {
-            Ok(request) => match dry_run(&request, installed, invoke) {
-                Ok(outcome) => outcome,
-                Err(err) => return PlanPayload::from_error(&err),
-            },
+        let install = precheck(&install);
+        match dry_run(&install, installed, invoke) {
+            Ok(outcome) => {
+                if !outcome.empty {
+                    items.extend(outcome.items);
+                }
+            }
             Err(err) => return PlanPayload::from_error(&err),
-        };
-        if !install.empty {
-            items.extend(install.items);
         }
     }
     if !remove.names.is_empty() {
@@ -325,17 +304,11 @@ pub fn system_payload(installed: &InstalledMap, invoke: &Invoke) -> PlanPayload 
 /// Plan payload for "install exactly these packages".
 pub fn named_payload(
     installed: &InstalledMap,
-    repos: &Repos,
-    catalog: &Catalog,
     names: &[String],
     title_key: &str,
     invoke: &Invoke,
 ) -> PlanPayload {
-    let request = PlanRequest::install(names.to_vec());
-    let request = match precheck(&request, repos, catalog) {
-        Ok(request) => request,
-        Err(err) => return PlanPayload::from_error(&err),
-    };
+    let request = precheck(&PlanRequest::install(names.to_vec()));
     match dry_run(&request, installed, invoke) {
         Ok(outcome) if outcome.empty => PlanPayload::notice(plan_keys::NOTICE_EMPTY_INSTALL),
         Ok(outcome) => {
@@ -373,37 +346,16 @@ pub fn remove_payload(
     }
 }
 
-/// The repository checks that run before the dry run.
+/// Keeps the first mention of each name and its position.
 ///
-/// xbps only knows its own configuration. A package that exists solely in a
-/// repository the user switched off would fail as "not found", so the catalog
-/// answers first and the dry run is what decides everything else.
-fn precheck(
-    request: &PlanRequest,
-    repos: &Repos,
-    catalog: &Catalog,
-) -> Result<PlanRequest, PlanError> {
+/// A queue may hold the same package twice without the two entries being
+/// adjacent; xbps is idempotent about it, but asking once keeps the argv and
+/// the plan free of duplicates.
+fn precheck(request: &PlanRequest) -> PlanRequest {
     let mut request = request.clone();
-    for name in &request.names {
-        if let Some(repo) = catalog.disabled_repo_of(name, repos) {
-            return Err(PlanError::RepoDisabled {
-                package: name.clone(),
-                repo: repo_key(repo).to_owned(),
-            });
-        }
-        if let Some((dependency, repo)) = catalog.disabled_dependency_of(name, repos) {
-            return Err(PlanError::DependencyRepoDisabled {
-                package: name.clone(),
-                dependency,
-                repo: repo_key(repo).to_owned(),
-            });
-        }
-    }
-    // Keep the first mention of each name and its position; a queue may hold
-    // the same package twice without the two entries being adjacent.
     let mut seen = std::collections::HashSet::new();
     request.names.retain(|name| seen.insert(name.clone()));
-    Ok(request)
+    request
 }
 
 #[cfg(test)]

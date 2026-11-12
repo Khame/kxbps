@@ -45,13 +45,13 @@ Kirigami.Dialog {
         QQC2.Label {
             Layout.fillWidth: true
             Layout.topMargin: Kirigami.Units.smallSpacing
-            text: i18nd("kxbps", "A package manager for Void Linux, backed by xbps.")
+            text: i18nd("kxbps", "A graphical front end for xbps, the Void Linux package manager.")
             wrapMode: Text.WordWrap
         }
 
         QQC2.Label {
             Layout.fillWidth: true
-            text: i18nd("kxbps", "The package image is local; no xbps calls are made on your system.")
+            text: i18nd("kxbps", "It runs xbps and shows exactly what xbps reports.")
             color: Kirigami.Theme.disabledTextColor
             wrapMode: Text.WordWrap
         }

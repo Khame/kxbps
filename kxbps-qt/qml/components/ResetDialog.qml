@@ -1,12 +1,14 @@
-// The destructive confirmation for "Restore base image".
+// The destructive confirmation for "Forget the local settings".
 //
-// Restoring is not a transaction: it rewrites the store in place, so there is
-// no plan to review and no job to watch. The warning is carried by the label in
-// the negative text colour; the buttons themselves stay the standard style.
+// It is not a transaction: it rewrites the store in place, so there is no plan
+// to review and no job to watch. Nothing installed on the system is touched —
+// only the queue, the mirror and the preferences are forgotten. The warning is
+// carried by the label in the negative text colour; the buttons themselves stay
+// the standard style.
 //
 // `restored()` is the only way out that touches the store. `Main.qml` listens to
 // it to drop the last transaction's result, because that result no longer
-// describes the store after a restore. Cancel emits nothing, so a cancel never
+// describes the store after a reset. Cancel emits nothing, so a cancel never
 // clears it — and it cannot be inferred from `stateRevision` either, since a
 // job finishing while the dialog is open advances that too.
 
@@ -21,10 +23,10 @@ Kirigami.Dialog {
 
     property var installedBackend
 
-    // Emitted after the store has been rewritten back to the seed image.
+    // Emitted after the store has been cleared.
     signal restored()
 
-    title: i18nd("kxbps", "Restore the base image?")
+    title: i18nd("kxbps", "Forget the local settings?")
     preferredWidth: Kirigami.Units.gridUnit * 40
     padding: Kirigami.Units.largeSpacing
 
@@ -47,19 +49,19 @@ Kirigami.Dialog {
 
         Kirigami.Action {
             id: restoreAction
-            text: i18nd("kxbps", "Restore")
+            text: i18nd("kxbps", "Forget")
             onTriggered: dialog.restore()
         }
 
         QQC2.Label {
             Layout.fillWidth: true
-            text: i18nd("kxbps", "The queue and the installed packages go back to the seed image.")
+            text: i18nd("kxbps", "The queue, the mirror and the preferences are forgotten.")
             wrapMode: Text.WordWrap
         }
 
         QQC2.Label {
             Layout.fillWidth: true
-            text: i18nd("kxbps", "This cannot be undone.")
+            text: i18nd("kxbps", "Installed packages are not changed.")
             color: Kirigami.Theme.negativeTextColor
             wrapMode: Text.WordWrap
         }

@@ -3,7 +3,6 @@
 //! This crate is free of any Qt dependency so it can be tested and reused
 //! without a QML/CXX-Qt bridge.
 
-pub mod catalog;
 pub mod engine;
 pub mod format;
 pub mod mirrors;
@@ -14,10 +13,9 @@ pub mod store;
 pub mod types;
 pub mod xbps;
 
-pub use catalog::{Catalog, CatalogError, SECURITY_UPDATES, is_security_update, repo_enabled};
 pub use engine::{
-    Plan, PlanTotals, apply_installed, check_blocked, effective_updates, held_updates,
-    held_updates_in, plan_totals, repos_from_installed, update_signature, update_signature_of,
+    Plan, PlanTotals, apply_installed, effective_updates, held_updates_in, plan_totals,
+    repos_from_installed, update_signature_of,
 };
 pub use format::{ByteUnit, action_key, byte_decimals, format_bytes, reason_key};
 pub use mirrors::{DEFAULT_MIRROR, MIRRORS, MirrorInfo, Region};
@@ -27,14 +25,13 @@ pub use plan::{
 };
 pub use probe::{PROBE_TIMEOUT, PROBE_TIMEOUT_MS, ProbeError, check_probe_url, measure};
 pub use request::{DryRun, PlanRequest, install_names, not_installed, remove_names};
-pub use store::{SEED_AT, Store, StoreError, data_dir, fresh_install, installed_map};
+pub use store::{Store, StoreError, data_dir, installed_map};
 pub use types::{
-    Blocked, Category, DialogState, Inst, InstalledMap, Job, ListFilter, Pkg, PlanAction, PlanItem,
-    PlanReason, Prefs, ProbeState, QueryMode, QueueAction, QueueItem, RepoId, Repos, UpdateInfo,
-    ViewId,
+    Blocked, DialogState, Inst, InstalledMap, Job, ListFilter, PlanAction, PlanItem, PlanReason,
+    Prefs, ProbeState, QueryMode, QueueAction, QueueItem, Repos, ViewId,
 };
 pub use xbps::{
-    InstallState, InstalledPackage, RepoEntry, SearchHit, UpdateEntry, XbpsAction, XbpsError,
-    parse_depends, parse_installed, parse_pkgver_list, parse_properties, parse_search,
+    InstallState, InstalledPackage, RepoEntry, SearchHit, SizeEntry, UpdateEntry, XbpsAction,
+    XbpsError, parse_depends, parse_installed, parse_pkgver_list, parse_properties, parse_search,
     parse_updates, split_pkgver,
 };

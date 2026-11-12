@@ -187,14 +187,7 @@ Kirigami.Dialog {
         }
         switch (plan.errorKey) {
         case "errorUnknownPackage":
-            return i18nd("kxbps", "The catalog does not know %1.", plan.errorArgs[0] || "")
-        case "errorRepoDisabled":
-            return i18nd("kxbps", "%1 lives in the disabled %2 repository.",
-                         plan.errorArgs[0] || "", plan.errorArgs[1] || "")
-        case "errorDependencyRepoDisabled":
-            return i18nd("kxbps", "%1 needs %2 from the disabled %3 repository.",
-                         plan.errorArgs[0] || "", plan.errorArgs[1] || "",
-                         plan.errorArgs[2] || "")
+            return i18nd("kxbps", "xbps does not know %1.", plan.errorArgs[0] || "")
         case "errorNotInstalled":
             return i18nd("kxbps", "Not installed: %1", plan.errorArgs[0] || "")
         case "errorXbpsStart":

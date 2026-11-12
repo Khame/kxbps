@@ -22,7 +22,7 @@ use cxx_qt::Threading;
 use cxx_qt::casting::Upcast;
 use cxx_qt_lib::{QObjectMutPtr, QString, QStringList};
 use kxbps_core::{
-    Catalog, InstalledMap, Plan, PlanItem, QueueAction, QueueItem, Repos, Store, effective_updates,
+    InstalledMap, Plan, PlanItem, QueueAction, QueueItem, Store, effective_updates,
     held_updates_in, not_installed, repos_from_installed, update_signature_of,
 };
 
@@ -51,7 +51,7 @@ pub mod qobject {
         include!("backend_shim.h");
 
         #[cxx_name = "kxbps_create_package_model"]
-        fn create_package_model(parent: QObjectMutPtr, catalog_json: &QString) -> QObjectMutPtr;
+        fn create_package_model(parent: QObjectMutPtr) -> QObjectMutPtr;
 
         #[cxx_name = "kxbps_create_queue_model"]
         fn create_queue_model(parent: QObjectMutPtr, queue_json: &QString) -> QObjectMutPtr;
@@ -240,7 +240,6 @@ pub mod qobject {
 
 /// Rust side of [`qobject::InstalledBackend`].
 pub struct InstalledBackendRust {
-    catalog: Arc<Catalog>,
     store: Store,
     /// Child model created by [`cxx_qt::Initialize::initialize`]; Qt owns it.
     packages: QObjectMutPtr,
@@ -273,11 +272,10 @@ pub struct InstalledBackendRust {
 
 impl Default for InstalledBackendRust {
     /// Only used before `initialize` runs; the models stay null until then and
-    /// the store is the empty seed image.
+    /// the store is empty.
     fn default() -> Self {
         Self {
-            catalog: Arc::default(),
-            store: Store::fresh(&Catalog::default()),
+            store: Store::fresh(),
             packages: unsafe { QObjectMutPtr::from_raw(std::ptr::null_mut()) },
             queue_model: unsafe { QObjectMutPtr::from_raw(std::ptr::null_mut()) },
             query_backend: unsafe { QObjectMutPtr::from_raw(std::ptr::null_mut()) },
@@ -299,19 +297,17 @@ impl Default for InstalledBackendRust {
 }
 
 impl cxx_qt::Initialize for qobject::InstalledBackend {
-    /// Loads the catalog, then the store, then creates both child models.
+    /// Loads the store, then creates both child models.
     ///
-    /// A store that cannot be loaded is not fatal: the seed image stays in
+    /// A store that cannot be loaded is not fatal: an empty store stays in
     /// memory and `error` carries a technical reason for QML to wrap in a
-    /// translated sentence. The installed set itself is not the store's: the
-    /// window opens with whatever the store last saved, and the first read of
-    /// xbps replaces it a moment later (see [`qobject::InstalledBackend::reload`]).
+    /// translated sentence. The installed set is not the store's: the window
+    /// opens empty and the first read of xbps fills it a moment later (see
+    /// [`qobject::InstalledBackend::reload`]).
     fn initialize(mut self: Pin<&mut Self>) {
-        let json = crate::qobject::read_resource(&QString::from(crate::CATALOG_RESOURCE_PATH));
-        let (catalog, catalog_error, model_json) = crate::query_backend::load_catalog(&json);
-        let (store, store_error) = match Store::load(&catalog) {
+        let (store, store_error) = match Store::load() {
             Ok(store) => (store, String::new()),
-            Err(err) => (Store::fresh(&catalog), format!("{err}")),
+            Err(err) => (Store::fresh(), format!("{err}")),
         };
 
         let parent = unsafe {
@@ -321,18 +317,13 @@ impl cxx_qt::Initialize for qobject::InstalledBackend {
             )
         };
         let queue_json = json_of(&store.queue);
-        let packages = qobject::create_package_model(parent, &model_json);
+        let packages = qobject::create_package_model(parent);
         let queue_model = qobject::create_queue_model(parent, &queue_json);
 
         let queue_count = store.queue.len();
-        let error = if catalog_error.is_empty() {
-            store_error
-        } else {
-            catalog_error
-        };
+        let error = store_error;
 
         let data = Pin::get_mut(self.as_mut().rust_mut());
-        data.catalog = Arc::new(catalog);
         data.store = store;
         data.packages = packages;
         data.queue_model = queue_model;
@@ -441,8 +432,6 @@ impl qobject::InstalledBackend {
         let current = Arc::clone(&self.plan_generation);
         let invoke = Arc::clone(&self.invoke);
         let installed = self.store.installed.clone();
-        let repos = repos_from_installed(&installed);
-        let catalog = Arc::clone(&self.catalog);
         {
             let data = Pin::get_mut(self.as_mut().rust_mut());
             data.plan_loading = true;
@@ -451,7 +440,7 @@ impl qobject::InstalledBackend {
 
         let thread = self.qt_thread();
         std::thread::spawn(move || {
-            let payload = task.run(&installed, &repos, &catalog, &*invoke);
+            let payload = task.run(&installed, &*invoke);
             let meta = PlanMeta { request };
             thread
                 .queue(move |backend| backend.finish_plan(request, &current, meta, payload))
@@ -524,8 +513,8 @@ impl qobject::InstalledBackend {
         }
         save_store(self.as_mut());
         refresh(self.as_mut());
-        // The store is back to the seed image, which is not the system: read
-        // it again so the window shows what is installed rather than a demo.
+        // Reset drops the cached system state, which is not the system: read
+        // it again so the window shows what is installed rather than nothing.
         self.as_mut().reload();
     }
 
@@ -752,7 +741,7 @@ impl qobject::InstalledBackend {
 /// What one `open*` asks the worker to plan, and how it becomes a payload.
 ///
 /// The variants carry exactly what the dry runs need; the installed set, the
-/// enabled repositories and the catalog are copied at spawn time, so a plan
+/// installed set and the enabled repositories are copied at spawn time, so a plan
 /// always describes the system the queue was built against.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum PlanTask {
@@ -797,19 +786,15 @@ impl PlanTask {
     pub fn run(
         &self,
         installed: &InstalledMap,
-        repos: &Repos,
-        catalog: &Catalog,
         invoke: &crate::xbps_snapshot::Invoke,
     ) -> PlanPayload {
         match self {
             Self::System => xbps_plan::system_payload(installed, invoke),
-            Self::Named { names, title_key } => {
-                named_payload(installed, repos, catalog, names, title_key, invoke)
-            }
+            Self::Named { names, title_key } => named_payload(installed, names, title_key, invoke),
             Self::Remove { names, cascade } => {
                 xbps_plan::remove_payload(installed, names, *cascade, invoke)
             }
-            Self::Queue(queue) => queue_payload(installed, repos, catalog, queue, invoke),
+            Self::Queue(queue) => queue_payload(installed, queue, invoke),
         }
     }
 }
@@ -830,8 +815,6 @@ pub struct PlanMeta {
 /// must not offer Apply for a transaction xbps refuses.
 pub fn queue_payload(
     installed: &InstalledMap,
-    repos: &Repos,
-    catalog: &Catalog,
     queue: &[QueueItem],
     invoke: &crate::xbps_snapshot::Invoke,
 ) -> PlanPayload {
@@ -842,7 +825,7 @@ pub fn queue_payload(
     if !missing.is_empty() {
         return PlanPayload::from_error(&xbps_plan::PlanError::NotInstalled(missing));
     }
-    let payload = xbps_plan::queue_payload(installed, repos, catalog, queue, invoke);
+    let payload = xbps_plan::queue_payload(installed, queue, invoke);
     let mut payload = payload;
     // The held note concerns the packages the queue actually updates; xbps
     // neither holds nor reports them, so it is added here.
@@ -880,13 +863,11 @@ pub fn queue_payload(
 /// Plan payload for "install exactly these packages".
 pub fn named_payload(
     installed: &InstalledMap,
-    repos: &Repos,
-    catalog: &Catalog,
     names: &[String],
     title_key: &str,
     invoke: &crate::xbps_snapshot::Invoke,
 ) -> PlanPayload {
-    xbps_plan::named_payload(installed, repos, catalog, names, title_key, invoke)
+    xbps_plan::named_payload(installed, names, title_key, invoke)
 }
 
 /// Held packages that the queue actually wants to update.
@@ -1117,17 +1098,32 @@ fn now_ms() -> i64 {
 mod tests {
     use super::*;
     use crate::xbps_plan::PlanError;
-    use kxbps_core::{PlanAction, PlanReason, SEED_AT, XbpsAction};
+    use kxbps_core::{Inst, PlanAction, PlanReason, XbpsAction};
     use std::sync::{Arc, Mutex};
 
-    fn catalog() -> Catalog {
-        Catalog::load_from_str(include_str!("../resources/catalog.json")).unwrap()
-    }
-
-    fn seed() -> (Catalog, InstalledMap) {
-        let catalog = catalog();
-        let store = Store::fresh(&catalog);
-        (catalog, store.installed)
+    /// A small installed set: the packages the plan tests talk about.
+    fn installed_set() -> InstalledMap {
+        [
+            ("acpid", "2.0.34_4"),
+            ("ark", "25.07.0_1"),
+            ("bash", "5.2_1"),
+            ("glibc", "2.41_1"),
+            ("mesa", "25.1_1"),
+            ("vim", "9.2.1031_1"),
+        ]
+        .into_iter()
+        .map(|(name, version)| {
+            (
+                name.to_owned(),
+                Inst {
+                    version: version.to_owned(),
+                    explicit: true,
+                    held: false,
+                    at: 7,
+                },
+            )
+        })
+        .collect()
     }
 
     fn queue(name: &str, action: QueueAction) -> Vec<QueueItem> {
@@ -1191,18 +1187,12 @@ mod tests {
     fn the_queue_plan_is_the_dependency_install_xbps_reported() {
         // `xbps-install -n ark` answers with the outdated dependency first,
         // then the package the user asked for; the dialog shows exactly that.
-        let (catalog, installed) = seed();
+        let installed = installed_set();
         let (invoke, seen) = one_answer(&ok_reply(
             "mesa-25.2_1 update x86_64 https://r/current 4194304 1468006\n\
              ark-25.08.0_1 install x86_64 https://r/current 2097152 524288\n",
         ));
-        let payload = queue_payload(
-            &installed,
-            &repos_from_installed(&installed),
-            &catalog,
-            &queue("ark", QueueAction::Install),
-            &*invoke,
-        );
+        let payload = queue_payload(&installed, &queue("ark", QueueAction::Install), &*invoke);
         assert_eq!(payload.title_key, "planQueue");
         assert!(payload.error_key.is_empty());
         assert!(payload.notice_key.is_empty());
@@ -1219,58 +1209,47 @@ mod tests {
 
     #[test]
     fn a_queue_with_nothing_to_do_is_a_notice() {
-        let (catalog, installed) = seed();
+        let installed = installed_set();
         let (invoke, _) = one_answer(&ok_reply(""));
-        let payload = queue_payload(
-            &installed,
-            &repos_from_installed(&installed),
-            &catalog,
-            &queue("ark", QueueAction::Install),
-            &*invoke,
-        );
+        let payload = queue_payload(&installed, &queue("ark", QueueAction::Install), &*invoke);
         assert_eq!(payload.notice_key, "emptyQueue");
         assert!(payload.items.is_empty());
     }
 
     #[test]
     fn an_update_of_a_package_that_is_not_installed_never_runs_xbps() {
-        let (catalog, installed) = seed();
+        let installed = installed_set();
         let (invoke, seen) = one_answer(&ok_reply(""));
-        let payload = queue_payload(
-            &installed,
-            &repos_from_installed(&installed),
-            &catalog,
-            &queue("ghost", QueueAction::Update),
-            &*invoke,
-        );
+        let payload = queue_payload(&installed, &queue("ghost", QueueAction::Update), &*invoke);
         assert_eq!(payload.error_key, "errorNotInstalled");
         assert!(seen.lock().map(|seen| seen.is_empty()).unwrap());
     }
 
     #[test]
     fn applying_the_plan_adds_exactly_one_package() {
-        let (catalog, installed) = seed();
-        assert_eq!(installed.len(), 56, "seed image size");
+        // The plan installs `ark`, so the system starts without it.
+        let mut installed = installed_set();
+        installed.remove("ark");
+        assert_eq!(installed.len(), 5, "the fixture set without ark");
         let (invoke, _) = one_answer(&ok_reply(
             "ark-25.08.0_1 install x86_64 https://r/current 2097152 524288\n",
         ));
-        let payload = queue_payload(
-            &installed,
-            &repos_from_installed(&installed),
-            &catalog,
-            &queue("ark", QueueAction::Install),
-            &*invoke,
-        );
-        let mut store = Store::fresh(&catalog);
+        let payload = queue_payload(&installed, &queue("ark", QueueAction::Install), &*invoke);
+        let mut store = Store::fresh();
+        store.installed = installed.clone();
         store.queue = queue("ark", QueueAction::Install);
         store.apply_plan(
             &Plan {
                 items: payload.items.clone(),
                 blocked: Vec::new(),
             },
-            SEED_AT,
+            7,
         );
-        assert_eq!(store.installed.len(), 57, "ark is the only new package");
+        assert_eq!(store.installed.len(), 6, "no package but ark changes");
+        assert_eq!(
+            store.installed["ark"].version, "25.08.0_1",
+            "the installed record carries the planned version"
+        );
         assert!(store.installed.contains_key("ark"));
         assert!(
             store.queue.is_empty(),
@@ -1279,35 +1258,30 @@ mod tests {
     }
 
     #[test]
-    fn reinstalling_a_seed_package_keeps_the_installed_count() {
-        let (catalog, installed) = seed();
+    fn reinstalling_an_installed_package_keeps_the_installed_count() {
+        let installed = installed_set();
         let (invoke, _) = one_answer(&ok_reply(
             "vim-9.2.1031_1 reinstall x86_64 https://r/current 4194304 1468006\n",
         ));
-        let payload = queue_payload(
-            &installed,
-            &repos_from_installed(&installed),
-            &catalog,
-            &queue("vim", QueueAction::Install),
-            &*invoke,
-        );
+        let payload = queue_payload(&installed, &queue("vim", QueueAction::Install), &*invoke);
         assert_eq!(payload.items.len(), 1);
         assert_eq!(payload.items[0].action, PlanAction::Reinstall);
 
-        let mut store = Store::fresh(&catalog);
+        let mut store = Store::fresh();
+        store.installed = installed.clone();
         store.apply_plan(
             &Plan {
                 items: payload.items,
                 blocked: Vec::new(),
             },
-            SEED_AT,
+            7,
         );
-        assert_eq!(store.installed.len(), 56);
+        assert_eq!(store.installed.len(), 6, "a reinstall changes no package");
     }
 
     #[test]
     fn the_system_plan_is_the_update_all_dry_run() {
-        let (installed, _) = (seed().1, ());
+        let installed = installed_set();
         let (invoke, seen) = one_answer(&ok_reply(
             "vim-9.2.2000_1 update x86_64 https://r/current 4194304 1468006\n",
         ));
@@ -1322,7 +1296,7 @@ mod tests {
 
     #[test]
     fn an_up_to_date_system_is_a_notice() {
-        let (installed, _) = (seed().1, ());
+        let installed = installed_set();
         let (invoke, _) = one_answer(&ok_reply(""));
         let payload = crate::xbps_plan::system_payload(&installed, &*invoke);
         assert_eq!(payload.notice_key, "emptySystem");
@@ -1332,7 +1306,7 @@ mod tests {
     fn removing_a_needed_package_reports_the_dry_run_refusal() {
         // `xbps-remove -n acpid` exits 19 and names what breaks; that refusal
         // is the only source of `blocked`.
-        let (_, installed) = seed();
+        let installed = installed_set();
         let (invoke, seen) = one_answer(&exit_reply(
             19,
             "",
@@ -1358,7 +1332,7 @@ mod tests {
 
     #[test]
     fn a_cascade_removal_is_a_plain_removal_plan_with_its_own_title() {
-        let (_, installed) = seed();
+        let installed = installed_set();
         let (invoke, _) = one_answer(&ok_reply(
             "glibc-2.41_1 remove x86_64 https://r/current 0 848\n\
              bash-5.2_1 remove x86_64 https://r/current 8100000 0\n",
@@ -1378,7 +1352,7 @@ mod tests {
 
     #[test]
     fn removing_an_uninstalled_package_is_a_notice() {
-        let (_, installed) = seed();
+        let installed = installed_set();
         let (invoke, _) = one_answer(&exit_reply(
             2,
             "",
@@ -1396,82 +1370,40 @@ mod tests {
 
     #[test]
     fn named_plan_keeps_the_callers_title_key() {
-        let (catalog, installed) = seed();
+        let installed = installed_set();
         let (invoke, _) = one_answer(&ok_reply(
             "ark-25.08.0_1 install x86_64 https://r/current 2097152 524288\n",
         ));
-        let payload = named_payload(
-            &installed,
-            &repos_from_installed(&installed),
-            &catalog,
-            &["ark".to_string()],
-            "planInstall",
-            &*invoke,
-        );
+        let payload = named_payload(&installed, &["ark".to_string()], "planInstall", &*invoke);
         assert_eq!(payload.title_key, "planInstall");
         assert!(payload.items.iter().any(|item| item.name == "ark"));
     }
 
     #[test]
     fn unknown_packages_become_an_error_key() {
-        let (catalog, installed) = seed();
+        let installed = installed_set();
         let (invoke, _) = one_answer(&exit_reply(
             2,
             "",
             "ERROR: Package 'nope' not found in repository pool.",
         ));
-        let payload = named_payload(
-            &installed,
-            &repos_from_installed(&installed),
-            &catalog,
-            &["nope".to_string()],
-            "planInstall",
-            &*invoke,
-        );
+        let payload = named_payload(&installed, &["nope".to_string()], "planInstall", &*invoke);
         assert_eq!(payload.error_key, "errorUnknownPackage");
         assert_eq!(payload.error_args, vec!["nope".to_string()]);
     }
 
     #[test]
-    fn disabled_repository_is_named_before_any_dry_run() {
-        // `steam` lives in nonfree, which the seed image does not enable. xbps
-        // would only answer "not found"; the catalog knows why.
-        let (catalog, installed) = seed();
-        let (invoke, seen) = one_answer(&ok_reply(""));
-        let payload = named_payload(
-            &installed,
-            &repos_from_installed(&installed),
-            &catalog,
-            &["steam".to_string()],
-            "planInstall",
-            &*invoke,
-        );
-        assert_eq!(payload.error_key, "errorRepoDisabled");
-        assert_eq!(
-            payload.error_args,
-            vec!["steam".to_string(), "nonfree".to_string()]
-        );
-        assert!(seen.lock().map(|seen| seen.is_empty()).unwrap());
-    }
-
-    #[test]
     fn empty_queue_is_a_notice_not_a_plan() {
-        let (catalog, installed) = seed();
+        let installed = installed_set();
         let (invoke, _) = one_answer(&ok_reply(""));
-        let payload = queue_payload(
-            &installed,
-            &repos_from_installed(&installed),
-            &catalog,
-            &[],
-            &*invoke,
-        );
+        let payload = queue_payload(&installed, &[], &*invoke);
         assert_eq!(payload.notice_key, "emptyQueue");
         assert!(payload.items.is_empty());
     }
 
     #[test]
     fn held_note_only_mentions_packages_the_queue_updates() {
-        let (_, mut installed) = seed();
+        let mut installed = installed_set();
         let held_name = "vim".to_string();
         installed.get_mut(&held_name).unwrap().held = true;
 
@@ -1518,32 +1450,23 @@ mod tests {
     /// cascade and the named install both arrive through `PlanTask::run`.
     #[test]
     fn plan_task_run_keeps_the_cascade_title() {
-        let (catalog, installed) = seed();
+        let installed = installed_set();
         let (invoke, _) = one_answer(&ok_reply(
             "glibc-2.41_1 remove x86_64 https://r/current 0 848\n",
         ));
-        let payload = PlanTask::remove(vec!["glibc".to_string()], true).run(
-            &installed,
-            &repos_from_installed(&installed),
-            &catalog,
-            &*invoke,
-        );
+        let payload = PlanTask::remove(vec!["glibc".to_string()], true).run(&installed, &*invoke);
         assert_eq!(payload.title_key, "planCascade");
         assert_eq!(payload.title_args, vec!["glibc".to_string()]);
     }
 
     #[test]
     fn plan_task_run_keeps_the_callers_install_title() {
-        let (catalog, installed) = seed();
+        let installed = installed_set();
         let (invoke, _) = one_answer(&ok_reply(
             "ark-25.08.0_1 install x86_64 https://r/current 2097152 524288\n",
         ));
-        let payload = PlanTask::named(vec!["ark".to_string()], "planInstallQuery".to_string()).run(
-            &installed,
-            &repos_from_installed(&installed),
-            &catalog,
-            &*invoke,
-        );
+        let payload = PlanTask::named(vec!["ark".to_string()], "planInstallQuery".to_string())
+            .run(&installed, &*invoke);
         assert_eq!(payload.title_key, "planInstallQuery");
     }
 
@@ -1551,7 +1474,7 @@ mod tests {
     /// adjacent; the dry run asks xbps once per name.
     #[test]
     fn plan_task_run_dedups_names_and_keeps_their_order() {
-        let (catalog, installed) = seed();
+        let installed = installed_set();
         let (invoke, seen) = one_answer(&ok_reply(
             "ark-25.08.0_1 install x86_64 https://r/current 2097152 524288\n\
              vim-9.2.2000_1 install x86_64 https://r/current 4194304 1468006\n",
@@ -1560,12 +1483,7 @@ mod tests {
             vec!["ark".to_string(), "vim".to_string(), "ark".to_string()],
             "planInstall".to_string(),
         )
-        .run(
-            &installed,
-            &repos_from_installed(&installed),
-            &catalog,
-            &*invoke,
-        );
+        .run(&installed, &*invoke);
         assert_eq!(
             seen.lock().map(|seen| seen[0].clone()).unwrap(),
             ["xbps-install", "-n", "ark", "vim"]
@@ -1625,7 +1543,7 @@ mod tests {
 
     /// A store whose installed set and updates came from a read.
     fn read_store() -> (Store, Option<Snapshot>) {
-        let mut store = Store::fresh(&catalog());
+        let mut store = Store::fresh();
         let mut snapshot = None;
         let read = reading(
             "ii vim-9.2.1031_1 Editor\nii ark-25.08.0_1 Archives\nii zramen-0.2.0_1 Zram\n",
@@ -1649,7 +1567,7 @@ mod tests {
                 names
             },
             ["ark", "vim", "zramen"],
-            "the seed image is replaced, not merged"
+            "the previous cache is replaced, not merged"
         );
         assert!(store.installed["vim"].explicit, "`-m` listed vim");
         assert!(!store.installed["zramen"].explicit);
@@ -1665,9 +1583,10 @@ mod tests {
 
     #[test]
     fn a_failed_read_empties_the_list_and_names_the_error() {
-        let mut store = Store::fresh(&catalog());
+        let mut store = Store::fresh();
+        store.installed = installed_set();
         let mut snapshot = None;
-        assert!(!store.installed.is_empty(), "the seed starts the store");
+        assert!(!store.installed.is_empty(), "the cache starts filled");
 
         let reply = |_: &str, _: u32| {
             String::from(
@@ -1690,7 +1609,7 @@ mod tests {
 
     #[test]
     fn a_failed_first_read_does_not_ask_for_a_save() {
-        let mut store = Store::fresh(&catalog());
+        let mut store = Store::fresh();
         store.apply_snapshot(&[], &[], &[], Vec::new());
         let mut snapshot = None;
         let error = read_snapshot(&|_, _| String::from("not json")).expect_err("broken shim");

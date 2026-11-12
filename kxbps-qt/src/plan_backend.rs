@@ -14,7 +14,7 @@ use cxx_qt_lib::{
     QList, QMap, QMapPair_QString_QVariant, QObjectMutPtr, QString, QStringList, QVariant,
     QVariantValue,
 };
-use kxbps_core::{Blocked, Plan, PlanItem, RepoId, action_key, plan_totals, reason_key};
+use kxbps_core::{Blocked, Plan, PlanItem, action_key, plan_totals, reason_key};
 use serde::{Deserialize, Serialize};
 
 #[cxx_qt::bridge]
@@ -93,13 +93,8 @@ pub mod keys {
     pub const NOTICE_EMPTY_SYSTEM: &str = "emptySystem";
     /// The selection is not installed, so there is nothing to remove.
     pub const NOTICE_EMPTY_REMOVE: &str = "emptyRemove";
-    /// The catalog does not know the package (`%1` = name).
+    /// xbps does not know the package (`%1` = name).
     pub const ERROR_UNKNOWN_PACKAGE: &str = "errorUnknownPackage";
-    /// The package's repository is disabled (`%1` = name, `%2` = repo key).
-    pub const ERROR_REPO_DISABLED: &str = "errorRepoDisabled";
-    /// A dependency sits in a disabled repository (`%1` = name, `%2` =
-    /// dependency, `%3` = repo key).
-    pub const ERROR_DEPENDENCY_REPO_DISABLED: &str = "errorDependencyRepoDisabled";
     /// The update targets are not installed (`%1` = joined names).
     pub const ERROR_NOT_INSTALLED: &str = "errorNotInstalled";
 }
@@ -307,16 +302,6 @@ fn insert<T: QVariantValue>(map: &mut QMap<QMapPair_QString_QVariant>, key: &str
     map.insert_clone(&QString::from(key), &QVariant::from(value));
 }
 
-/// Wire key of a repository, the same spelling the package model uses.
-pub fn repo_key(repo: RepoId) -> &'static str {
-    match repo {
-        RepoId::Current => "current",
-        RepoId::Nonfree => "nonfree",
-        RepoId::Multilib => "multilib",
-        RepoId::Debug => "debug",
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -431,16 +416,6 @@ mod tests {
         let payload = PlanPayload::from_error(&PlanError::UnknownPackage("nope".into()));
         assert_eq!(payload.error_key, "errorUnknownPackage");
         assert_eq!(payload.error_args, vec!["nope".to_string()]);
-
-        let payload = PlanPayload::from_error(&PlanError::RepoDisabled {
-            package: "steam".into(),
-            repo: "nonfree".into(),
-        });
-        assert_eq!(payload.error_key, "errorRepoDisabled");
-        assert_eq!(
-            payload.error_args,
-            vec!["steam".to_string(), "nonfree".to_string()]
-        );
 
         let payload =
             PlanPayload::from_error(&PlanError::NotInstalled(vec!["a".into(), "b".into()]));

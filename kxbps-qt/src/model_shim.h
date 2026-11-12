@@ -2,7 +2,6 @@
 //
 // Three things are missing from `cxx-qt-lib` 0.10 and are provided here:
 //
-//  * `QFile` — reading the embedded catalog resource needs `QIODevice`.
 //  * `beginResetModel` / `endResetModel` / `createIndex` / `dataChanged` /
 //    `beginInsertRows` / `endInsertRows` — protected members of
 //    `QAbstractItemModel`, unreachable from a Rust impl block.
@@ -15,11 +14,6 @@
 #include <QtCore/QAbstractItemModel>
 #include <QtCore/QModelIndex>
 #include <QtCore/QObject>
-#include <QtCore/QString>
-
-// Contents of `path` (a `qrc:` resource), or an empty string when it cannot be
-// opened. Decoded as UTF-8; the catalog is ASCII-only JSON.
-QString kxbps_read_resource(const QString &path);
 
 // Full model reset, used when the visible row set changes (filter, search or
 // category). Emits `modelAboutToBeReset` / `modelReset`.
@@ -34,9 +28,9 @@ QModelIndex kxbps_model_create_index(const QAbstractItemModel &model, int row, i
 // affected rows re-read their data, while selection and scroll position stay.
 void kxbps_model_data_changed(QAbstractItemModel &model, int first, int last);
 
-// Creates the package model as a child of `parent`, seeding it with the
-// catalog JSON. The installed list is empty until the first snapshot arrives.
-QObject *kxbps_create_package_model(QObject *parent, const QString &catalogJson);
+// Creates the package model as a child of `parent`. The list is empty until
+// the first snapshot from xbps arrives.
+QObject *kxbps_create_package_model(QObject *parent);
 
 // The queue and log models need the same protected members, but cxx cannot
 // declare one extern function in two bridges, so each model has its own name.

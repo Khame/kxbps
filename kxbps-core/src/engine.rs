@@ -3,20 +3,15 @@
 //! xbps resolves the transaction: `xbps-install -n` and `xbps-remove -n` print
 //! the steps, their versions and their sizes, and [`crate::plan`] turns that
 //! into [`PlanItem`]s. What xbps does not print is here — the totals of a plan,
-//! the installed map a finished plan leaves behind, the held-update note and
-//! the dependency check a blocked removal needs before its dry run.
+//! the installed map a finished plan leaves behind and the held-update note.
 //!
-//! Everything is pure: the catalog, the installed map and the plan go in,
-//! values come out. Nothing here touches Qt, the filesystem or the network, and
-//! no user-facing prose is produced — [`crate::format::action_key`] and
+//! Everything is pure: the installed map and the plan go in, values come out.
+//! Nothing here touches Qt, the filesystem or the network, and no user-facing
+//! prose is produced — [`crate::format::action_key`] and
 //! [`crate::format::reason_key`] turn plan entries into stable translation keys.
 
-use crate::catalog::Catalog;
-use crate::types::{
-    Blocked, Inst, InstalledMap, PlanAction, PlanItem, PlanReason, Repos, UpdateInfo,
-};
+use crate::types::{Blocked, Inst, InstalledMap, PlanAction, PlanItem, PlanReason, Repos};
 use crate::xbps::UpdateEntry;
-use std::collections::BTreeSet;
 
 /// Ordered steps of a plan, plus the packages that blocked a removal.
 ///
@@ -89,68 +84,6 @@ pub fn held_updates_in(pending: &[UpdateEntry], installed: &InstalledMap) -> Vec
     names
 }
 
-/// The installed-map version of [`held_updates_in`], kept for the store paths
-/// that still read the seed catalog.
-pub fn held_updates(catalog: &Catalog, installed: &InstalledMap, repos: &Repos) -> Vec<String> {
-    let mut names: Vec<String> = catalog
-        .updates(installed, repos)
-        .into_iter()
-        .filter(|update| installed.get(&update.name).is_some_and(|inst| inst.held))
-        .map(|update| update.name)
-        .collect();
-    names.sort();
-    names
-}
-
-/// Packages that stop `names` from being removed, without planning anything.
-///
-/// This is the pre-check of a removal: it answers from the catalog and the
-/// installed set before any process runs, so the Blocked dialog can open
-/// without waiting. It is not the authority — `xbps-remove -n` decides a
-/// blocked transaction with its exit code and stderr, and when the two
-/// disagree the dry run wins. The dry run also sees the whole dependency
-/// graph, while this only knows what the catalog lists.
-pub fn check_blocked(
-    catalog: &Catalog,
-    installed: &InstalledMap,
-    names: &[String],
-) -> Vec<Blocked> {
-    let removing: BTreeSet<String> = names
-        .iter()
-        .filter(|name| installed.contains_key(*name))
-        .cloned()
-        .collect();
-    let mut blocked = Vec::new();
-    for name in ordered_names(names, &removing) {
-        let needed_by: Vec<String> = catalog
-            .revdeps(&name)
-            .into_iter()
-            .filter(|rev| installed.contains_key(&rev.name) && !removing.contains(&rev.name))
-            .map(|rev| rev.name.clone())
-            .collect();
-        if !needed_by.is_empty() {
-            blocked.push(Blocked { name, needed_by });
-        }
-    }
-    blocked
-}
-
-/// Packages in the removal set, requested names first, then the rest by name.
-fn ordered_names(requested: &[String], set: &BTreeSet<String>) -> Vec<String> {
-    let mut out: Vec<String> = Vec::with_capacity(set.len());
-    for name in requested {
-        if set.contains(name) && !out.contains(name) {
-            out.push(name.clone());
-        }
-    }
-    for name in set {
-        if !out.contains(name) {
-            out.push(name.clone());
-        }
-    }
-    out
-}
-
 /// Applies a finished plan to the installed database.
 ///
 /// Removed packages disappear, a package requested by the user becomes
@@ -211,37 +144,15 @@ pub fn update_signature_of(pending: &[UpdateEntry]) -> u64 {
     signature_of(pending)
 }
 
-/// The same fingerprint over the seed catalog's update list.
-pub fn update_signature(catalog: &Catalog, installed: &InstalledMap, repos: &Repos) -> u64 {
-    signature_of(&catalog.updates(installed, repos))
-}
-
-trait UpdateTarget {
-    fn signature_parts(&self) -> (&str, &str);
-}
-
-impl UpdateTarget for UpdateInfo {
-    fn signature_parts(&self) -> (&str, &str) {
-        (&self.name, &self.to)
-    }
-}
-
-impl UpdateTarget for UpdateEntry {
-    fn signature_parts(&self) -> (&str, &str) {
-        (&self.name, &self.version)
-    }
-}
-
-fn signature_of<T: UpdateTarget>(updates: &[T]) -> u64 {
+fn signature_of(updates: &[UpdateEntry]) -> u64 {
     let mut text = String::new();
     for (index, update) in updates.iter().enumerate() {
         if index > 0 {
             text.push(',');
         }
-        let (name, to) = update.signature_parts();
-        text.push_str(name);
+        text.push_str(&update.name);
         text.push('@');
-        text.push_str(to);
+        text.push_str(&update.version);
     }
     fnv1a64(text.as_bytes())
 }
@@ -257,25 +168,6 @@ fn fnv1a64(bytes: &[u8]) -> u64 {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::catalog::Catalog;
-    use crate::types::{Category, Pkg, RepoId};
-
-    fn pkg(name: &str, depends: &[&str]) -> Pkg {
-        Pkg {
-            name: name.to_string(),
-            version: "1.0_1".to_string(),
-            repo: RepoId::Current,
-            category: Category::Base,
-            size: 1024,
-            download: 512,
-            short: String::new(),
-            homepage: String::new(),
-            license: String::new(),
-            depends: depends.iter().map(|dep| (*dep).to_string()).collect(),
-            files: Vec::new(),
-        }
-    }
-
     fn inst(version: &str, explicit: bool, held: bool) -> Inst {
         Inst {
             version: version.to_string(),
@@ -307,79 +199,6 @@ mod tests {
 
     fn names(values: &[&str]) -> Vec<String> {
         values.iter().map(|value| (*value).to_string()).collect()
-    }
-
-    #[test]
-    fn check_blocked_lists_the_installed_dependents() {
-        // `base-system` needs `acpid`; `bash` needs `glibc`, which is not in the
-        // way when only `acpid` is removed.
-        let catalog = Catalog(vec![
-            pkg("acpid", &[]),
-            pkg("base-system", &["acpid"]),
-            pkg("glibc", &[]),
-            pkg("bash", &["glibc"]),
-        ]);
-        let installed = installed(&[
-            ("acpid", inst("2.0.34_4", true, false)),
-            ("base-system", inst("0.114_2", true, false)),
-            ("glibc", inst("2.41_1", true, false)),
-            ("bash", inst("5.2_1", true, false)),
-        ]);
-        let blocked = check_blocked(&catalog, &installed, &names(&["acpid"]));
-        assert_eq!(
-            blocked,
-            vec![Blocked {
-                name: "acpid".to_string(),
-                needed_by: vec!["base-system".to_string()],
-            }]
-        );
-    }
-
-    #[test]
-    fn check_blocked_ignores_packages_that_are_not_installed() {
-        let catalog = Catalog(vec![pkg("acpid", &[]), pkg("base-system", &["acpid"])]);
-        let installed = installed(&[("base-system", inst("0.114_2", true, false))]);
-        assert_eq!(
-            check_blocked(&catalog, &installed, &names(&["acpid", "ghost"])),
-            Vec::new()
-        );
-    }
-
-    #[test]
-    fn check_blocked_keeps_the_requested_order() {
-        let catalog = Catalog(vec![
-            pkg("libfoo", &[]),
-            pkg("app", &["libfoo"]),
-            pkg("libbar", &[]),
-            pkg("tool", &["libbar"]),
-        ]);
-        let installed = installed(&[
-            ("libfoo", inst("1.0_1", false, false)),
-            ("app", inst("1.0_1", true, false)),
-            ("libbar", inst("1.0_1", false, false)),
-            ("tool", inst("1.0_1", true, false)),
-        ]);
-        let blocked = check_blocked(&catalog, &installed, &names(&["libbar", "libfoo"]));
-        assert_eq!(
-            blocked
-                .iter()
-                .map(|entry| entry.name.as_str())
-                .collect::<Vec<_>>(),
-            ["libbar", "libfoo"]
-        );
-    }
-
-    #[test]
-    fn check_blocked_is_empty_when_the_dependents_go_too() {
-        let catalog = Catalog(vec![pkg("acpid", &[]), pkg("base-system", &["acpid"])]);
-        let installed = installed(&[
-            ("acpid", inst("2.0.34_4", true, false)),
-            ("base-system", inst("0.114_2", true, false)),
-        ]);
-        assert_eq!(
-            check_blocked(&catalog, &installed, &names(&["acpid", "base-system"])),
-            Vec::new()
-        );
     }
 
     #[test]

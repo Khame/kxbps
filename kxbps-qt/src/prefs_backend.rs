@@ -438,8 +438,6 @@ mod tests {
     use std::path::{Path, PathBuf};
     use std::sync::atomic::{AtomicUsize, Ordering};
 
-    use kxbps_core::Catalog;
-
     use super::*;
 
     static SEQ: AtomicUsize = AtomicUsize::new(0);
@@ -479,7 +477,7 @@ mod tests {
         // The backend is created before an owner exists, so its initial values
         // must be the ones the store would write; drift here shows up as a
         // checkbox that flips the moment the page is opened.
-        let store = Store::fresh(&Catalog::default());
+        let store = Store::fresh();
         let backend = PrefsBackendRust::default();
         assert_eq!(backend.to_prefs(), store.prefs);
     }
@@ -646,7 +644,7 @@ mod tests {
     fn a_store_that_already_holds_the_value_is_not_changed() {
         // This is the rule `InstalledBackend::setPrefBool|String` applies: the
         // `false` answers mean "do not save".
-        let mut store = Store::fresh(&Catalog::default());
+        let mut store = Store::fresh();
         let same = bool_write(keys::NOTIFY_ON_START, true).expect("known key");
         assert!(!apply_to_store_if_changed(&same, &mut store), "no save");
 
@@ -662,21 +660,23 @@ mod tests {
     #[test]
     fn three_writes_survive_a_store_round_trip() {
         let dir = TempDir::new("roundtrip");
-        let catalog = Catalog::default();
-        let mut store = Store::fresh(&catalog);
+        let mut store = Store::fresh();
 
         for write in [
             bool_write(keys::NOTIFY_ON_START, false).expect("known key"),
             bool_write(keys::DESKTOP, true).expect("known key"),
             string_write(keys::DISMISSED, "sig-42").expect("known key"),
         ] {
-            assert!(!write.is_noop(&store.prefs), "the seed holds another value");
+            assert!(
+                !write.is_noop(&store.prefs),
+                "the defaults hold another value"
+            );
             write.apply_to_store(&mut store);
             assert!(write.is_noop(&store.prefs), "a repeat is a no-op");
         }
         store.save_at(dir.path()).expect("save");
 
-        let loaded = Store::load_at(dir.path(), &catalog).expect("load");
+        let loaded = Store::load_at(dir.path()).expect("load");
         let json = serde_json::to_string(&loaded.prefs).expect("serialise");
         let prefs = decode_prefs(&json).expect("decode");
         assert!(!prefs.notify_on_start);

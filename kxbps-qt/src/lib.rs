@@ -34,16 +34,6 @@ pub mod qobject {
     }
 
     unsafe extern "C++" {
-        // Shared by every backend that needs the embedded catalog; cxx cannot
-        // declare one extern function in two bridges, so the crate-root bridge
-        // owns the only declaration and the others call it from Rust.
-        include!("model_shim.h");
-
-        #[cxx_name = "kxbps_read_resource"]
-        fn read_resource(path: &QString) -> QString;
-    }
-
-    unsafe extern "C++" {
         include!("cxx-qt-lib/qqmlengine.h");
         type QQmlEngine = cxx_qt_lib::QQmlEngine;
 
@@ -83,13 +73,6 @@ impl qobject::AppBackend {
     }
 }
 
-/// Location of the generated package catalog inside the QML module's resources.
-///
-/// `build.rs` embeds `kxbps-qt/resources/catalog.json` under the module's
-/// import path, so the Qt layer can read it with `QFile` and hand the contents
-/// to [`kxbps_core::Catalog::load_from_str`].
-pub const CATALOG_RESOURCE_PATH: &str = ":/qt/qml/org/kde/kxbps/resources/catalog.json";
-
 /// Registers the `org.kde.kxbps` QML module (types and QML resources).
 ///
 /// Must run before a `QQmlApplicationEngine` resolves any `qrc:/qt/qml/...` URL.
@@ -110,16 +93,14 @@ pub fn setup_i18n(engine: Pin<&mut cxx_qt_lib::QQmlApplicationEngine>) {
     qobject::setup_i18n(Upcast::<cxx_qt_lib::QQmlEngine>::upcast_pin(engine));
 }
 
-/// The module URI is spelled out in five independent literals that no compiler
+/// The module URI is spelled out in four independent literals that no compiler
 /// check connects: `build.rs` (`QmlModule::new`), this file
-/// (`init_qml_module!`, `CATALOG_RESOURCE_PATH`), `main.rs` (the `qrc:` URL it
-/// loads) and `Main.qml` (the `import`). A disagreement fails silently — the
-/// engine resolves no module and the app exits with an empty window — so this
-/// test pins all five to one URI.
+/// (`init_qml_module!`), `main.rs` (the `qrc:` URL it loads) and `Main.qml`
+/// (the `import`). A disagreement fails silently — the engine resolves no
+/// module and the app exits with an empty window — so this test pins all four
+/// to one URI.
 #[cfg(test)]
 mod uri_guard {
-    use super::CATALOG_RESOURCE_PATH;
-
     /// The double-quoted literal that follows `marker` in `source`.
     fn quoted_after(source: &str, marker: &str) -> String {
         let start = source
@@ -149,12 +130,8 @@ mod uri_guard {
         );
 
         // `cxx-qt-build` serves the module's resources below the URI with dots
-        // turned into separators, so the catalog path is derived from it.
+        // turned into separators.
         let uri_path = declared.replace('.', "/");
-        assert_eq!(
-            CATALOG_RESOURCE_PATH,
-            format!(":/qt/qml/{uri_path}/resources/catalog.json")
-        );
         assert_eq!(
             quoted_after(main_rs, "QUrl::from(\""),
             format!("qrc:/qt/qml/{uri_path}/qml/Main.qml"),

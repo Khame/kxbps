@@ -1,31 +1,25 @@
-//! Read-only `QAbstractItemModel` over the embedded package catalog.
+//! Read-only `QAbstractItemModel` over the installed records xbps reports.
 //!
-//! The catalog is parsed once at construction and never copied: the model keeps
-//! an `Arc<Catalog>` plus a `rows` vector of indices into it. Changing the
-//! filter, the search text or the category only recomputes `rows` and emits a
-//! full model reset, so no package struct is cloned when the user clicks a chip.
+//! The model holds the records `xbps-query -l` answered plus the installed map
+//! derived from them, and a `rows` vector of indices into the record list.
+//! Changing the filter or the search text only recomputes `rows` and emits a
+//! full model reset, so no record is cloned when the user clicks a chip.
 //!
-//! The list itself is not the catalog: `InstalledBackend` pushes the snapshot
-//! `xbps-query -l` answered, and then the rows are the installed records —
-//! every package the system has, not the 115 the catalog knows. The catalog
-//! stays as the known-package table: a name it has decorates its row with the
-//! repository version, category and home page, and a name it does not have
-//! shows an empty string where xbps has nothing cheap to offer. `Available`
-//! (filter `all`) keeps listing the catalog alone, because xbps only lists what
-//! is already installed.
+//! Nothing is invented: a field xbps did not print stays empty. The repository,
+//! category and size columns of the old catalog are gone with the catalog; the
+//! details pane reads those from `xbps-query -p` instead.
 
 use std::collections::{HashMap, HashSet};
 use std::pin::Pin;
-use std::sync::Arc;
 
 use cxx_qt::CxxQtType;
 use cxx_qt::casting::Upcast;
-use cxx_qt_lib::{QByteArray, QString, QVariant};
+use cxx_qt_lib::{QByteArray, QObjectMutPtr, QString, QVariant};
 use kxbps_core::{
-    Catalog, Category, Inst, InstalledMap, InstalledPackage, Pkg, QueueAction, QueueItem, RepoId,
-    UpdateEntry, byte_decimals, format_bytes,
+    Inst, InstalledMap, InstalledPackage, QueueAction, QueueItem, UpdateEntry, byte_decimals,
+    format_bytes,
 };
-use qobject::{QHash_i32_QByteArray, QObjectMutPtr};
+use qobject::QHash_i32_QByteArray;
 
 #[cxx_qt::bridge]
 pub mod qobject {
@@ -77,7 +71,6 @@ pub mod qobject {
         #[qml_uncreatable]
         #[qproperty(QString, filter, READ, WRITE = set_filter, NOTIFY)]
         #[qproperty(QString, search, READ, WRITE = set_search, NOTIFY)]
-        #[qproperty(QString, category, READ, WRITE = set_category, NOTIFY)]
         #[qproperty(i32, count, READ, NOTIFY)]
         type PackageModel = super::PackageModelRust;
 
@@ -107,11 +100,6 @@ pub mod qobject {
 
         fn set_filter(self: Pin<&mut PackageModel>, value: QString);
         fn set_search(self: Pin<&mut PackageModel>, value: QString);
-        fn set_category(self: Pin<&mut PackageModel>, value: QString);
-
-        // Pushes a new snapshot; called by the installed backend through
-        // `kxbps_package_model_set_state`.
-        fn set_state(self: Pin<&mut PackageModel>, installed_json: &QString, queue_json: &QString);
 
         // Pushes a whole `Snapshot` (see `xbps_snapshot`) plus the queue; called
         // by the installed backend through `kxbps_package_model_set_snapshot`.
@@ -120,18 +108,16 @@ pub mod qobject {
             snapshot_json: &QString,
             queue_json: &QString,
         );
+
+        // Pushes the installed map and the queue after a store mutation; the
+        // records, updates and orphans xbps reported are kept.
+        fn set_state(self: Pin<&mut PackageModel>, installed_json: &QString, queue_json: &QString);
     }
 
     // QML never creates the model: `InstalledBackend` owns it and hands it out
-    // as a `QObject*`. It starts without a snapshot — the worker thread has not
-    // answered yet — so the first frame shows the catalog and the installed
-    // list fills in when xbps has been read.
-    impl
-        cxx_qt::Constructor<
-            (QString, QObjectMutPtr),
-            BaseArguments = (QObjectMutPtr,),
-            NewArguments = (QString,),
-        > for PackageModel
+    // as a `QObject*`. It starts empty and fills in when xbps has been read.
+    impl cxx_qt::Constructor<(QObjectMutPtr,), BaseArguments = (QObjectMutPtr,), NewArguments = ()>
+        for PackageModel
     {
     }
 }
@@ -148,22 +134,13 @@ pub mod role {
 
     pub const NAME: i32 = USER_ROLE;
     pub const VERSION: i32 = USER_ROLE + 1;
-    pub const REPO: i32 = USER_ROLE + 2;
-    pub const CATEGORY: i32 = USER_ROLE + 3;
-    pub const SIZE: i32 = USER_ROLE + 4;
-    pub const DOWNLOAD: i32 = USER_ROLE + 5;
-    pub const SHORT: i32 = USER_ROLE + 6;
-    pub const HOMEPAGE: i32 = USER_ROLE + 7;
-    pub const LICENSE: i32 = USER_ROLE + 8;
-    pub const DEPENDS: i32 = USER_ROLE + 9;
-    pub const INSTALLED_VERSION: i32 = USER_ROLE + 10;
-    pub const EXPLICIT: i32 = USER_ROLE + 11;
-    pub const HELD: i32 = USER_ROLE + 12;
-    pub const QUEUED_ACTION: i32 = USER_ROLE + 13;
-    pub const IS_UPDATE: i32 = USER_ROLE + 14;
-    pub const UPDATE_VERSION: i32 = USER_ROLE + 15;
-    pub const SIZE_BYTES: i32 = USER_ROLE + 16;
-    pub const DOWNLOAD_BYTES: i32 = USER_ROLE + 17;
+    pub const SHORT: i32 = USER_ROLE + 2;
+    pub const INSTALLED_VERSION: i32 = USER_ROLE + 3;
+    pub const EXPLICIT: i32 = USER_ROLE + 4;
+    pub const HELD: i32 = USER_ROLE + 5;
+    pub const QUEUED_ACTION: i32 = USER_ROLE + 6;
+    pub const IS_UPDATE: i32 = USER_ROLE + 7;
+    pub const UPDATE_VERSION: i32 = USER_ROLE + 8;
 }
 
 /// Role ids and the names QML sees, in declaration order.
@@ -171,80 +148,28 @@ pub mod role {
 /// `data()` and the `QVariantMap`s built by `QueryBackend` share this table, so
 /// a delegate reading `model.installedVersion` and a query result reading
 /// `result.installedVersion` always agree.
-pub const ROLES: [(i32, &str); 18] = [
+pub const ROLES: [(i32, &str); 9] = [
     (role::NAME, "name"),
     (role::VERSION, "version"),
-    (role::REPO, "repo"),
-    (role::CATEGORY, "category"),
-    (role::SIZE, "size"),
-    (role::DOWNLOAD, "download"),
     (role::SHORT, "short"),
-    (role::HOMEPAGE, "homepage"),
-    (role::LICENSE, "license"),
-    (role::DEPENDS, "depends"),
     (role::INSTALLED_VERSION, "installedVersion"),
     (role::EXPLICIT, "explicit"),
     (role::HELD, "held"),
     (role::QUEUED_ACTION, "queuedAction"),
     (role::IS_UPDATE, "isUpdate"),
     (role::UPDATE_VERSION, "updateVersion"),
-    (role::SIZE_BYTES, "sizeBytes"),
-    (role::DOWNLOAD_BYTES, "downloadBytes"),
 ];
 
-/// Everything one row needs beyond the package itself.
-///
-/// A row the catalog knows borrows its `Pkg`; a row that only xbps reports
-/// has no `Pkg` at all, because inventing one would mean inventing a size, a
-/// category and a home page xbps never printed.
+/// Everything one row needs beyond the record itself.
 pub struct RowView<'a> {
-    /// Name and version as displayed; for an installed-only row the version is
-    /// the installed one.
+    /// Name and version as displayed; the version is the installed one.
     pub name: &'a str,
     pub version: &'a str,
-    /// The catalog entry, when the catalog knows the package.
-    pub pkg: Option<&'a Pkg>,
     pub installed: Option<&'a Inst>,
     pub queued: Option<QueueAction>,
     pub update_to: Option<&'a str>,
-    /// The record's own description, when it has one the catalog does not.
+    /// The record's own description.
     pub description: Option<&'a str>,
-}
-
-impl RowView<'_> {
-    /// A row the catalog knows: its own fields fill everything.
-    ///
-    /// `installed`, `queued` and `update_to` are the store's view of it, so a
-    /// query hit and a list row answer the same roles.
-    pub fn catalog<'a>(
-        pkg: &'a Pkg,
-        installed: Option<&'a Inst>,
-        queued: Option<QueueAction>,
-        update_to: Option<&'a str>,
-    ) -> RowView<'a> {
-        RowView {
-            name: &pkg.name,
-            version: if let Some(inst) = installed {
-                &inst.version
-            } else {
-                &pkg.version
-            },
-            pkg: Some(pkg),
-            installed,
-            queued,
-            update_to,
-            description: None,
-        }
-    }
-
-    /// Short description: the catalog's own `short` when it knows the package
-    /// (the curated text), the record's description otherwise.
-    fn short(&self) -> &str {
-        match self.pkg {
-            Some(pkg) => &pkg.short,
-            None => self.description.unwrap_or(""),
-        }
-    }
 }
 
 /// Updates and orphans derived from one installed snapshot.
@@ -285,109 +210,55 @@ impl InstalledState {
 }
 
 /// Value of `role` for one row; an invalid `QVariant` for unknown roles.
-///
-/// Every string the system does not report is empty rather than invented: a
-/// catalog-known package keeps its repository size, download size and home
-/// page, an installed-only one shows nothing there.
 pub fn role_value(role: i32, row: &RowView<'_>) -> QVariant {
-    let pkg = row.pkg;
     match role {
         role::NAME => text(row.name),
         role::VERSION => text(row.version),
-        role::REPO => text(pkg.map_or("", |pkg| repo_key(pkg.repo))),
-        role::CATEGORY => text(pkg.map_or("", |pkg| category_key(pkg.category))),
-        role::SIZE => text(&pkg.map_or(String::new(), |pkg| format_size(pkg.size))),
-        role::DOWNLOAD => text(&pkg.map_or(String::new(), |pkg| format_size(pkg.download))),
-        role::SHORT => text(row.short()),
-        role::HOMEPAGE => text(pkg.map_or("", |pkg| pkg.homepage.as_str())),
-        role::LICENSE => text(pkg.map_or("", |pkg| pkg.license.as_str())),
-        role::DEPENDS => text(&pkg.map_or(String::new(), |pkg| pkg.depends.join(", "))),
+        role::SHORT => text(row.description.unwrap_or("")),
         role::INSTALLED_VERSION => text(row.installed.map_or("", |inst| inst.version.as_str())),
         role::EXPLICIT => boolean(row.installed.is_some_and(|inst| inst.explicit)),
         role::HELD => boolean(row.installed.is_some_and(|inst| inst.held)),
         role::QUEUED_ACTION => text(row.queued.map_or("", queue_key)),
         role::IS_UPDATE => boolean(row.update_to.is_some()),
         role::UPDATE_VERSION => text(row.update_to.unwrap_or("")),
-        role::SIZE_BYTES => pkg.map_or_else(QVariant::default, |pkg| integer(pkg.size)),
-        role::DOWNLOAD_BYTES => pkg.map_or_else(QVariant::default, |pkg| integer(pkg.download)),
         _ => QVariant::default(),
     }
 }
 
-/// Value for a map key: the role table plus `files`, which only the query view
-/// needs and which has no role.
+/// Value for a map key, using the shared role table.
 pub fn field_value(name: &str, row: &RowView<'_>) -> Option<QVariant> {
-    if name == "files" {
-        return Some(text(
-            &row.pkg.map_or(String::new(), |pkg| pkg.files.join("\n")),
-        ));
-    }
     ROLES
         .iter()
         .find(|(_, key)| *key == name)
         .map(|(id, _)| role_value(*id, row))
 }
 
-/// One visible position: a catalog package or an installed record.
-#[derive(Clone, Debug, PartialEq, Eq)]
-enum Row {
-    /// Into [`PackageModelRust::catalog`].
-    Catalog(u32),
-    /// Into [`PackageModelRust::snapshot`].
-    Installed(u32),
-}
-
 /// Rust side of [`qobject::PackageModel`].
 pub struct PackageModelRust {
-    catalog: Arc<Catalog>,
-    /// Catalog indices ordered by package name; the `all` filter's rows.
-    order: Vec<u32>,
     /// The records `xbps-query -l` answered, sorted by name; empty until the
     /// worker thread has read the system.
     snapshot: Vec<InstalledPackage>,
-    /// Whether a snapshot ever arrived. Until it does, the list is the catalog.
-    connected: bool,
     /// The installed set derived from `snapshot`, as the store holds it.
     installed: InstalledMap,
     /// The pending updates xbps reported, held ones included.
     updates: Vec<UpdateEntry>,
     /// The names `xbps-query -O` reported.
     orphans: Vec<String>,
-    /// The visible rows, in display order.
-    rows: Vec<Row>,
+    /// Indices into `snapshot`, in display order.
+    rows: Vec<u32>,
     queue: HashMap<String, QueueAction>,
     /// Updates, held names and orphans derived from the snapshot.
     state: InstalledState,
     held_names: HashSet<String>,
     filter: QString,
     search: QString,
-    category: QString,
     count: i32,
 }
 
-impl PackageModelRust {
-    /// Parses the catalog; the list shows it until the first snapshot arrives.
-    ///
-    /// `QueryBackend` validates the catalog before handing it over, so a
-    /// parse failure here can only mean the two halves disagree; the model
-    /// then starts empty instead of panicking.
-    fn new(catalog_json: &str) -> Self {
-        let catalog = Catalog::load_from_str(catalog_json).unwrap_or_default();
-        Self::with_catalog(Arc::new(catalog))
-    }
-
-    fn with_catalog(catalog: Arc<Catalog>) -> Self {
-        let mut order: Vec<u32> = (0..catalog.len() as u32).collect();
-        order.sort_by(|left, right| {
-            catalog.packages()[*left as usize]
-                .name
-                .cmp(&catalog.packages()[*right as usize].name)
-        });
-        let mut model = Self {
-            catalog,
-            order,
+impl Default for PackageModelRust {
+    fn default() -> Self {
+        Self {
             snapshot: Vec::new(),
-            connected: false,
             installed: InstalledMap::new(),
             updates: Vec::new(),
             orphans: Vec::new(),
@@ -395,18 +266,25 @@ impl PackageModelRust {
             queue: HashMap::new(),
             state: InstalledState::new(&[], &[]),
             held_names: HashSet::new(),
-            // The window opens on the installed list, so the first frame says
-            // what is installed rather than showing a demo catalog as "available".
+            // The window opens on the installed list.
             filter: QString::from("installed"),
             search: QString::from(""),
-            category: QString::from("all"),
             count: 0,
-        };
-        model.refresh_derived();
-        model.rebuild();
-        model
+        }
     }
+}
 
+/// What one visible row showed before a change: enough to tell whether the
+/// row's data moved, without comparing every field of the model.
+#[derive(PartialEq, Eq)]
+struct RowFingerprint {
+    name: String,
+    installed: Option<Inst>,
+    queued: Option<QueueAction>,
+    update_to: Option<String>,
+}
+
+impl PackageModelRust {
     /// Replaces the installed set, the pending updates, the orphan list and
     /// the queue in one commit.
     ///
@@ -428,7 +306,7 @@ impl PackageModelRust {
         queue: Vec<QueueItem>,
         updates: Vec<UpdateEntry>,
         orphans: Vec<String>,
-    ) -> (bool, Vec<Row>, Vec<i32>) {
+    ) -> (bool, Vec<u32>, Vec<i32>) {
         // The caller's records are the authority when it has them (the read
         // layer does, descriptions included); otherwise the map is turned into
         // records and every record the list already knew keeps its description.
@@ -439,7 +317,6 @@ impl PackageModelRust {
         };
         self.snapshot
             .sort_by(|left, right| left.name.cmp(&right.name));
-        self.connected = true;
         self.updates = updates;
         self.orphans = orphans;
         self.install(installed, queue)
@@ -473,11 +350,10 @@ impl PackageModelRust {
         &mut self,
         installed: InstalledMap,
         queue: Vec<QueueItem>,
-    ) -> (bool, Vec<Row>, Vec<i32>) {
+    ) -> (bool, Vec<u32>, Vec<i32>) {
         self.snapshot = self.records_from_map(&installed);
         self.snapshot
             .sort_by(|left, right| left.name.cmp(&right.name));
-        self.connected = true;
         self.install(installed, queue)
     }
 
@@ -485,9 +361,16 @@ impl PackageModelRust {
         &mut self,
         installed: InstalledMap,
         queue: Vec<QueueItem>,
-    ) -> (bool, Vec<Row>, Vec<i32>) {
-        let before: Vec<(Option<Inst>, Option<QueueAction>, Option<String>)> =
-            self.rows.iter().map(|row| self.fingerprint(row)).collect();
+    ) -> (bool, Vec<u32>, Vec<i32>) {
+        // The records may have been replaced, so a row index of the previous
+        // set can point past the new one: keep a fingerprint per visible name
+        // rather than per row number.
+        let before: Vec<RowFingerprint> = self
+            .rows
+            .iter()
+            .filter(|row| self.snapshot.get(**row as usize).is_some())
+            .map(|row| self.fingerprint(row))
+            .collect();
 
         self.installed = installed;
         self.queue = queue
@@ -504,57 +387,39 @@ impl PackageModelRust {
             .rows
             .iter()
             .enumerate()
-            .filter(|(row, candidate)| before[*row] != self.fingerprint(candidate))
+            .filter(|(_, candidate)| {
+                let after = self.fingerprint(candidate);
+                !before.contains(&after)
+            })
             .map(|(row, _)| i32::try_from(row).unwrap_or(i32::MAX))
             .collect();
         (false, rows, affected)
     }
 
-    fn row_at(&self, row: i32) -> Option<&Row> {
+    fn row_at(&self, row: i32) -> Option<&u32> {
         let index = usize::try_from(row).ok()?;
         self.rows.get(index)
     }
 
     /// The name a row stands for.
-    fn name_of(&self, row: &Row) -> &str {
-        match row {
-            Row::Catalog(index) => &self.catalog.packages()[*index as usize].name,
-            Row::Installed(index) => &self.snapshot[*index as usize].name,
-        }
+    fn name_of(&self, row: &u32) -> &str {
+        &self.snapshot[*row as usize].name
     }
 
-    /// The catalog entry of a row, when the catalog knows the name.
-    fn pkg_of(&self, row: &Row) -> Option<&Pkg> {
-        match row {
-            Row::Catalog(index) => self.catalog.packages().get(*index as usize),
-            Row::Installed(index) => {
-                let record = self.snapshot.get(*index as usize)?;
-                self.catalog.by_name(&record.name)
-            }
-        }
-    }
-
-    fn row_view<'a>(&'a self, row: &'a Row) -> RowView<'a> {
-        let name = self.name_of(row);
-        let pkg = self.pkg_of(row);
+    fn row_view<'a>(&'a self, row: &u32) -> RowView<'a> {
+        let record = &self.snapshot[*row as usize];
+        let name = record.name.as_str();
         let installed = self.installed.get(name);
-        let record = match row {
-            Row::Installed(index) => self.snapshot.get(*index as usize),
-            Row::Catalog(_) => None,
-        };
         let version = installed
             .map(|inst| inst.version.as_str())
-            .or_else(|| pkg.map(|pkg| pkg.version.as_str()))
-            .or_else(|| record.map(|record| record.version.as_str()))
-            .unwrap_or("");
+            .unwrap_or(record.version.as_str());
         RowView {
             name,
             version,
-            pkg,
             installed,
             queued: self.queue.get(name).copied(),
             update_to: self.state.update_to(name),
-            description: record.map(|record| record.description.as_str()),
+            description: Some(record.description.as_str()),
         }
     }
 
@@ -576,38 +441,37 @@ impl PackageModelRust {
         self.held_names = held;
     }
 
-    /// Visible rows for the current filter, search and category.
+    /// Visible rows for the current filter and search.
     ///
     /// Built into a fresh vector so a caller can compare before committing: a
     /// keystroke in the search field that does not change the visible set must
     /// not reset the model, or QML loses the scroll position and selection.
-    fn compute_rows(&self) -> Vec<Row> {
-        let mut candidates: Vec<Row> = if self.connected {
-            (0..self.snapshot.len() as u32)
-                .map(Row::Installed)
-                .collect()
-        } else {
-            self.order.iter().copied().map(Row::Catalog).collect()
-        };
+    fn compute_rows(&self) -> Vec<u32> {
+        let mut candidates: Vec<u32> = (0..self.snapshot.len() as u32).collect();
         // `xbps-query -l` prints in name order already; sorting here too keeps
         // the list stable when a record list arrives from another source.
         candidates.sort_by(|left, right| self.name_of(left).cmp(self.name_of(right)));
         let filter = self.filter.to_string();
-        let category = self.category.to_string();
         let search = self.search.to_string().to_lowercase();
         candidates
             .into_iter()
-            .filter(|row| self.matches(row, &filter, &category, &search))
+            .filter(|row| self.matches(row, &filter, &search))
             .collect()
     }
 
     /// Commits `rows` as the visible set and keeps `count` in step.
-    fn assign_rows(&mut self, rows: Vec<Row>) {
+    fn assign_rows(&mut self, rows: Vec<u32>) {
         self.count = i32::try_from(rows.len()).unwrap_or(i32::MAX);
         self.rows = rows;
     }
 
-    /// Recomputes `rows` and `count`; returns whether the visible set changed.
+    /// Recomputes `rows` and `count` in place, without resetting the model.
+    ///
+    /// Production code does not use this: [`apply_change`] resets through Qt
+    /// whenever the visible set moves. The tests call it after poking the
+    /// fields directly, and `#[cfg(test)]` keeps the dead-code lint honest
+    /// instead of silencing it.
+    #[cfg(test)]
     fn rebuild(&mut self) -> bool {
         let rows = self.compute_rows();
         if rows == self.rows {
@@ -618,13 +482,14 @@ impl PackageModelRust {
     }
 
     /// Everything the installed/queue snapshot feeds one row.
-    fn fingerprint(&self, row: &Row) -> (Option<Inst>, Option<QueueAction>, Option<String>) {
+    fn fingerprint(&self, row: &u32) -> RowFingerprint {
         let name = self.name_of(row);
-        (
-            self.installed.get(name).cloned(),
-            self.queue.get(name).copied(),
-            self.state.update_to(name).map(str::to_string),
-        )
+        RowFingerprint {
+            name: name.to_owned(),
+            installed: self.installed.get(name).cloned(),
+            queued: self.queue.get(name).copied(),
+            update_to: self.state.update_to(name).map(str::to_string),
+        }
     }
 
     /// All visible names, for the tests.
@@ -633,23 +498,18 @@ impl PackageModelRust {
         self.rows.iter().map(|row| self.name_of(row)).collect()
     }
 
-    fn matches(&self, row: &Row, filter: &str, category: &str, search: &str) -> bool {
-        let pkg = self.pkg_of(row);
-        if category != "all" && pkg.is_none_or(|pkg| category_key(pkg.category) != category) {
-            return false;
-        }
+    fn matches(&self, row: &u32, filter: &str, search: &str) -> bool {
         let name = self.name_of(row);
-        if !search.is_empty()
-            && !name.to_lowercase().contains(search)
-            && !self.short_of(row).to_lowercase().contains(search)
-        {
-            return false;
+        if !search.is_empty() {
+            let description = self.snapshot[*row as usize].description.to_lowercase();
+            if !name.to_lowercase().contains(search) && !description.contains(search) {
+                return false;
+            }
         }
         let installed = self.installed.get(name);
         match filter {
-            // Every row the list has. Before the first read that is the
-            // catalog; afterwards it is the system's packages, because xbps has
-            // no command that lists what is *not* installed.
+            // Every row the list has: xbps has no command that lists what is
+            // not installed, so this is the system's own set.
             "all" => true,
             "installed" => installed.is_some(),
             "updates" => self.state.is_update(name) && !self.held_names.contains(name),
@@ -660,41 +520,25 @@ impl PackageModelRust {
             _ => true,
         }
     }
-
-    /// The searchable short text of a row.
-    fn short_of(&self, row: &Row) -> &str {
-        let name = self.name_of(row);
-        match self.catalog.by_name(name) {
-            Some(pkg) => &pkg.short,
-            None => self
-                .snapshot
-                .get(match row {
-                    Row::Installed(index) => *index as usize,
-                    Row::Catalog(_) => 0,
-                })
-                .map_or("", |record| record.description.as_str()),
-        }
-    }
 }
 
-impl cxx_qt::Constructor<(QString, QObjectMutPtr)> for qobject::PackageModel {
+impl cxx_qt::Constructor<(QObjectMutPtr,)> for qobject::PackageModel {
     type BaseArguments = (QObjectMutPtr,);
-    type NewArguments = (QString,);
+    type NewArguments = ();
     type InitializeArguments = ();
 
     fn route_arguments(
-        arguments: (QString, QObjectMutPtr),
+        arguments: (QObjectMutPtr,),
     ) -> (
         Self::NewArguments,
         Self::BaseArguments,
         Self::InitializeArguments,
     ) {
-        let (catalog_json, parent) = arguments;
-        ((catalog_json,), (parent,), ())
+        ((), arguments, ())
     }
 
-    fn new((catalog_json,): Self::NewArguments) -> PackageModelRust {
-        PackageModelRust::new(&catalog_json.to_string())
+    fn new(_: Self::NewArguments) -> PackageModelRust {
+        PackageModelRust::default()
     }
 }
 
@@ -752,14 +596,6 @@ impl qobject::PackageModel {
         }
         apply_change(self.as_mut(), |model| model.search = value);
         self.as_mut().search_changed();
-    }
-
-    fn set_category(mut self: Pin<&mut Self>, value: cxx_qt_lib::QString) {
-        if self.category == value {
-            return;
-        }
-        apply_change(self.as_mut(), |model| model.category = value);
-        self.as_mut().category_changed();
     }
 
     /// Replaces the whole state from the backend, with the snapshot the read
@@ -827,7 +663,7 @@ impl qobject::PackageModel {
 fn commit(
     mut model: Pin<&mut qobject::PackageModel>,
     rows_changed: bool,
-    rows: Vec<Row>,
+    rows: Vec<u32>,
     affected: Vec<i32>,
 ) {
     if rows_changed {
@@ -901,12 +737,6 @@ fn boolean(value: bool) -> QVariant {
     QVariant::from(&value)
 }
 
-/// Raw byte count, for sorting and arithmetic in QML; the formatted `size` /
-/// `download` roles are what the delegate displays.
-fn integer(value: u64) -> QVariant {
-    QVariant::from(&i64::try_from(value).unwrap_or(i64::MAX))
-}
-
 /// `4.0 MiB`, using the core's thresholds and the web app's decimal count.
 pub(crate) fn format_size(bytes: u64) -> String {
     let bytes = i64::try_from(bytes).unwrap_or(i64::MAX);
@@ -917,30 +747,6 @@ pub(crate) fn format_size(bytes: u64) -> String {
         value,
         unit.symbol()
     )
-}
-
-fn repo_key(repo: RepoId) -> &'static str {
-    match repo {
-        RepoId::Current => "current",
-        RepoId::Nonfree => "nonfree",
-        RepoId::Multilib => "multilib",
-        RepoId::Debug => "debug",
-    }
-}
-
-fn category_key(category: Category) -> &'static str {
-    match category {
-        Category::Base => "base",
-        Category::Devel => "devel",
-        Category::Desktop => "desktop",
-        Category::Net => "net",
-        Category::Media => "media",
-        Category::Graphics => "graphics",
-        Category::Office => "office",
-        Category::Games => "games",
-        Category::Fonts => "fonts",
-        Category::Admin => "admin",
-    }
 }
 
 /// Wire key of a queue action, the same spelling the store persists.
@@ -955,11 +761,7 @@ pub(crate) fn queue_key(action: QueueAction) -> &'static str {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use kxbps_core::{InstallState, ListFilter, Store};
-
-    fn catalog() -> Arc<Catalog> {
-        Arc::new(Catalog::load_from_str(include_str!("../resources/catalog.json")).unwrap())
-    }
+    use kxbps_core::{InstallState, ListFilter};
 
     /// One record as `xbps-query -l` printed it.
     fn record(pkgver: &str, description: &str) -> InstalledPackage {
@@ -988,14 +790,44 @@ mod tests {
         }
     }
 
-    fn model_with(installed: InstalledMap) -> PackageModelRust {
-        let mut model = PackageModelRust::with_catalog(catalog());
-        install_records(&mut model, &installed, Vec::new(), Vec::new(), Vec::new());
+    fn inst(version: &str, explicit: bool, held: bool) -> Inst {
+        Inst {
+            version: version.to_owned(),
+            explicit,
+            held,
+            at: 0,
+        }
+    }
+
+    /// A small installed set: vim explicit, bash and linux dependencies, curl
+    /// explicit.
+    fn installed() -> InstalledMap {
+        [
+            ("bash", inst("5.2.037_1", false, false)),
+            ("curl", inst("8.16.0_1", true, false)),
+            ("linux", inst("6.18.63_1", false, false)),
+            ("vim", inst("9.2.1031_1", true, false)),
+        ]
+        .into_iter()
+        .map(|(name, value)| (name.to_owned(), value))
+        .collect()
+    }
+
+    fn records() -> Vec<InstalledPackage> {
+        vec![
+            record("bash-5.2.037_1", "The GNU Bourne Again Shell"),
+            record("curl-8.16.0_1", "Command line tool for transferring data"),
+            record("linux-6.18.63_1", "Linux kernel"),
+            record("vim-9.2.1031_1", "Vi Improved"),
+        ]
+    }
+
+    fn model() -> PackageModelRust {
+        let mut model = PackageModelRust::default();
+        install_records(&mut model, &installed(), records(), Vec::new(), Vec::new());
         model
     }
 
-    /// Feeds a snapshot the way the backend does: records for the list, the
-    /// map derived from them, then the lists xbps reported.
     fn install(
         model: &mut PackageModelRust,
         installed: &InstalledMap,
@@ -1022,188 +854,96 @@ mod tests {
     }
 
     #[test]
-    fn catalogue_fills_the_first_frame_before_any_read() {
-        // Until the worker answers, the list is the catalog: an empty window
-        // would say "nothing is installed" about a system nobody has looked at.
-        let model = PackageModelRust::with_catalog(catalog());
+    fn an_empty_model_says_nothing_is_installed() {
+        let model = PackageModelRust::default();
         assert_eq!(
             model.filter.to_string(),
             "installed",
             "the window opens on Installed"
         );
-        let mut model = model;
         assert_eq!(model.count, 0, "nothing is known to be installed yet");
-        set_filter(&mut model, "all");
-        assert_eq!(model.count, 115);
-        assert_eq!(model.visible_names().len(), 115);
-        let mut sorted = model.visible_names();
-        sorted.sort_unstable();
-        assert_eq!(model.visible_names(), sorted, "rows are in name order");
+        assert!(model.visible_names().is_empty());
     }
 
     #[test]
-    fn a_snapshot_replaces_the_catalog_rows_with_the_system_records() {
-        let mut model = PackageModelRust::with_catalog(catalog());
-        let installed: InstalledMap = [("zramen", ("0.2.0_1", true)), ("ark", ("25.08.0_1", true))]
-            .into_iter()
-            .map(|(name, (version, explicit))| {
-                (
-                    name.to_owned(),
-                    Inst {
-                        version: version.to_owned(),
-                        explicit,
-                        held: false,
-                        at: 0,
-                    },
-                )
-            })
-            .collect();
-        let records = vec![
-            record("ark-25.08.0_1", "Archive manager"),
-            record("zramen-0.2.0_1", "Zram controller"),
-        ];
-
+    fn a_snapshot_replaces_the_rows_with_the_system_records() {
+        let mut model = PackageModelRust::default();
         let (rows_changed, rows, _) =
-            model.snapshot(records, installed, Vec::new(), Vec::new(), Vec::new());
-        assert!(rows_changed, "two records are not 115 catalog rows");
+            model.snapshot(records(), installed(), Vec::new(), Vec::new(), Vec::new());
+        assert!(rows_changed, "the first read fills the list");
         model.assign_rows(rows);
 
-        assert_eq!(model.count, 2);
-        assert_eq!(model.visible_names(), vec!["ark", "zramen"]);
-        assert_eq!(
-            model.name_of(&model.rows[1]),
-            "zramen",
-            "a name the catalog does not know is still a row"
-        );
+        assert_eq!(model.count, 4);
+        assert_eq!(model.visible_names(), vec!["bash", "curl", "linux", "vim"]);
+        assert_eq!(model.name_of(&model.rows[1]), "curl");
     }
 
     #[test]
-    fn an_installed_only_row_shows_what_the_catalog_does_not_know_as_empty() {
-        let mut model = PackageModelRust::with_catalog(catalog());
-        let installed: InstalledMap = [(
-            "zramen".to_owned(),
-            Inst {
-                version: "0.2.0_1".to_owned(),
-                explicit: true,
-                held: false,
-                at: 0,
-            },
-        )]
-        .into_iter()
-        .collect();
-        install_records(
-            &mut model,
-            &installed,
-            vec![record("zramen-0.2.0_1", "Zram controller")],
-            Vec::new(),
-            Vec::new(),
-        );
-
-        let row = model.row_view(&model.rows[0]);
-        assert_eq!(
-            role_value(role::NAME, &row)
-                .value::<QString>()
-                .unwrap()
-                .to_string(),
-            "zramen"
-        );
-        assert_eq!(
-            role_value(role::VERSION, &row)
-                .value::<QString>()
-                .unwrap()
-                .to_string(),
-            "0.2.0_1",
-            "the installed version is the only one there is"
-        );
-        assert_eq!(
-            role_value(role::SHORT, &row)
-                .value::<QString>()
-                .unwrap()
-                .to_string(),
-            "Zram controller",
-            "the record's description fills the short text"
-        );
-        for role_id in [role::SIZE, role::REPO, role::CATEGORY, role::HOMEPAGE] {
-            assert!(
-                role_value(role_id, &row)
-                    .value::<QString>()
-                    .unwrap()
-                    .to_string()
-                    .is_empty(),
-                "role {role_id} is empty rather than invented"
-            );
-        }
-        assert!(
-            role_value(role::SIZE_BYTES, &row).value::<i64>().is_none(),
-            "no size in bytes either"
-        );
-        assert!(role_value(role::EXPLICIT, &row).value::<bool>().unwrap());
-    }
-
-    #[test]
-    fn a_catalog_known_record_keeps_the_catalog_facts() {
-        let store = Store::fresh(&catalog());
-        let mut model = model_with(store.installed.clone());
-        set_filter(&mut model, "installed");
-
+    fn an_installed_row_shows_only_what_xbps_printed() {
+        let model = model();
         let row = model
             .rows
             .iter()
             .position(|row| model.name_of(row) == "vim")
-            .map(|index| model.row_view(&model.rows[index]))
             .expect("vim is installed");
+        let view = model.row_view(&model.rows[row]);
         assert_eq!(
-            role_value(role::SIZE, &row)
+            role_value(role::NAME, &view)
                 .value::<QString>()
                 .unwrap()
                 .to_string(),
-            "4.0 MiB"
+            "vim"
         );
         assert_eq!(
-            role_value(role::SIZE_BYTES, &row).value::<i64>().unwrap(),
-            4_194_304
-        );
-        assert_eq!(
-            role_value(role::REPO, &row)
+            role_value(role::VERSION, &view)
                 .value::<QString>()
                 .unwrap()
                 .to_string(),
-            "current"
+            "9.2.1031_1",
+            "the installed version is the only one there is"
         );
-        assert!(!role_value(role::IS_UPDATE, &row).value::<bool>().unwrap());
+        assert_eq!(
+            role_value(role::SHORT, &view)
+                .value::<QString>()
+                .unwrap()
+                .to_string(),
+            "Vi Improved",
+            "the record's description fills the short text"
+        );
+        assert!(role_value(role::EXPLICIT, &view).value::<bool>().unwrap());
+        assert!(
+            role_value(999, &view).type_name().is_empty(),
+            "a role the model does not have is invalid, not invented"
+        );
     }
 
     #[test]
-    fn installed_filter_lists_the_records_not_the_catalog_intersection() {
-        let store = Store::fresh(&catalog());
-        let mut model = model_with(store.installed.clone());
-        assert_eq!(model.rows.len(), 56, "the snapshot has 56 records");
-        set_filter(&mut model, "installed");
-        assert_eq!(model.count, 56);
+    fn installed_filter_lists_the_records() {
+        let model = model();
+        assert_eq!(model.rows.len(), 4);
+        assert_eq!(model.count, 4);
         assert!(model.visible_names().contains(&"vim"));
-        assert!(
-            !model.visible_names().contains(&"ark"),
-            "ark is not installed"
-        );
     }
 
     #[test]
     fn updates_filter_follows_the_reported_list() {
-        let store = Store::fresh(&catalog());
-        let updates = vec![update("linux-6.18.63_1"), update("curl-8.16.0_1")];
-        let mut model = model_with(store.installed.clone());
-        install(&mut model, &store.installed, updates, Vec::new());
+        let mut model = model();
+        install(
+            &mut model,
+            &installed(),
+            vec![update("linux-6.18.63_1"), update("curl-8.16.0_1")],
+            Vec::new(),
+        );
         set_filter(&mut model, "updates");
         assert_eq!(model.visible_names(), vec!["curl", "linux"]);
     }
 
     #[test]
     fn a_hold_hides_its_update_immediately() {
-        let store = Store::fresh(&catalog());
-        let mut model = model_with(store.installed.clone());
+        let mut model = model();
         install(
             &mut model,
-            &store.installed,
+            &installed(),
             vec![update("linux-6.18.63_1")],
             Vec::new(),
         );
@@ -1212,9 +952,9 @@ mod tests {
 
         // The hold lives in the store, not in the reported list: the model must
         // hide the row anyway.
-        let mut installed = store.installed.clone();
-        installed.get_mut("linux").unwrap().held = true;
-        let (_, rows, _) = model.store_state(installed, Vec::new());
+        let mut held = installed();
+        held.get_mut("linux").unwrap().held = true;
+        let (_, rows, _) = model.store_state(held, Vec::new());
         model.assign_rows(rows);
         set_filter(&mut model, "updates");
         assert!(
@@ -1225,51 +965,69 @@ mod tests {
 
     #[test]
     fn orphans_filter_follows_the_reported_list() {
-        let store = Store::fresh(&catalog());
-        let mut model = model_with(store.installed.clone());
+        let mut model = model();
         install(
             &mut model,
-            &store.installed,
+            &installed(),
             Vec::new(),
-            vec!["cowsay".to_owned()],
+            vec!["curl".to_owned()],
         );
         set_filter(&mut model, "orphans");
-        assert_eq!(model.visible_names(), vec!["cowsay"]);
+        assert_eq!(model.visible_names(), vec!["curl"]);
     }
 
     #[test]
-    fn explicit_and_orphan_filters_are_disjoint_for_the_seed() {
-        let store = Store::fresh(&catalog());
-        let mut explicit = model_with(store.installed.clone());
+    fn the_explicit_filter_shows_only_the_packages_installed_on_purpose() {
+        let mut explicit = model();
         set_filter(&mut explicit, "explicit");
         let explicit_names: HashSet<String> = explicit
             .visible_names()
             .into_iter()
             .map(str::to_owned)
             .collect();
-        assert!(!explicit_names.is_empty());
+        assert_eq!(explicit_names.len(), 2, "vim and curl are explicit");
         assert!(explicit_names.contains("vim"));
+    }
 
-        let mut orphans = model_with(store.installed.clone());
+    #[test]
+    fn an_orphan_that_is_still_installed_and_explicit_is_in_both_filters() {
+        // The two filters answer different questions — "installed on purpose"
+        // and "nothing needs it" — so a package can be in both. Nothing here
+        // invents an exclusion the backend does not have.
+        let mut orphans = model();
         install(
             &mut orphans,
-            &store.installed,
+            &installed(),
             Vec::new(),
-            vec!["cowsay".to_owned()],
+            vec!["curl".to_owned()],
         );
         set_filter(&mut orphans, "orphans");
-        let orphan_names: HashSet<String> = orphans
-            .visible_names()
-            .into_iter()
-            .map(str::to_owned)
-            .collect();
-        assert!(orphan_names.is_disjoint(&explicit_names));
+        assert_eq!(orphans.visible_names(), vec!["curl"]);
+        set_filter(&mut orphans, "explicit");
+        assert!(orphans.visible_names().contains(&"curl"));
+    }
+
+    #[test]
+    fn an_orphan_xbps_no_longer_lists_is_not_a_row() {
+        let mut orphans = model();
+        let mut without_curl = installed();
+        without_curl.remove("curl");
+        install(
+            &mut orphans,
+            &without_curl,
+            Vec::new(),
+            vec!["curl".to_owned()],
+        );
+        set_filter(&mut orphans, "orphans");
+        assert!(
+            orphans.visible_names().is_empty(),
+            "the rows are the installed set, not the orphan list"
+        );
     }
 
     #[test]
     fn queued_filter_follows_the_queue_map() {
-        let mut model = PackageModelRust::with_catalog(catalog());
-        set_filter(&mut model, "all");
+        let mut model = model();
         set_filter(&mut model, "queued");
         assert_eq!(model.rows.len(), 0, "nothing is queued");
 
@@ -1280,7 +1038,7 @@ mod tests {
 
     #[test]
     fn rebuild_reports_no_change_when_the_visible_set_is_identical() {
-        let mut model = PackageModelRust::with_catalog(catalog());
+        let mut model = model();
         set_filter(&mut model, "all");
         model.search = QString::from("vim");
         assert!(model.rebuild(), "first narrowing changes the rows");
@@ -1299,32 +1057,18 @@ mod tests {
 
     #[test]
     fn search_needle_is_case_insensitive() {
-        let mut model = PackageModelRust::with_catalog(catalog());
-        set_filter(&mut model, "all");
-        model.search = QString::from("Bash");
+        let mut model = model();
+        model.search = QString::from("Bourne");
         model.rebuild();
-        assert!(!model.rows.is_empty(), "Bash matches the catalog");
-        assert!(model.visible_names().contains(&"bash"));
-    }
-
-    #[test]
-    fn category_narrows_without_touching_the_catalog() {
-        let mut model = PackageModelRust::with_catalog(catalog());
-        set_filter(&mut model, "all");
-        let catalog_ptr = Arc::as_ptr(&model.catalog);
-        model.category = QString::from("devel");
-        model.rebuild();
-        assert!(!model.rows.is_empty());
-        assert!(model.rows.iter().all(|row| {
-            model
-                .pkg_of(row)
-                .is_some_and(|pkg| pkg.category == Category::Devel)
-        }));
         assert_eq!(
-            Arc::as_ptr(&model.catalog),
-            catalog_ptr,
-            "catalog not rebuilt"
+            model.visible_names(),
+            vec!["bash"],
+            "matches the description"
         );
+
+        model.search = QString::from("VIM");
+        model.rebuild();
+        assert_eq!(model.visible_names(), vec!["vim"], "matches the name");
     }
 
     #[test]
@@ -1341,7 +1085,7 @@ mod tests {
         ] {
             let json = serde_json::to_string(&filter).unwrap();
             let json = json.trim_matches('"');
-            let mut model = PackageModelRust::with_catalog(catalog());
+            let mut model = model();
             set_filter(&mut model, json);
             assert_eq!(model.filter.to_string(), json, "filter {id} round-trips");
         }
@@ -1349,29 +1093,20 @@ mod tests {
 
     #[test]
     fn roles_cover_every_documented_name() {
-        assert_eq!(ROLES.len(), 18);
+        assert_eq!(ROLES.len(), 9);
         let names: Vec<&str> = ROLES.iter().map(|(_, name)| *name).collect();
         assert_eq!(
             names,
             vec![
                 "name",
                 "version",
-                "repo",
-                "category",
-                "size",
-                "download",
                 "short",
-                "homepage",
-                "license",
-                "depends",
                 "installedVersion",
                 "explicit",
                 "held",
                 "queuedAction",
                 "isUpdate",
                 "updateVersion",
-                "sizeBytes",
-                "downloadBytes",
             ]
         );
     }
@@ -1393,8 +1128,7 @@ mod tests {
 
     #[test]
     fn role_values_describe_a_row() {
-        let store = Store::fresh(&catalog());
-        let mut model = model_with(store.installed.clone());
+        let model = model();
         let row = model
             .rows
             .iter()
@@ -1408,34 +1142,20 @@ mod tests {
                 .unwrap()
                 .is_empty()
         );
-        assert_eq!(
-            role_value(role::DOWNLOAD_BYTES, &view)
-                .value::<i64>()
-                .unwrap(),
-            1_468_006
-        );
+        assert!(!role_value(role::IS_UPDATE, &view).value::<bool>().unwrap());
         assert!(
-            role_value(role::DOWNLOAD_BYTES + 1, &view)
+            role_value(role::UPDATE_VERSION + 1, &view)
                 .type_name()
                 .is_empty(),
             "unknown role"
         );
-        let _ = &mut model;
     }
 
-    /// The seed's installed set plus `ark`: a store change after a read, so
+    /// The model's installed set plus `ark`: a store change after a read, so
     /// the tests that use it go through `store_state`.
     fn installed_with_ark() -> InstalledMap {
-        let mut installed = Store::fresh(&catalog()).installed;
-        installed.insert(
-            "ark".to_string(),
-            Inst {
-                version: "25.08.0_1".into(),
-                explicit: true,
-                held: false,
-                at: 0,
-            },
-        );
+        let mut installed = installed();
+        installed.insert("ark".to_string(), inst("25.08.0_1", true, false));
         installed
     }
 
@@ -1443,21 +1163,19 @@ mod tests {
     fn a_store_change_reports_only_the_rows_that_moved() {
         // A finished job, a queue toggle: the store gains a package, the list
         // gains one row and nothing else is rebuilt.
-        let store = Store::fresh(&catalog());
-        let mut model = model_with(store.installed.clone());
+        let mut model = model();
         set_filter(&mut model, "installed");
-        assert_eq!(model.count, 56);
+        assert_eq!(model.count, 4);
 
         let (rows_changed, rows, affected) = model.store_state(installed_with_ark(), Vec::new());
         assert!(rows_changed, "the installed filter gained a row");
-        assert_eq!(rows.len(), 57);
+        assert_eq!(rows.len(), 5);
         assert!(affected.is_empty(), "a reset does not need dataChanged");
     }
 
     #[test]
     fn a_queue_change_only_reports_the_queued_row() {
-        let store = Store::fresh(&catalog());
-        let mut model = model_with(store.installed.clone());
+        let mut model = model();
         set_filter(&mut model, "installed");
         let before = model.rows.clone();
 
@@ -1465,7 +1183,7 @@ mod tests {
             name: "vim".into(),
             action: QueueAction::Install,
         }];
-        let (rows_changed, rows, affected) = model.store_state(store.installed.clone(), queue);
+        let (rows_changed, rows, affected) = model.store_state(installed(), queue);
         assert!(!rows_changed, "the same records, so no reset");
         assert!(
             affected
@@ -1477,53 +1195,17 @@ mod tests {
     }
 
     #[test]
-    fn snapshot_resets_when_a_queue_row_appears() {
-        let store = Store::fresh(&catalog());
-        let mut model = model_with(store.installed.clone());
-        set_filter(&mut model, "installed");
-        assert_eq!(model.count, 56);
-
-        let (rows_changed, rows, affected) = model.store_state(installed_with_ark(), Vec::new());
-        assert!(rows_changed, "the installed filter gained a record");
-        assert_eq!(rows.len(), 57);
-        assert!(affected.is_empty(), "a reset does not need dataChanged");
-    }
-
-    #[test]
-    fn queue_snapshot_marks_the_queued_row() {
-        let store = Store::fresh(&catalog());
-        let mut model = model_with(store.installed.clone());
-        set_filter(&mut model, "all");
-        let before = model.rows.clone();
-        assert_eq!(before.len(), 56, "the seed's records, in the `all` filter");
-
-        let queue = vec![QueueItem {
-            name: "vim".into(),
-            action: QueueAction::Install,
-        }];
-
-        let (rows_changed, _, affected) = model.store_state(store.installed.clone(), queue);
-        assert!(!rows_changed, "the list itself does not move");
-        assert_eq!(affected.len(), 1, "only vim changed");
-        assert_eq!(model.name_of(&model.rows[affected[0] as usize]), "vim");
-    }
-
-    #[test]
     fn queue_snapshot_drives_the_queued_filter_and_role() {
-        let store = Store::fresh(&catalog());
-        let mut model = model_with(store.installed.clone());
-        model.queue.clear();
-        model.rebuild();
+        let mut model = model();
         set_filter(&mut model, "queued");
         assert_eq!(model.rows.len(), 0);
 
-        // The store's own wire format: `[{name, action}]`, not a map. The
-        // queue can only hold a row the list has, so this queues `vim`.
+        // The store's own wire format: `[{name, action}]`, not a map.
         let queue = vec![QueueItem {
             name: "vim".into(),
             action: QueueAction::Install,
         }];
-        let (rows_changed, rows, _) = model.store_state(store.installed.clone(), queue);
+        let (rows_changed, rows, _) = model.store_state(installed(), queue);
         assert!(rows_changed, "the queued filter gains a row");
         assert_eq!(rows.len(), 1);
         model.assign_rows(rows);

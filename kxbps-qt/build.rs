@@ -38,12 +38,8 @@ fn main() {
         "src/mirror_backend.rs",
         "src/xbps_bridge.rs",
     ])
-    // The package catalog is generated from the web app by `scripts/gen-catalog.mjs`.
-    // Because the builder knows the QML module URI, the file lands in the module's
-    // import path as `:/qt/qml/org/kde/kxbps/resources/catalog.json`.
-    .qrc_resources(["resources/catalog.json"])
-    // `QFile` access to the catalog resource plus the protected
-    // `QAbstractItemModel` members the Rust model cannot reach.
+    // `QFile` access to the protected `QAbstractItemModel` members the Rust
+    // model cannot reach.
     .cpp_file("src/k18n_shim.cpp")
     .cpp_file("src/model_shim.cpp")
     // The mirror model's factory and the `QNetworkAccessManager` probe

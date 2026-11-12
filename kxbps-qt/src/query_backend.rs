@@ -22,9 +22,7 @@ use std::sync::atomic::{AtomicU64, Ordering};
 use cxx_qt::CxxQtType;
 use cxx_qt::Threading;
 use cxx_qt_lib::{QList, QMap, QMapPair_QString_QVariant, QString, QStringList, QVariant};
-use kxbps_core::{
-    Catalog, InstalledMap, QueueAction, QueueItem, SearchHit, UpdateEntry, split_pkgver,
-};
+use kxbps_core::{InstalledMap, QueueAction, QueueItem, SearchHit, UpdateEntry, split_pkgver};
 
 use crate::package_model::{self, InstalledState, RowView};
 use crate::xbps_snapshot::{
@@ -55,7 +53,6 @@ pub mod qobject {
     unsafe extern "RustQt" {
         #[qobject]
         #[qml_element]
-        #[qproperty(QString, error, READ, CONSTANT)]
         #[qproperty(QString, search_error, READ, NOTIFY)]
         #[qproperty(QStringList, search_error_args, READ, NOTIFY)]
         #[qproperty(i32, result_count, READ, NOTIFY)]
@@ -123,8 +120,6 @@ pub mod qobject {
 /// methods wrap it in `Pin<&mut Self>`, which only unwraps inside `unsafe`, so
 /// the tweaks and the guards sit together on the plain struct.
 pub struct QueryBackendRust {
-    error: QString,
-    catalog: Arc<Catalog>,
     /// The same snapshot the package model holds.
     installed: InstalledMap,
     queue: HashMap<String, QueueAction>,
@@ -214,8 +209,6 @@ struct SearchAnswer {
 impl Default for QueryBackendRust {
     fn default() -> Self {
         Self {
-            error: QString::from(""),
-            catalog: Arc::default(),
             installed: InstalledMap::new(),
             queue: HashMap::new(),
             state: InstalledState::new(&[], &[]),
@@ -243,38 +236,9 @@ impl Default for QueryBackendRust {
 }
 
 impl cxx_qt::Initialize for qobject::QueryBackend {
-    /// Reads the embedded catalog. A missing or malformed resource must not
-    /// abort the app: it becomes the `error` string QML shows in a banner.
-    fn initialize(mut self: Pin<&mut Self>) {
-        let json = crate::qobject::read_resource(&QString::from(crate::CATALOG_RESOURCE_PATH));
-        let (catalog, error, _) = load_catalog(&json);
-        let backend = Pin::get_mut(self.as_mut().rust_mut());
-        backend.error = QString::from(error.as_str());
-        backend.catalog = Arc::new(catalog);
-    }
-}
-
-/// Turns the catalog resource into `(catalog, error, json for the model)`.
-///
-/// `error` is empty on success and a short technical reason otherwise; the
-/// sentence around it belongs to QML's `i18nd`. The third element is the JSON a
-/// package model can parse, so a caller never has to guess why it is empty.
-pub(crate) fn load_catalog(resource: &QString) -> (Catalog, String, QString) {
-    if resource.is_empty() {
-        return (
-            Catalog::default(),
-            format!("resource not found: {}", crate::CATALOG_RESOURCE_PATH),
-            QString::from("[]"),
-        );
-    }
-    match Catalog::load_from_str(&resource.to_string()) {
-        Ok(catalog) => (catalog, String::new(), resource.clone()),
-        Err(err) => (
-            Catalog::default(),
-            format!("invalid catalog JSON: {err}"),
-            QString::from("[]"),
-        ),
-    }
+    /// Nothing to read at construction: every answer comes from xbps on
+    /// demand.
+    fn initialize(self: Pin<&mut Self>) {}
 }
 
 impl qobject::QueryBackend {
@@ -459,7 +423,6 @@ impl QueryBackendRust {
         let row = RowView {
             name: &hit.name,
             version: &hit.version,
-            pkg: None,
             installed,
             queued,
             update_to,
@@ -755,7 +718,7 @@ fn trimmed(query: &cxx_qt_lib::QString) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use kxbps_core::{Inst, Store};
+    use kxbps_core::{Inst, InstalledMap};
 
     fn text_of(map: &QMap<QMapPair_QString_QVariant>, key: &str) -> String {
         map.get(&QString::from(key))
@@ -871,22 +834,6 @@ mod tests {
                 "token {token}"
             );
         }
-    }
-
-    #[test]
-    fn missing_resource_is_an_error_not_a_panic() {
-        let (catalog, error, json) = load_catalog(&QString::from(""));
-        assert!(catalog.is_empty());
-        assert!(error.starts_with("resource not found: "), "got {error}");
-        assert_eq!(json.to_string(), "[]");
-    }
-
-    #[test]
-    fn malformed_resource_is_an_error_not_a_panic() {
-        let (catalog, error, json) = load_catalog(&QString::from("{ not json"));
-        assert!(catalog.is_empty());
-        assert!(error.starts_with("invalid catalog JSON: "), "got {error}");
-        assert_eq!(json.to_string(), "[]");
     }
 
     #[test]
@@ -1013,7 +960,6 @@ mod tests {
 
     #[test]
     fn a_new_installed_set_drops_the_facts_of_a_package_it_changed() {
-        let catalog = Catalog::load_from_str(include_str!("../resources/catalog.json")).unwrap();
         let mut backend = QueryBackendRust::default();
         // A package read while it was not installed: no size, not installed.
         backend.begin_facts("zramen-1.0.1_1");
@@ -1028,8 +974,8 @@ mod tests {
             Some(false)
         );
 
-        let mut store = Store::fresh(&catalog);
-        store.installed.insert(
+        let mut installed = InstalledMap::new();
+        installed.insert(
             "zramen".to_owned(),
             Inst {
                 version: "1.0.1_1".to_owned(),
@@ -1038,7 +984,7 @@ mod tests {
                 at: 0,
             },
         );
-        backend.apply_snapshot(store.installed.clone(), Vec::new(), Vec::new(), Vec::new());
+        backend.apply_snapshot(installed, Vec::new(), Vec::new(), Vec::new());
 
         assert!(
             backend.facts_of("zramen-1.0.1_1").is_none(),
@@ -1149,11 +1095,16 @@ mod tests {
 
     #[test]
     fn a_facts_map_answers_held_update_and_queue_from_the_snapshot() {
-        let catalog = Catalog::load_from_str(include_str!("../resources/catalog.json")).unwrap();
-        let store = Store::fresh(&catalog);
-        let mut installed = store.installed.clone();
-        let record = installed.get_mut("vim").expect("the seed image has vim");
-        record.held = true;
+        let mut installed = InstalledMap::new();
+        installed.insert(
+            "vim".to_owned(),
+            Inst {
+                version: "9.2.1031_1".to_owned(),
+                explicit: true,
+                held: true,
+                at: 7,
+            },
+        );
         let updates: Vec<UpdateEntry> = serde_json::from_str(
             r#"[{"name":"vim","version":"9.9","pkgver":"vim-9.9_1","action":"update",
                  "arch":"x86_64","repository":"https://r/current",
@@ -1194,27 +1145,62 @@ mod tests {
 
     #[test]
     fn a_search_hit_map_reports_the_installed_record_it_knows() {
-        let catalog = Catalog::load_from_str(include_str!("../resources/catalog.json")).unwrap();
-        let store = Store::fresh(&catalog);
+        let mut installed = InstalledMap::new();
+        installed.insert(
+            "vim".to_owned(),
+            Inst {
+                version: "9.2.1031_1".to_owned(),
+                explicit: true,
+                held: false,
+                at: 7,
+            },
+        );
         let mut backend = QueryBackendRust::default();
-        backend.apply_snapshot(store.installed.clone(), Vec::new(), Vec::new(), Vec::new());
-        let version = store.installed["vim"].version.clone();
-        let map = backend.hit_map(&hit("vim", &version, true));
-        assert_eq!(text_of(&map, "installedVersion"), version);
-        assert_eq!(
+        backend.apply_snapshot(installed, Vec::new(), Vec::new(), Vec::new());
+        let map = backend.hit_map(&hit("vim", "9.2.1031_1", true));
+        assert_eq!(text_of(&map, "installedVersion"), "9.2.1031_1");
+        assert!(
             flag_of(&map, "explicit"),
-            store.installed["vim"].explicit,
             "the hit repeats the installed record"
         );
+        assert_eq!(text_of(&map, "short"), "vim description");
+        assert!(!flag_of(&map, "isUpdate"), "nothing is pending for vim");
+        assert!(!flag_of(&map, "held"));
+        assert_eq!(text_of(&map, "queuedAction"), "");
     }
 
     #[test]
-    fn embedded_catalog_loads_without_error() {
-        let (catalog, error, json) =
-            load_catalog(&QString::from(include_str!("../resources/catalog.json")));
-        assert_eq!(error, "");
-        assert_eq!(catalog.len(), 115);
-        assert_eq!(json.to_string(), include_str!("../resources/catalog.json"));
+    fn a_search_hit_map_reports_the_pending_update_and_the_queue() {
+        let mut installed = InstalledMap::new();
+        installed.insert(
+            "vim".to_owned(),
+            Inst {
+                version: "9.2.1031_1".to_owned(),
+                explicit: true,
+                held: false,
+                at: 7,
+            },
+        );
+        let updates: Vec<UpdateEntry> = serde_json::from_str(
+            r#"[{"name":"vim","version":"9.9","pkgver":"vim-9.9_1","action":"update",
+                 "arch":"x86_64","repository":"https://r/current",
+                 "installedSize":1,"downloadSize":1}]"#,
+        )
+        .unwrap();
+        let mut backend = QueryBackendRust::default();
+        backend.apply_snapshot(
+            installed,
+            vec![QueueItem {
+                name: "vim".into(),
+                action: QueueAction::Update,
+            }],
+            updates,
+            Vec::new(),
+        );
+        let map = backend.hit_map(&hit("vim", "9.2.1031_1", true));
+        assert!(flag_of(&map, "isUpdate"));
+        assert_eq!(text_of(&map, "updateVersion"), "9.9");
+        assert_eq!(text_of(&map, "queuedAction"), "update");
     }
 
     #[test]

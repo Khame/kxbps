@@ -20,9 +20,18 @@ QQC2.ItemDelegate {
     // The row whose facts the pane is showing; the view tracks it by pkgver.
     property bool current: false
 
+    // A `-Rs` hit is installed when the snapshot knows its version; the search
+    // line itself only carries the `[*]`/`[-]` tag.
+    readonly property bool installed: modelData.installedVersion !== undefined
+                                        && modelData.installedVersion !== ""
+
     highlighted: delegate.current
 
-    height: Kirigami.Units.gridUnit * 2.4
+    // The row is two lines for a plain hit and three for an installed one
+    // (name, the Installed tag, the description); a fixed height clipped the
+    // labels into each other once every hit carried a description.
+    height: Math.max(Kirigami.Units.gridUnit * 2.4,
+                     row.implicitHeight + topPadding + bottomPadding)
     implicitHeight: height
     leftPadding: Kirigami.Units.largeSpacing
     rightPadding: Kirigami.Units.largeSpacing
@@ -33,6 +42,7 @@ QQC2.ItemDelegate {
     Accessible.name: modelData.name
 
     contentItem: RowLayout {
+        id: row
         spacing: Kirigami.Units.largeSpacing
 
         ColumnLayout {
@@ -49,11 +59,11 @@ QQC2.ItemDelegate {
 
             QQC2.Label {
                 Layout.fillWidth: true
-                text: modelData.installed ? i18nd("kxbps", "Installed") : ""
+                text: delegate.installed ? i18nd("kxbps", "Installed") : ""
                 font: Kirigami.Theme.smallFont
-                color: modelData.installed ? Kirigami.Theme.positiveTextColor
+                color: delegate.installed ? Kirigami.Theme.positiveTextColor
                                            : Kirigami.Theme.disabledTextColor
-                visible: modelData.installed
+                visible: delegate.installed
                 elide: Text.ElideRight
             }
 
@@ -73,7 +83,7 @@ QQC2.ItemDelegate {
             text: modelData.version
             font.family: "monospace"
             elide: Text.ElideRight
-            color: modelData.installed ? Kirigami.Theme.positiveTextColor
+            color: delegate.installed ? Kirigami.Theme.positiveTextColor
                                        : Kirigami.Theme.textColor
         }
     }

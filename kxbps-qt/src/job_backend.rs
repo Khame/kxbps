@@ -529,7 +529,7 @@ fn finish(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use kxbps_core::{PlanReason, RepoId};
+    use kxbps_core::PlanReason;
 
     fn item(name: &str, action: PlanAction, from: Option<&str>, to: Option<&str>) -> PlanItem {
         PlanItem {
@@ -691,12 +691,5 @@ mod tests {
         assert_eq!(parsed.items, payload.items);
         assert_eq!(parsed.mirror, payload.mirror);
         assert_eq!(parsed.repos, payload.repos);
-    }
-
-    #[test]
-    fn nonfree_repo_key_is_the_wire_name() {
-        // Guards the `repo_key` spelling the job lines never use but the plan
-        // errors do.
-        assert_eq!(crate::plan_backend::repo_key(RepoId::Nonfree), "nonfree");
     }
 }

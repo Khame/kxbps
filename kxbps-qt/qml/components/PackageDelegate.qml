@@ -19,7 +19,6 @@ Kirigami.SwipeListItem {
 
     property var installedBackend
     property real versionWidth
-    property real sizeWidth
     property real stateWidth
     // Driven by the selected name, not `ListView.currentIndex`: a filter change
     // resets the model and would drop the current index, while the details pane
@@ -110,18 +109,10 @@ Kirigami.SwipeListItem {
                 elide: Text.ElideRight
             }
 
-            QQC2.Label {
-                Layout.fillWidth: true
-                // Raw repository and category tokens, not UI copy.
-                text: model.repo + " · " + model.category
-                font: Kirigami.Theme.smallFont
-                color: Kirigami.Theme.disabledTextColor
-                elide: Text.ElideRight
-            }
         }
 
         // Version: one column with three states, so an update reads as
-        // "installed → available" and a fresh install as the catalog version.
+        // "installed → available" and a fresh install as xbps' version.
         Item {
             Layout.preferredWidth: delegate.versionWidth
             Layout.minimumWidth: delegate.versionWidth
@@ -170,18 +161,6 @@ Kirigami.SwipeListItem {
                     elide: Text.ElideRight
                 }
             }
-        }
-
-        // Size: the download figure is what the transaction will pull, so a
-        // queued install or update reports that instead of the installed size.
-        QQC2.Label {
-            Layout.preferredWidth: delegate.sizeWidth
-            Layout.minimumWidth: delegate.sizeWidth
-            Layout.maximumWidth: delegate.sizeWidth
-            horizontalAlignment: Text.AlignRight
-            text: (model.queuedAction === "install" || model.queuedAction === "update") ? model.download : model.size
-            font.family: "monospace"
-            elide: Text.ElideLeft
         }
 
         Item {

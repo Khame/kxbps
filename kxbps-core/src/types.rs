@@ -8,52 +8,6 @@
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 
-/// A package repository known to xbps.
-#[derive(Serialize, Deserialize, Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord)]
-#[serde(rename_all = "lowercase")]
-pub enum RepoId {
-    Current,
-    Nonfree,
-    Multilib,
-    Debug,
-}
-
-/// Coarse package section shown in the package list.
-#[derive(Serialize, Deserialize, Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord)]
-#[serde(rename_all = "lowercase")]
-pub enum Category {
-    Base,
-    Devel,
-    Desktop,
-    Net,
-    Media,
-    Graphics,
-    Office,
-    Games,
-    Fonts,
-    Admin,
-}
-
-/// One package as advertised by a repository index.
-///
-/// `size` is the installed size in bytes and `download` the compressed
-/// download size in bytes; both come from the web app's `kb()`/`mb()` helpers,
-/// which already return byte counts.
-#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Eq)]
-pub struct Pkg {
-    pub name: String,
-    pub version: String,
-    pub repo: RepoId,
-    pub category: Category,
-    pub size: u64,
-    pub download: u64,
-    pub short: String,
-    pub homepage: String,
-    pub license: String,
-    pub depends: Vec<String>,
-    pub files: Vec<String>,
-}
-
 /// One entry of the installed-package database (`xbps-query -l`).
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Eq)]
 pub struct Inst {
@@ -309,16 +263,4 @@ pub enum ProbeState {
     Running,
     Ok { ms: u64 },
     Fail { error: String },
-}
-
-/// A pending update: installed version versus the repository version.
-#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Eq)]
-pub struct UpdateInfo {
-    pub name: String,
-    pub from: String,
-    pub to: String,
-    /// Package is in the curated security set (see
-    /// [`crate::catalog::SECURITY_UPDATES`]).
-    pub security: bool,
-    pub download: u64,
 }

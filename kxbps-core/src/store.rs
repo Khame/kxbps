@@ -2,22 +2,25 @@
 //! the selected mirror and the user preferences.
 //!
 //! The web app keeps all of it in one `localStorage` snapshot under
-//! `qxbps-v1`; this port keeps the same four concerns in four JSON files under
+//! `qxbps-v1`; this port keeps the queue, the mirror and the preferences in
+//! three JSON files under
 //! `$XDG_DATA_HOME/kxbps/` (fallback `$HOME/.local/share/kxbps/`), so a
 //! damaged file can only cost one concern and the files stay diffable:
 //!
 //! | File | Payload |
 //! | --- | --- |
-//! | `installed.json` | `{ "<name>": Inst }` |
 //! | `queue.json` | `[QueueItem]` |
 //! | `prefs.json` | `Prefs` |
 //! | `mirror.json` | `{ "url": "https://…" }` |
+//!
+//! The installed set is not a file: it is whatever the last `xbps-query -l`
+//! said, held in memory and read again on every start.
 //!
 //! Every write goes to `<file>.tmp` in the same directory, is fsynced and then
 //! renamed over the target, so a crash mid-write leaves either the previous
 //! file or the new one — never a truncated one. A missing or unparsable file
 //! falls back to that concern's default and nothing else is touched; a broken
-//! `prefs.json` must not cost the installed database.
+//! `prefs.json` must not cost the queue.
 //!
 //! Versions before the rename kept the same files under a `khaxbps` directory
 //! next to this one; [`Store::load`] moves them out of it on the first start
@@ -35,7 +38,6 @@ use std::path::{Path, PathBuf};
 use serde::Serialize;
 use serde::de::DeserializeOwned;
 
-use crate::catalog::Catalog;
 use crate::engine::{Plan, apply_installed};
 use crate::types::{Inst, InstalledMap, Prefs, QueueAction, QueueItem};
 use crate::xbps::{InstalledPackage, UpdateEntry};
@@ -46,64 +48,19 @@ use crate::xbps::{InstalledPackage, UpdateEntry};
 /// mirror list cannot disagree about the default.
 pub use crate::mirrors::DEFAULT_MIRROR;
 
-/// Install timestamp of every package in the seed image, in epoch
-/// milliseconds: `Date.UTC(2026, 9, 2, 8, 0, 0)` in `catalog.ts`.
-pub const SEED_AT: i64 = 1_790_928_000_000;
-
 /// Directory created below the XDG data home.
 const DATA_DIR: &str = "kxbps";
 /// Directory used by versions before the `kxbps` rename; [`migrate_legacy`]
 /// moves the state files out of it on the first start afterwards.
 const LEGACY_DATA_DIR: &str = "khaxbps";
-const INSTALLED_FILE: &str = "installed.json";
 const QUEUE_FILE: &str = "queue.json";
 const PREFS_FILE: &str = "prefs.json";
 const MIRROR_FILE: &str = "mirror.json";
-/// The four state files this module owns; migration moves exactly these and
-/// never touches anything else a user may have left in the old directory.
-const STATE_FILES: [&str; 4] = [INSTALLED_FILE, QUEUE_FILE, PREFS_FILE, MIRROR_FILE];
-
-/// Packages installed on purpose in the seed image (`EXPLICIT` in `catalog.ts`).
-const EXPLICIT: [&str; 20] = [
-    "base-system",
-    "linux",
-    "linux-headers",
-    "linux-firmware",
-    "plasma-desktop",
-    "firefox",
-    "git",
-    "neovim",
-    "htop",
-    "tmux",
-    "zsh",
-    "sudo",
-    "vim",
-    "nano",
-    "openssh",
-    "curl",
-    "wget",
-    "xmirror",
-    "konsole",
-    "dolphin",
-];
-
-/// Dependency-only packages the seed image carries without needing them
-/// (`EXTRA_AUTO` in `catalog.ts`).
-const EXTRA_AUTO: [&str; 1] = ["cowsay"];
-
-/// Versions the seed image pins below the repository versions, so a fresh
-/// install has updates to offer (`VERSION_OVERRIDE` in `catalog.ts`).
-const VERSION_OVERRIDE: [(&str, &str); 9] = [
-    ("linux", "6.12.48_1"),
-    ("linux-headers", "6.12.48_1"),
-    ("linux-firmware", "20250812_1"),
-    ("xbps", "0.59.6_1"),
-    ("curl", "8.12.1_1"),
-    ("git", "2.48.1_1"),
-    ("neovim", "0.10.4_1"),
-    ("firefox", "135.0.1_1"),
-    ("mesa", "25.0.2_1"),
-];
+/// The state files this module owns; migration moves exactly these and never
+/// touches anything else a user may have left in the old directory. The old
+/// `installed.json` is deliberately not among them: the installed set is read
+/// from xbps now, and a stale file must not come back through the migration.
+const STATE_FILES: [&str; 3] = [QUEUE_FILE, PREFS_FILE, MIRROR_FILE];
 
 /// Everything that goes wrong while reading or writing the data directory.
 ///
@@ -140,9 +97,8 @@ struct MirrorFile {
 
 /// The persisted slice of the UI state.
 ///
-/// The five public fields mirror the brief's `Store` shape; `baseline` keeps
-/// the seed image around so [`Store::reset`] needs no catalog argument, and
-/// `dirty` tells the Qt layer whether a [`Store::save`] is still owed.
+/// The installed set is a cache of what xbps last reported, never a source of
+/// truth; `dirty` tells the Qt layer whether a [`Store::save`] is still owed.
 #[derive(Debug, Clone)]
 pub struct Store {
     pub installed: InstalledMap,
@@ -155,8 +111,6 @@ pub struct Store {
     /// The pending updates xbps reported for the system; memory-only, like
     /// `synced_at`, because the next start reads them again.
     updates: Vec<UpdateEntry>,
-    /// The seed image this store was created from; restored by [`Store::reset`].
-    baseline: InstalledMap,
     dirty: bool,
 }
 
@@ -182,77 +136,6 @@ fn default_prefs() -> Prefs {
         desktop: false,
         dismissed: String::new(),
     }
-}
-
-/// Builds the seed image exactly like the web app's `freshInstall()`.
-///
-/// Every name in [`EXPLICIT`] is installed as explicit, its catalog
-/// dependencies as implicit, then [`EXTRA_AUTO`] as implicit. Versions come
-/// from [`VERSION_OVERRIDE`] when present and from the catalog otherwise, and
-/// every entry is stamped [`SEED_AT`].
-///
-/// Names the catalog does not know are skipped instead of aborting the whole
-/// image: the catalog is generated and validated, and a single stale name must
-/// not leave the user without a system. A dependency cycle is broken by the
-/// `visiting` guard (the web app would recurse forever).
-pub fn fresh_install(catalog: &Catalog) -> InstalledMap {
-    let mut installed = InstalledMap::new();
-    let mut visiting = HashSet::new();
-    for name in EXPLICIT {
-        add_seed(catalog, &mut installed, &mut visiting, name, true);
-    }
-    for name in EXTRA_AUTO {
-        add_seed(catalog, &mut installed, &mut visiting, name, false);
-    }
-    installed
-}
-
-fn add_seed(
-    catalog: &Catalog,
-    installed: &mut InstalledMap,
-    visiting: &mut HashSet<String>,
-    name: &str,
-    explicit: bool,
-) {
-    if let Some(existing) = installed.get_mut(name) {
-        // A package reached twice is explicit if either path wanted it.
-        if explicit {
-            existing.explicit = true;
-        }
-        return;
-    }
-    if !visiting.insert(name.to_string()) {
-        return;
-    }
-    let Some(pkg) = catalog.by_name(name) else {
-        visiting.remove(name);
-        return;
-    };
-    let version = seed_version(name, &pkg.version);
-    let depends = pkg.depends.clone();
-    for dep in depends {
-        add_seed(catalog, installed, visiting, &dep, false);
-    }
-    installed.insert(
-        name.to_string(),
-        Inst {
-            version,
-            explicit,
-            held: false,
-            at: SEED_AT,
-        },
-    );
-    visiting.remove(name);
-}
-
-fn seed_version(name: &str, catalog_version: &str) -> String {
-    VERSION_OVERRIDE
-        .iter()
-        .find(|(overridden, _)| *overridden == name)
-        .map_or_else(
-            || catalog_version.to_string(),
-            |(_, version)| (*version).to_string(),
-        )
 }
 
 /// `$XDG_DATA_HOME/kxbps`, or `$HOME/.local/share/kxbps` when the variable
@@ -284,41 +167,36 @@ fn legacy_data_dir() -> Option<PathBuf> {
 }
 
 impl Store {
-    /// A store holding the seed image and the default preferences.
-    pub fn fresh(catalog: &Catalog) -> Self {
-        let baseline = fresh_install(catalog);
+    /// An empty store: nothing is installed until xbps says so.
+    pub fn fresh() -> Self {
         Store {
-            installed: baseline.clone(),
+            installed: InstalledMap::new(),
             updates: Vec::new(),
             queue: Vec::new(),
             mirror: DEFAULT_MIRROR.to_string(),
             prefs: default_prefs(),
             synced_at: None,
-            baseline,
             dirty: false,
         }
     }
 
     /// Loads the store from the XDG data directory.
-    pub fn load(catalog: &Catalog) -> Result<Self, StoreError> {
+    pub fn load() -> Result<Self, StoreError> {
         let dir = data_dir()?;
         // Before `load_at`, which creates `dir` — after it, the "new directory
         // does not exist yet" check inside would always be false.
         migrate_legacy(&dir);
-        Self::load_at(&dir, catalog)
+        Self::load_at(&dir)
     }
 
     /// Loads the store from `dir`, creating it if needed.
     ///
-    /// The catalog is only needed to rebuild the seed image: for a missing or
-    /// unparsable `installed.json`, and as the target of [`Store::reset`].
-    pub fn load_at(dir: &Path, catalog: &Catalog) -> Result<Self, StoreError> {
+    /// The installed set starts empty: it is not persisted, and the Qt layer
+    /// fills it from xbps right after this returns.
+    pub fn load_at(dir: &Path) -> Result<Self, StoreError> {
         ensure_dir(dir)?;
-        let mut store = Store::fresh(catalog);
+        let mut store = Store::fresh();
 
-        if let Some(installed) = read_json(&dir.join(INSTALLED_FILE)) {
-            store.installed = installed;
-        }
         if let Some(queue) = read_json(&dir.join(QUEUE_FILE)) {
             store.queue = queue;
         }
@@ -343,12 +221,11 @@ impl Store {
 
     /// Writes every concern to `dir`, creating it if needed.
     ///
-    /// All four files are rewritten; each one is replaced atomically, so a
+    /// All three files are rewritten; each one is replaced atomically, so a
     /// failure halfway leaves the files it already wrote in their new state
     /// and the rest in their old one — never a half-written file.
     pub fn save_at(&mut self, dir: &Path) -> Result<(), StoreError> {
         ensure_dir(dir)?;
-        write_json(dir, INSTALLED_FILE, &self.installed)?;
         write_json(dir, QUEUE_FILE, &self.queue)?;
         write_json(dir, PREFS_FILE, &self.prefs)?;
         write_json(
@@ -457,17 +334,15 @@ impl Store {
         self.dirty = true;
     }
 
-    /// Restores the seed image (`resetSystem` in `store.ts`).
+    /// Forgets the user's choices and the cached system state.
     ///
-    /// The queue and the mirror go back to their defaults and the
-    /// notification preferences are reset, except for the desktop-notification
-    /// switch, which the web app keeps across a reset.
-    ///
-    /// This is the store-only half: the application restores the real system
-    /// state (the store still holds the seed image) from the installed
-    /// backend, which clears it and re-reads xbps afterwards.
+    /// The queue, the mirror and the notification preferences go back to their
+    /// defaults, except for the desktop-notification switch, which the web app
+    /// keeps across a reset. The installed cache and the pending updates are
+    /// dropped too; nothing is installed or restored here, and the Qt layer
+    /// re-reads xbps afterwards.
     pub fn reset(&mut self) {
-        self.installed = self.baseline.clone();
+        self.installed.clear();
         self.updates.clear();
         self.queue.clear();
         self.mirror = DEFAULT_MIRROR.to_string();
@@ -484,8 +359,8 @@ impl Store {
     ///
     /// `explicit` and `held` are the names the two list modes answered; every
     /// other field comes from the installed records. The pending-update list is
-    /// kept as well, so the update counter and the plan do not have to consult
-    /// the embedded catalog.
+    /// kept as well, so the update counter and the plan do not have to re-read
+    /// xbps.
     pub fn apply_snapshot(
         &mut self,
         records: &[InstalledPackage],
@@ -545,12 +420,13 @@ pub fn installed_map(
 
 /// Moves the pre-rename state files into the current data directory.
 ///
-/// Versions before the rename kept `installed.json` and friends under a
-/// `khaxbps` sibling of the current directory. On the first start afterwards —
-/// when the new directory does not exist yet — this moves the four state files
-/// over, so packages, queue, mirror and preferences survive the rename. Best
-/// effort by design: every error is swallowed and the store falls back to its
-/// seed image, exactly as on a machine that never had the old directory.
+/// Versions before the rename kept their state under a `khaxbps` sibling of
+/// the current directory. On the first start afterwards — when the new
+/// directory does not exist yet — this moves the queue, the mirror and the
+/// preferences over, so they survive the rename. The old `installed.json` is
+/// left behind on purpose: the installed set is read from xbps now. Best
+/// effort by design: every error is swallowed and the store starts empty,
+/// exactly as on a machine that never had the old directory.
 fn migrate_legacy(new_dir: &Path) {
     let Some(old_dir) = legacy_data_dir() else {
         return;
@@ -655,12 +531,6 @@ mod tests {
     use std::os::unix::fs::PermissionsExt;
     use std::sync::atomic::{AtomicU32, Ordering};
 
-    const CATALOG_JSON: &str = include_str!("../../kxbps-qt/resources/catalog.json");
-
-    fn catalog() -> Catalog {
-        Catalog::load_from_str(CATALOG_JSON).expect("bundled catalog parses")
-    }
-
     static SEQ: AtomicU32 = AtomicU32::new(0);
 
     /// A private directory under the system temp dir, removed on drop.
@@ -708,104 +578,24 @@ mod tests {
         names
     }
 
-    /// The web app's `freshInstall()` output, dumped from `catalog.ts` with
-    /// Node: `[name, explicit, version]`, sorted by name.
-    const WEB_SEED: [(&str, bool, &str); 56] = [
-        ("NetworkManager", false, "1.52.0_1"),
-        ("base-system", true, "0.114_1"),
-        ("bash", false, "5.2.37_1"),
-        ("breeze", false, "6.4.5_1"),
-        ("ca-certificates", false, "20250812_1"),
-        ("coreutils", false, "9.6_1"),
-        ("cowsay", false, "3.8.4_1"),
-        ("curl", true, "8.12.1_1"),
-        ("dbus", false, "1.16.2_1"),
-        ("dhcpcd", false, "10.2.2_1"),
-        ("dolphin", true, "25.08.2_1"),
-        ("e2fsprogs", false, "1.47.2_1"),
-        ("elogind", false, "255.17_1"),
-        ("findutils", false, "4.10.0_1"),
-        ("firefox", true, "135.0.1_1"),
-        ("gawk", false, "5.3.1_1"),
-        ("git", true, "2.48.1_1"),
-        ("glibc", false, "2.41_1"),
-        ("grep", false, "3.11_2"),
-        ("gzip", false, "1.14_1"),
-        ("htop", true, "3.4.1_1"),
-        ("iproute2", false, "6.14.0_1"),
-        ("kate", false, "25.08.2_1"),
-        ("kbd", false, "2.6.4_1"),
-        ("konsole", true, "25.08.2_1"),
-        ("kwin", false, "6.4.5_1"),
-        ("linux", true, "6.12.48_1"),
-        ("linux-firmware", true, "20250812_1"),
-        ("linux-headers", true, "6.12.48_1"),
-        ("mesa", false, "25.0.2_1"),
-        ("nano", true, "8.4_1"),
-        ("ncurses", false, "6.5_1"),
-        ("neovim", true, "0.10.4_1"),
-        ("openssh", true, "9.9p2_1"),
-        ("openssl", false, "3.4.1_1"),
-        ("pipewire", false, "1.4.7_1"),
-        ("plasma-desktop", true, "6.4.5_1"),
-        ("plasma-workspace", false, "6.4.5_1"),
-        ("qt6-base", false, "6.9.2_1"),
-        ("readline", false, "8.2.13_1"),
-        ("runit", false, "2.1.2_15"),
-        ("sddm", false, "0.21.0_4"),
-        ("sed", false, "4.9_1"),
-        ("shadow", false, "4.16.0_1"),
-        ("sudo", true, "1.9.17p1_1"),
-        ("tar", false, "1.35_1"),
-        ("tmux", true, "3.5a_1"),
-        ("tzdata", false, "2025b_1"),
-        ("util-linux", false, "2.40.4_1"),
-        ("vim", true, "9.1.1700_1"),
-        ("wget", true, "1.25.0_1"),
-        ("xbps", false, "0.59.6_1"),
-        ("xmirror", true, "0.5_1"),
-        ("xz", false, "5.8.1_1"),
-        ("zlib", false, "1.3.1_1"),
-        ("zsh", true, "5.9_4"),
-    ];
-
-    fn seed_triples(installed: &InstalledMap) -> Vec<(String, bool, String)> {
-        let mut triples: Vec<(String, bool, String)> = installed
-            .iter()
-            .map(|(name, inst)| (name.clone(), inst.explicit, inst.version.clone()))
-            .collect();
-        triples.sort();
-        triples
-    }
-
-    #[test]
-    fn fresh_state_matches_the_web_app_seed() {
-        let installed = fresh_install(&catalog());
-        let expected: Vec<(String, bool, String)> = WEB_SEED
-            .iter()
-            .map(|(name, explicit, version)| {
-                ((*name).to_string(), *explicit, (*version).to_string())
-            })
-            .collect();
-        assert_eq!(seed_triples(&installed), expected);
-        assert_eq!(installed.len(), 56);
-        assert_eq!(
-            installed.values().filter(|inst| inst.explicit).count(),
-            20,
-            "the seed has exactly the web app's 20 explicit packages"
-        );
-        assert!(
-            installed
-                .values()
-                .all(|inst| inst.at == SEED_AT && !inst.held)
+    /// One installed entry, as the Qt layer would have cached it after a read.
+    fn put(store: &mut Store, name: &str, version: &str, explicit: bool, at: i64) {
+        store.installed.insert(
+            name.to_string(),
+            Inst {
+                version: version.to_string(),
+                explicit,
+                held: false,
+                at,
+            },
         );
     }
 
     #[test]
     fn missing_files_yield_the_fresh_state() {
         let dir = TempDir::new("missing");
-        let store = Store::load_at(dir.path(), &catalog()).expect("load");
-        assert_eq!(store, Store::fresh(&catalog()));
+        let store = Store::load_at(dir.path()).expect("load");
+        assert_eq!(store, Store::fresh());
         assert_eq!(store.mirror, DEFAULT_MIRROR);
         assert_eq!(store.prefs, default_prefs());
         assert_eq!(store.synced_at, None);
@@ -815,8 +605,8 @@ mod tests {
     #[test]
     fn state_survives_a_save_and_load_round_trip() {
         let dir = TempDir::new("roundtrip");
-        let catalog = catalog();
-        let mut store = Store::fresh(&catalog);
+        let mut store = Store::fresh();
+        put(&mut store, "vim", "9.1.1700_1", true, 7);
         store.toggle_queue("vim", QueueAction::Install);
         store.toggle_queue("htop", QueueAction::Remove);
         assert!(store.toggle_hold("vim"));
@@ -829,79 +619,58 @@ mod tests {
         store.save_at(dir.path()).expect("save");
         assert!(!store.is_dirty());
 
-        let loaded = Store::load_at(dir.path(), &catalog).expect("load");
-        assert_eq!(loaded, store);
-        assert!(loaded.installed["vim"].held);
+        let loaded = Store::load_at(dir.path()).expect("load");
+        assert_eq!(loaded.queue, store.queue);
         assert_eq!(loaded.mirror, "https://mirror.example/void/");
         assert_eq!(loaded.prefs.dismissed, "42");
+        assert!(
+            loaded.installed.is_empty(),
+            "the installed set is read from xbps, never from disk"
+        );
         assert!(!loaded.is_dirty());
     }
 
     #[test]
-    fn save_writes_all_four_files_and_leaves_no_tmp_behind() {
+    fn save_writes_all_three_files_and_leaves_no_tmp_behind() {
         let dir = TempDir::new("atomic");
-        let mut store = Store::fresh(&catalog());
+        let mut store = Store::fresh();
         store.save_at(dir.path()).expect("save");
         assert_eq!(
             file_names(dir.path()),
-            vec!["installed.json", "mirror.json", "prefs.json", "queue.json"]
+            vec!["mirror.json", "prefs.json", "queue.json"]
         );
 
         // A second save replaces the files in place, still without litter.
         store.set_mirror("https://mirror.example/void/");
         store.save_at(dir.path()).expect("second save");
-        assert_eq!(file_names(dir.path()).len(), 4);
+        assert_eq!(file_names(dir.path()).len(), 3);
     }
 
     #[test]
-    fn corrupt_prefs_falls_back_to_defaults_and_keeps_installed() {
+    fn corrupt_prefs_falls_back_to_defaults_and_keeps_the_queue() {
         let dir = TempDir::new("corrupt-prefs");
-        let catalog = catalog();
-        let mut installed = InstalledMap::new();
-        installed.insert(
-            "vim".to_string(),
-            Inst {
-                version: "9.1.1700_1".to_string(),
-                explicit: true,
-                held: false,
-                at: 7,
-            },
-        );
-        write_json(dir.path(), INSTALLED_FILE, &installed).expect("seed installed");
-        fs::write(dir.path().join(PREFS_FILE), br#"{"notifyOnStart": tru"#).expect("corrupt prefs");
-
-        let mut store = Store::load_at(dir.path(), &catalog).expect("load");
-        assert_eq!(store.prefs, default_prefs(), "broken prefs fall back");
-        assert_eq!(store.installed, installed, "installed database survives");
-
-        // Saving the repaired state must not cost the surviving file either.
-        store.save_at(dir.path()).expect("save");
-        assert_eq!(file_names(dir.path()).len(), 4);
-        let reloaded = Store::load_at(dir.path(), &catalog).expect("reload");
-        assert_eq!(reloaded.installed, installed);
-        assert_eq!(reloaded.prefs, default_prefs());
-    }
-
-    #[test]
-    fn corrupt_installed_falls_back_without_touching_the_queue() {
-        let dir = TempDir::new("corrupt-installed");
         let queue = vec![QueueItem {
             name: "vim".to_string(),
             action: QueueAction::Install,
         }];
         write_json(dir.path(), QUEUE_FILE, &queue).expect("seed queue");
-        // Valid JSON, wrong type: the map deserialisation must fail, not panic.
-        fs::write(dir.path().join(INSTALLED_FILE), b"[1, 2]").expect("corrupt installed");
+        fs::write(dir.path().join(PREFS_FILE), br#"{"notifyOnStart": tru"#).expect("corrupt prefs");
 
-        let store = Store::load_at(dir.path(), &catalog()).expect("load");
-        assert_eq!(store.installed, fresh_install(&catalog()));
-        assert_eq!(store.queue, queue);
+        let mut store = Store::load_at(dir.path()).expect("load");
+        assert_eq!(store.prefs, default_prefs(), "broken prefs fall back");
+        assert_eq!(store.queue, queue, "the queue survives");
+
+        // Saving the repaired state must not cost the surviving file either.
+        store.save_at(dir.path()).expect("save");
+        assert_eq!(file_names(dir.path()).len(), 3);
+        let reloaded = Store::load_at(dir.path()).expect("reload");
+        assert_eq!(reloaded.queue, queue);
+        assert_eq!(reloaded.prefs, default_prefs());
     }
 
     #[test]
     fn leftover_tmp_file_from_a_crash_is_ignored() {
         let dir = TempDir::new("stale-tmp");
-        let catalog = catalog();
         let prefs = Prefs {
             notify_on_start: false,
             desktop: true,
@@ -912,7 +681,7 @@ mod tests {
         let stale = dir.path().join(format!("{PREFS_FILE}.tmp"));
         fs::write(&stale, b"{\"notifyOn").expect("stale tmp");
 
-        let mut store = Store::load_at(dir.path(), &catalog).expect("load");
+        let mut store = Store::load_at(dir.path()).expect("load");
         assert_eq!(store.prefs, prefs, "the good file wins over the leftover");
 
         store.save_at(dir.path()).expect("save");
@@ -923,7 +692,7 @@ mod tests {
     fn blank_mirror_falls_back_to_the_default() {
         let dir = TempDir::new("mirror");
         fs::write(dir.path().join(MIRROR_FILE), br#"{"url":""}"#).expect("seed mirror");
-        let store = Store::load_at(dir.path(), &catalog()).expect("load");
+        let store = Store::load_at(dir.path()).expect("load");
         assert_eq!(store.mirror, DEFAULT_MIRROR);
     }
 
@@ -931,7 +700,7 @@ mod tests {
     fn save_creates_a_private_data_directory() {
         let dir = TempDir::new("mkdir");
         let target = dir.path().join("nested").join("kxbps");
-        let mut store = Store::fresh(&catalog());
+        let mut store = Store::fresh();
         store.save_at(&target).expect("save");
         assert!(target.is_dir());
         let mode = fs::metadata(&target)
@@ -953,7 +722,7 @@ mod tests {
         assert_eq!(mode(&target), 0o755, "precondition: world-readable");
 
         // Loading is enough: the directory is tightened before anything is read.
-        let mut store = Store::load_at(&target, &catalog()).expect("load");
+        let mut store = Store::load_at(&target).expect("load");
         assert_eq!(mode(&target), 0o700, "load_at tightens an existing dir");
 
         // Saving tightens it again if something loosened it in the meantime.
@@ -1014,22 +783,38 @@ mod tests {
         let root = TempDir::new("migrate-skip");
         let old_dir = root.path().join("khaxbps");
         fs::create_dir_all(&old_dir).expect("legacy dir");
-        fs::write(old_dir.join(INSTALLED_FILE), "legacy").expect("write legacy file");
+        fs::write(old_dir.join(QUEUE_FILE), "legacy").expect("write legacy file");
         let new_dir = root.path().join("kxbps");
         fs::create_dir_all(&new_dir).expect("new dir");
-        fs::write(new_dir.join(INSTALLED_FILE), "current").expect("write current file");
+        fs::write(new_dir.join(QUEUE_FILE), "current").expect("write current file");
 
         migrate_legacy_at(&new_dir, &old_dir);
 
         assert_eq!(
-            fs::read_to_string(new_dir.join(INSTALLED_FILE)).expect("current file"),
+            fs::read_to_string(new_dir.join(QUEUE_FILE)).expect("current file"),
             "current",
             "an existing new directory is never overwritten"
         );
         assert!(
-            old_dir.join(INSTALLED_FILE).is_file(),
+            old_dir.join(QUEUE_FILE).is_file(),
             "the legacy file is not consumed"
         );
+    }
+
+    /// The old installed database is not part of the migration: the installed
+    /// set comes from xbps, and a stale file must not come back with it.
+    #[test]
+    fn migrate_legacy_leaves_the_old_installed_file_behind() {
+        let root = TempDir::new("migrate-installed");
+        let old_dir = root.path().join("khaxbps");
+        fs::create_dir_all(&old_dir).expect("legacy dir");
+        fs::write(old_dir.join("installed.json"), "{}").expect("legacy installed");
+        let new_dir = root.path().join("kxbps");
+
+        migrate_legacy_at(&new_dir, &old_dir);
+
+        assert!(!new_dir.join("installed.json").exists());
+        assert!(old_dir.join("installed.json").is_file());
     }
 
     #[test]
@@ -1045,7 +830,7 @@ mod tests {
 
     #[test]
     fn toggle_queue_matches_the_web_app() {
-        let mut store = Store::fresh(&catalog());
+        let mut store = Store::fresh();
         store.toggle_queue("vim", QueueAction::Install);
         store.toggle_queue("htop", QueueAction::Remove);
         assert_eq!(
@@ -1091,7 +876,8 @@ mod tests {
 
     #[test]
     fn apply_plan_rewrites_installed_queue_and_synced_at() {
-        let mut store = Store::fresh(&catalog());
+        let mut store = Store::fresh();
+        put(&mut store, "vim", "9.1.1700_1", true, 7);
         store.toggle_queue("vim", QueueAction::Install);
         store.toggle_queue("htop", QueueAction::Remove);
         let plan = Plan {
@@ -1122,7 +908,7 @@ mod tests {
 
         assert_eq!(store.installed["vim"].version, "9.2.0_1");
         assert_eq!(
-            store.installed["vim"].at, SEED_AT,
+            store.installed["vim"].at, 7,
             "an update keeps the install timestamp"
         );
         assert_eq!(store.installed["newpkg"].at, 5_000);
@@ -1141,7 +927,7 @@ mod tests {
 
     #[test]
     fn apply_plan_ignores_a_blocked_plan() {
-        let mut store = Store::fresh(&catalog());
+        let mut store = Store::fresh();
         let before = store.installed.clone();
         let plan = Plan {
             items: Vec::new(),
@@ -1159,20 +945,22 @@ mod tests {
     }
 
     #[test]
-    fn reset_restores_the_seed_image_and_keeps_the_desktop_preference() {
-        let catalog = catalog();
-        let mut store = Store::fresh(&catalog);
+    fn reset_clears_the_users_choices_and_keeps_the_desktop_preference() {
+        let mut store = Store::fresh();
+        put(&mut store, "vim", "9.1.1700_1", true, 7);
         store.toggle_queue("vim", QueueAction::Install);
         store.set_mirror("https://mirror.example/void/");
         store.set_pref_notify_on_start(false);
         store.set_pref_desktop_notifications(true);
         store.set_pref_dismissed_version("42");
-        store.installed.remove("vim");
         store.synced_at = Some(9);
 
         store.reset();
 
-        assert_eq!(store.installed, Store::fresh(&catalog).installed);
+        assert!(
+            store.installed.is_empty(),
+            "reset restores no packages; the next read fills the cache"
+        );
         assert_eq!(store.mirror, DEFAULT_MIRROR);
         assert!(store.queue.is_empty());
         assert_eq!(
@@ -1189,7 +977,8 @@ mod tests {
 
     #[test]
     fn toggle_hold_only_touches_installed_packages() {
-        let mut store = Store::fresh(&catalog());
+        let mut store = Store::fresh();
+        put(&mut store, "vim", "9.2.1031_1", true, 7);
         assert!(store.toggle_hold("vim"));
         assert!(store.installed["vim"].held);
         assert!(!store.toggle_hold("vim"));
@@ -1225,9 +1014,9 @@ mod tests {
     }
 
     #[test]
-    fn apply_snapshot_replaces_the_seed_image_with_the_real_records() {
-        let mut store = Store::fresh(&catalog());
-        assert!(store.installed.contains_key("vim"), "the seed has vim");
+    fn apply_snapshot_replaces_the_cached_set_with_the_real_records() {
+        let mut store = Store::fresh();
+        put(&mut store, "vim", "9.1.1700_1", true, 7);
 
         store.apply_snapshot(
             &[record("Neovim-custom-0.11.0_1")],
@@ -1239,7 +1028,7 @@ mod tests {
         assert_eq!(
             store.installed.keys().collect::<Vec<_>>(),
             ["Neovim-custom"],
-            "the seed image is gone, not merged with"
+            "the previous cache is replaced, not merged with"
         );
         let inst = &store.installed["Neovim-custom"];
         assert_eq!(inst.version, "0.11.0_1");
@@ -1251,7 +1040,7 @@ mod tests {
 
     #[test]
     fn apply_snapshot_derives_explicit_and_held_from_the_list_modes() {
-        let mut store = Store::fresh(&catalog());
+        let mut store = Store::fresh();
         store.apply_snapshot(
             &[record("vim-9.2.1031_1"), record("linux-6.18.63_1")],
             &["vim".to_owned()],
@@ -1266,7 +1055,8 @@ mod tests {
 
     #[test]
     fn apply_snapshot_keeps_the_install_date_the_store_already_knew() {
-        let mut store = Store::fresh(&catalog());
+        let mut store = Store::fresh();
+        put(&mut store, "vim", "9.1.1700_1", true, 7);
         store.apply_snapshot(
             &[record("vim-9.2.2000_1"), record("ark-25.08.0_1")],
             &["vim".to_owned()],
@@ -1274,7 +1064,7 @@ mod tests {
             Vec::new(),
         );
         assert_eq!(
-            store.installed["vim"].at, SEED_AT,
+            store.installed["vim"].at, 7,
             "a re-read must not forget when vim was installed"
         );
         assert_eq!(store.installed["ark"].at, 0);
@@ -1282,7 +1072,7 @@ mod tests {
 
     #[test]
     fn apply_snapshot_replaces_the_pending_updates() {
-        let mut store = Store::fresh(&catalog());
+        let mut store = Store::fresh();
         assert!(store.pending_updates().is_empty());
 
         store.apply_snapshot(
@@ -1307,9 +1097,8 @@ mod tests {
     }
 
     #[test]
-    fn reset_drops_the_pending_updates_with_the_seed_image() {
-        let catalog = catalog();
-        let mut store = Store::fresh(&catalog);
+    fn reset_drops_the_pending_updates_with_the_cached_set() {
+        let mut store = Store::fresh();
         store.apply_snapshot(
             &[record("vim-9.2.1031_1")],
             &[],
@@ -1320,6 +1109,6 @@ mod tests {
         store.reset();
 
         assert!(store.pending_updates().is_empty());
-        assert_eq!(store.installed, Store::fresh(&catalog).installed);
+        assert!(store.installed.is_empty());
     }
 }

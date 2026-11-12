@@ -471,6 +471,81 @@ fn malformed(line: usize, text: &str, reason: &'static str) -> XbpsError {
     }
 }
 
+/// One size from a bulk `xbps-query -p <property> -s ''` listing.
+///
+/// The line reads `<pkgver>: <size>`, with ` (<repository>)` appended in
+/// repository mode. The size is humanised by xbps (B/KB/MB, base 1024), so
+/// [`SizeEntry::bytes`] is the best reconstruction, not the original byte
+/// count; the dry-run table is the exact source.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct SizeEntry {
+    /// Package name without the version.
+    pub name: String,
+    /// Version and revision the size belongs to.
+    pub version: String,
+    /// Size in bytes, as reconstructed from xbps' humanised field.
+    pub bytes: u64,
+    /// Repository URL when the line came from a `-R` take.
+    pub repository: Option<String>,
+}
+
+/// Parses `xbps-query [-R] -p <size-property> -s ''`.
+///
+/// One package per line: `<pkgver>: <size> [ (<repository>)]`. An empty answer
+/// is valid — a repository index that has never been synced prints nothing —
+/// so it returns an empty list instead of an error.
+pub fn parse_size_list(input: &str) -> Result<Vec<SizeEntry>, XbpsError> {
+    let mut entries = Vec::new();
+    for (line_no, line) in body_lines(input) {
+        let (pkgver, rest) = line
+            .split_once(": ")
+            .ok_or_else(|| malformed(line_no, line, "expected `<pkgver>: <size>`"))?;
+        let (name, version) = split_pkgver(pkgver.trim())
+            .ok_or_else(|| malformed(line_no, line, "cannot split package name and version"))?;
+        let (size_text, repository) = match rest.split_once(" (") {
+            Some((size, repo)) => (size.trim(), Some(repo.trim_end_matches(')').to_owned())),
+            None => (rest.trim(), None),
+        };
+        let bytes = parse_human_size(size_text)
+            .ok_or_else(|| malformed(line_no, line, "size is not a byte count"))?;
+        entries.push(SizeEntry {
+            name: name.to_owned(),
+            version: version.to_owned(),
+            bytes,
+            repository,
+        });
+    }
+    Ok(entries)
+}
+
+/// Reconstructs a byte count from xbps' humanised size (`215KB`, `9.8MB`).
+///
+/// xbps uses base 1024 and prints `B`, `KB` or `MB`; a value below ten keeps
+/// one decimal, everything else is an integer, so the result is the printed
+/// value rounded to bytes and never the exact original size.
+pub fn parse_human_size(text: &str) -> Option<u64> {
+    let text = text.trim();
+    let split = text
+        .find(|c: char| !c.is_ascii_digit() && c != '.')
+        .unwrap_or(text.len());
+    let (number, unit) = text.split_at(split);
+    if number.is_empty() {
+        return None;
+    }
+    let value: f64 = number.parse().ok()?;
+    let multiplier: u64 = match unit.trim() {
+        "B" => 1,
+        "KB" => 1024,
+        "MB" => 1024 * 1024,
+        "GB" => 1024 * 1024 * 1024,
+        _ => return None,
+    };
+    if !value.is_finite() || value < 0.0 {
+        return None;
+    }
+    Some((value * multiplier as f64) as u64)
+}
+
 fn parse_size(line: usize, text: &str, field: &str) -> Result<u64, XbpsError> {
     field
         .parse::<u64>()
@@ -867,5 +942,47 @@ mod tests {
         let (line, text) = line_error(parse_depends("glibc>=2.41_1\n\nbash>=5.0\n"));
         assert_eq!(line, 2);
         assert_eq!(text, "");
+    }
+
+    #[test]
+    fn human_sizes_use_base_1024_and_keep_the_printed_precision() {
+        assert_eq!(parse_human_size("215KB"), Some(220_160));
+        assert_eq!(parse_human_size("9.8MB"), Some(10_276_044));
+        assert_eq!(parse_human_size("762B"), Some(762));
+        assert_eq!(parse_human_size("2MB"), Some(2_097_152));
+        assert_eq!(parse_human_size("nonsense"), None);
+        assert_eq!(parse_human_size(""), None);
+    }
+
+    #[test]
+    fn size_list_reads_installed_and_repository_takes() {
+        let installed = parse_size_list("hello-2.12.3_1: 215KB\nzramen-0.2.4_1: 9.8MB\n")
+            .expect("installed sizes parse");
+        assert_eq!(installed.len(), 2);
+        assert_eq!(installed[0].name, "hello");
+        assert_eq!(installed[0].version, "2.12.3_1");
+        assert_eq!(installed[0].bytes, 220_160);
+        assert_eq!(installed[0].repository, None);
+
+        let repository =
+            parse_size_list("0ad-0.28.0_1: 4381KB (https://repo-de.voidlinux.org/current)\n")
+                .expect("repository sizes parse");
+        assert_eq!(repository[0].name, "0ad");
+        assert_eq!(repository[0].bytes, 4_486_144);
+        assert_eq!(
+            repository[0].repository.as_deref(),
+            Some("https://repo-de.voidlinux.org/current")
+        );
+    }
+
+    #[test]
+    fn size_list_accepts_an_empty_answer() {
+        assert_eq!(parse_size_list(""), Ok(Vec::new()));
+    }
+
+    #[test]
+    fn size_list_rejects_a_line_without_a_size() {
+        let (line, _) = line_error(parse_size_list("hello-2.12.3_1\n"));
+        assert_eq!(line, 1);
     }
 }
