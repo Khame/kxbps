@@ -30,9 +30,9 @@
 //! only, so a restart forgets when the index was last refreshed.
 
 use std::collections::HashSet;
-use std::fs::{self, File};
+use std::fs::{self, File, OpenOptions};
 use std::io::Write;
-use std::os::unix::fs::PermissionsExt;
+use std::os::unix::fs::{OpenOptionsExt, PermissionsExt};
 use std::path::{Path, PathBuf};
 
 use serde::Serialize;
@@ -510,6 +510,16 @@ fn write_json<T: Serialize>(dir: &Path, file: &str, value: &T) -> Result<(), Sto
 /// Writes `bytes` to `path` through `<path>.tmp`, so the target is replaced in
 /// one `rename` and never observed half-written.
 ///
+/// The temporary file is created 0600 (`open(2)` mode, which the umask may only
+/// narrow) so a state file is never briefly world-readable before a later
+/// `chmod`; the target keeps that mode across the rename.
+///
+/// The write is durable in both halves: the file is fsynced before the rename,
+/// and the parent directory is fsynced after it, so a crash cannot lose the
+/// rename itself. A filesystem that refuses a directory fsync makes the save
+/// fail loudly — skipping it would leave the caller believing the state is on
+/// disk when it is not.
+///
 /// The temporary file is removed again on any failure, so a failed save does
 /// not leave `.tmp` litter behind for the next load to trip over.
 fn write_atomic(path: &Path, bytes: &[u8]) -> Result<(), StoreError> {
@@ -518,11 +528,17 @@ fn write_atomic(path: &Path, bytes: &[u8]) -> Result<(), StoreError> {
     let tmp = PathBuf::from(tmp_name);
 
     let result = (|| -> std::io::Result<()> {
-        let mut file = File::create(&tmp)?;
+        let mut file = OpenOptions::new()
+            .write(true)
+            .create(true)
+            .truncate(true)
+            .mode(0o600)
+            .open(&tmp)?;
         file.write_all(bytes)?;
         file.sync_all()?;
         drop(file);
-        fs::rename(&tmp, path)
+        fs::rename(&tmp, path)?;
+        sync_dir(path.parent().unwrap_or_else(|| Path::new(".")))
     })();
 
     result.map_err(|source| {
@@ -534,6 +550,16 @@ fn write_atomic(path: &Path, bytes: &[u8]) -> Result<(), StoreError> {
     })
 }
 
+/// Flushes the directory entry changes (`create`, `rename`) of `dir` to disk.
+///
+/// Without this a crash shortly after a successful save can roll the rename
+/// back even though the file contents are durable. Errors are propagated on
+/// purpose: see [`write_atomic`] for why a refused directory fsync must not be
+/// swallowed.
+fn sync_dir(dir: &Path) -> std::io::Result<()> {
+    File::open(dir)?.sync_all()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -542,6 +568,9 @@ mod tests {
     use std::sync::atomic::{AtomicU32, Ordering};
 
     static SEQ: AtomicU32 = AtomicU32::new(0);
+
+    /// `EINVAL` as Linux numbers it; the crate has no `libc` dependency.
+    const EINVAL: i32 = 22;
 
     /// A private directory under the system temp dir, removed on drop.
     ///
@@ -654,6 +683,60 @@ mod tests {
         store.set_mirror("https://mirror.example/void/");
         store.save_at(dir.path()).expect("second save");
         assert_eq!(file_names(dir.path()).len(), 3);
+    }
+
+    #[test]
+    fn state_files_are_private_to_the_user() {
+        let dir = TempDir::new("mode");
+        let mut store = Store::fresh();
+        store.save_at(dir.path()).expect("save");
+
+        let mode = |path: &Path| fs::metadata(path).expect("metadata").permissions().mode() & 0o777;
+        for name in STATE_FILES {
+            assert_eq!(
+                mode(&dir.path().join(name)),
+                0o600,
+                "{name} must not be readable by other users"
+            );
+        }
+        assert_eq!(file_names(dir.path()).len(), 3, "no .tmp litter");
+    }
+
+    /// A crash cannot be simulated here, so the directory sync has no
+    /// directly observable effect and no test can watch a `rename` be lost.
+    /// What is testable is the piece `write_atomic` calls: a real directory
+    /// syncs, and a refusal from the kernel is propagated, not swallowed.
+    /// Verified on this machine: `fsync` of a *regular* file also succeeds, and
+    /// `fsync` of `/proc` fails `EINVAL` — that is the case used here.
+    #[test]
+    fn sync_dir_succeeds_on_a_real_directory_and_propagates_a_refusal() {
+        let dir = TempDir::new("syncdir");
+        sync_dir(dir.path()).expect("a real directory syncs");
+
+        let err = sync_dir(Path::new("/proc"))
+            .expect_err("a filesystem that refuses a directory fsync reports it");
+        assert_eq!(
+            err.raw_os_error(),
+            Some(EINVAL),
+            "EINVAL is kept, not ignored"
+        );
+    }
+
+    #[test]
+    fn a_failing_write_leaves_no_tmp_behind() {
+        // The target's parent does not exist, so the write fails and the `.tmp`
+        // must not survive it. Note this exercises the failure cleanup, not the
+        // directory sync: `rename` itself already fails on a missing parent, so
+        // the dir sync cannot be isolated in a test here.
+        let dir = TempDir::new("write-fail");
+        let target = dir.path().join("missing-dir").join("queue.json");
+
+        let err = write_atomic(&target, b"[]").expect_err("the write must fail");
+        assert!(matches!(err, StoreError::Io { .. }), "got {err:?}");
+        assert!(
+            !dir.path().join("missing-dir").exists(),
+            "nothing was created"
+        );
     }
 
     #[test]
