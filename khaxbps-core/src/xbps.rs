@@ -142,7 +142,7 @@ pub struct UpdateEntry {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct SearchHit {
-    /// `[ii]` in the output: the package is installed.
+    /// `[*]` in the output: the package is installed (`[-]` means it is not).
     pub installed: bool,
     /// Package name without the version.
     pub name: String,
@@ -573,6 +573,13 @@ mod tests {
         assert_eq!(text, "[iu] bad-1.0_1 Odd");
         // `ii` belongs to `xbps-query -l`, not to search output.
         assert!(parse_search("[ii] vim-9.2.1031_1 Editor\n").is_err());
+    }
+
+    #[test]
+    fn search_rejects_a_pkgver_without_a_revision() {
+        let (line, text) = line_error(parse_search("[-] good-1.0_1 Fine\n[-] bad-1.0 Odd\n"));
+        assert_eq!(line, 2);
+        assert_eq!(text, "[-] bad-1.0 Odd");
     }
 
     #[test]
