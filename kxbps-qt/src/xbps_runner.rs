@@ -2,11 +2,10 @@
 //!
 //! `src/xbps_shim.cpp` starts one process with an explicit argv list (never a
 //! shell string), waits with a hard timeout and answers with a JSON object.
-//! That file is not part of the compiled bridge yet — Task 17b adds it to
-//! `build.rs` — so [`run`] takes the shim call as a closure instead of linking
-//! it. What this module owns today is the testable half: building the argv and
-//! decoding the reply. Wiring the shim in 17b only means passing a closure
-//! that calls `kxbps_run_xbps`.
+//! [`run`] takes that call as a closure instead of linking the shim, so the
+//! argv builders and the reply decoder are testable without a GUI; production
+//! passes the closure from [`crate::production_invoke`] and every test passes a
+//! fake, so the suite never shells out to xbps.
 //!
 //! Timeouts and non-zero exit codes are data, not errors: a read command that
 //! exits 2 has a stderr line the caller wants to show. [`RunnerError`] is
@@ -103,6 +102,21 @@ pub fn property_argv(property: &str, package: &str) -> Vec<String> {
     argv(XPBS_QUERY, &["-p", property, package])
 }
 
+/// `xbps-query -m`: the packages installed on purpose.
+pub fn manual_argv() -> Vec<String> {
+    argv(XPBS_QUERY, &["-m"])
+}
+
+/// `xbps-query -H`: the packages pinned against updates.
+pub fn held_argv() -> Vec<String> {
+    argv(XPBS_QUERY, &["-H"])
+}
+
+/// `xbps-query -O`: the installed packages nothing depends on.
+pub fn orphans_argv() -> Vec<String> {
+    argv(XPBS_QUERY, &["-O"])
+}
+
 /// Encodes an argv list for the shim.
 pub fn argv_json(argv: &[String]) -> Result<String, RunnerError> {
     if argv.is_empty() || argv[0].is_empty() {
@@ -143,6 +157,9 @@ mod tests {
             property_argv("pkgver", "vim"),
             ["xbps-query", "-p", "pkgver", "vim"]
         );
+        assert_eq!(manual_argv(), ["xbps-query", "-m"]);
+        assert_eq!(held_argv(), ["xbps-query", "-H"]);
+        assert_eq!(orphans_argv(), ["xbps-query", "-O"]);
     }
 
     #[test]

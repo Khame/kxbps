@@ -36,6 +36,7 @@ fn main() {
         "src/log_model.rs",
         "src/mirror_model.rs",
         "src/mirror_backend.rs",
+        "src/xbps_bridge.rs",
     ])
     // The package catalog is generated from the web app by `scripts/gen-catalog.mjs`.
     // Because the builder knows the QML module URI, the file lands in the module's
@@ -50,7 +51,10 @@ fn main() {
     .cpp_file("src/mirror_shim.cpp")
     // Child-object factories and the forwarders that let Rust reach a generated
     // method on a `QObject*` it only holds as a pointer.
-    .cpp_file("src/backend_shim.cpp");
+    .cpp_file("src/backend_shim.cpp")
+    // The read-only xbps runner: one `QProcess` per call with an explicit argv
+    // list and a hard timeout, driven from a worker thread.
+    .cpp_file("src/xbps_shim.cpp");
 
     // `cxx-qt-build` has no `include_path` helper, so add the KI18n header
     // directory through the underlying `cc::Build`. The crate's own `src` dir is
