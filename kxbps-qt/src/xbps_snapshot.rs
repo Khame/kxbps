@@ -789,10 +789,26 @@ mod tests {
             "the installed take is sorted by name and keeps xbps' version"
         );
         assert_eq!(snapshot.installed_sizes[1].version, "9.2.1031_1");
-        // Both repository takes read the same command key in the fake, so the
-        // shipped bytes are the ones the test table gave them.
-        assert_eq!(snapshot.repo_installed_sizes.len(), 2);
-        assert_eq!(snapshot.repo_download_sizes.len(), 2);
+        // A swapped take in `read_snapshot` would show up here: the two
+        // repository commands carry different canned values.
+        assert_eq!(
+            snapshot
+                .repo_installed_sizes
+                .iter()
+                .map(|entry| (entry.name.as_str(), entry.bytes))
+                .collect::<Vec<_>>(),
+            [("ark", 4_608_000), ("vim", 1_843_200)],
+            "the unpacked repository take is its own list"
+        );
+        assert_eq!(
+            snapshot
+                .repo_download_sizes
+                .iter()
+                .map(|entry| (entry.name.as_str(), entry.bytes))
+                .collect::<Vec<_>>(),
+            [("ark", 1_638_400), ("vim", 1_776_640)],
+            "the archive take is its own list"
+        );
         assert_eq!(
             snapshot.installed_size_of("vim").expect("vim is installed"),
             snapshot.installed_sizes[1].bytes

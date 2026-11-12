@@ -377,7 +377,7 @@ impl PackageModelRust {
         };
         self.snapshot
             .sort_by(|left, right| left.name.cmp(&right.name));
-        self.set_updates(&updates);
+        self.update_sizes = update_sizes_of(&updates);
         self.updates = updates;
         self.orphans = orphans;
         self.install(installed, queue)
@@ -590,19 +590,6 @@ impl PackageModelRust {
         self.installed_sizes = installed_sizes;
         self.repo_installed_sizes = repo_installed_sizes;
         self.repo_download_sizes = repo_download_sizes;
-    }
-
-    /// The exact sizes of the pending updates, from `xbps-install -un`.
-    fn set_updates(&mut self, updates: &[UpdateEntry]) {
-        self.update_sizes = updates
-            .iter()
-            .map(|update| {
-                (
-                    update.name.clone(),
-                    (update.installed_size, update.download_size),
-                )
-            })
-            .collect();
     }
 
     /// Commits `rows` as the visible set and keeps `count` in step.
@@ -969,6 +956,19 @@ pub(crate) fn sizes_of(entries: &[kxbps_core::SizeEntry]) -> HashMap<String, u64
         sizes.entry(entry.name.clone()).or_insert(entry.bytes);
     }
     sizes
+}
+
+/// The exact sizes of the pending updates, keyed by package name.
+fn update_sizes_of(updates: &[UpdateEntry]) -> HashMap<String, (u64, u64)> {
+    updates
+        .iter()
+        .map(|update| {
+            (
+                update.name.clone(),
+                (update.installed_size, update.download_size),
+            )
+        })
+        .collect()
 }
 
 #[cfg(test)]
@@ -1569,6 +1569,24 @@ mod tests {
         assert_eq!(bytes_of(update_bytes), Some(600_000_000));
         assert_eq!(string_of(download).as_deref(), Some("152.6 MiB"));
         assert_eq!(bytes_of(download_bytes), Some(160_000_000));
+    }
+
+    #[test]
+    fn sorting_uses_the_size_the_column_shows() {
+        // An update row shows the new version's size, so that is the sort key:
+        // curl's installed size is 1.2 MB but its update is 700 MB, which puts
+        // it above linux (500 MB) even though the old version is tiny.
+        let mut update = update("curl-8.17.0_1");
+        update.installed_size = 700_000_000;
+        update.download_size = 200_000_000;
+        let mut model = model_with_sizes(vec![update]);
+        set_filter(&mut model, "all");
+        model.set_sort("size", true);
+        assert_eq!(
+            model.visible_names(),
+            vec!["curl", "linux", "bash", "vim"],
+            "the update's new size is the sort key, not the installed one"
+        );
     }
 
     #[test]
