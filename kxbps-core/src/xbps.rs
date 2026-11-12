@@ -337,6 +337,31 @@ pub fn parse_repos(input: &str) -> Result<Vec<RepoEntry>, XbpsError> {
     Ok(repos)
 }
 
+/// Parses the pkgver-per-line listings: `xbps-query -m` (manual packages),
+/// `-H` (held packages) and `-O` (orphans), returning the package names.
+///
+/// All three modes print one bare `name-version_revision` per line and nothing
+/// else, so one parser serves them all. Empty output is a valid empty list: a
+/// system with nothing held or orphaned prints nothing and still exits 0.
+pub fn parse_pkgver_list(input: &str) -> Result<Vec<String>, XbpsError> {
+    let mut names = Vec::new();
+    for (line_no, line) in body_lines(input) {
+        let (pkgver, rest) = split_first_field(line)
+            .ok_or_else(|| malformed(line_no, line, "expected one package name per line"))?;
+        if !rest.is_empty() {
+            return Err(malformed(
+                line_no,
+                line,
+                "expected one package name per line",
+            ));
+        }
+        let (name, _) = split_pkgver(pkgver)
+            .ok_or_else(|| malformed(line_no, line, "cannot split package name and version"))?;
+        names.push(name.to_owned());
+    }
+    Ok(names)
+}
+
 /// Parses `xbps-query -p <prop> <pkg>`: one raw property value, trimmed.
 ///
 /// Empty output is an error: a property that exists always prints something,
@@ -396,6 +421,7 @@ mod tests {
     const SEARCH: &str = include_str!("../tests/fixtures/xbps/search.txt");
     const REPOS: &str = include_str!("../tests/fixtures/xbps/repos.txt");
     const PROPERTY: &str = include_str!("../tests/fixtures/xbps/property.txt");
+    const MANUAL: &str = include_str!("../tests/fixtures/xbps/manual.txt");
 
     fn line_error(result: Result<impl std::fmt::Debug, XbpsError>) -> (usize, String) {
         match result {
@@ -659,5 +685,54 @@ mod tests {
             split_pkgver("vapoursynth-devel-32bit-R66_4"),
             Some(("vapoursynth-devel-32bit", "R66_4"))
         );
+    }
+
+    #[test]
+    fn pkgver_list_reads_the_manual_fixture() {
+        let names = parse_pkgver_list(MANUAL).expect("fixture parses");
+        assert_eq!(
+            names,
+            [
+                "NetworkManager".to_owned(),
+                "Signal-Desktop".to_owned(),
+                "alsa-plugins-pulseaudio".to_owned(),
+            ]
+        );
+    }
+
+    #[test]
+    fn pkgver_list_accepts_empty_output() {
+        // Nothing held, nothing orphaned and nothing installed manually are
+        // all real answers; the commands exit 0 with no output then.
+        assert_eq!(parse_pkgver_list(""), Ok(Vec::new()));
+        assert_eq!(parse_pkgver_list("\n \n"), Ok(Vec::new()));
+    }
+
+    #[test]
+    fn pkgver_list_rejects_a_pkgver_without_a_revision() {
+        let (line, text) = line_error(parse_pkgver_list(
+            "good-1.0_1\n\
+             broken-no-revision\n",
+        ));
+        assert_eq!(line, 2);
+        assert_eq!(text, "broken-no-revision");
+    }
+
+    #[test]
+    fn pkgver_list_rejects_extra_fields_on_a_line() {
+        let (line, _) = line_error(parse_pkgver_list("good-1.0_1\nbad-1.0_1 unexpected\n"));
+        assert_eq!(line, 2);
+        assert!(
+            parse_pkgver_list("bad 1.0_1\n").is_err(),
+            "spaces are not part of a pkgver"
+        );
+    }
+
+    #[test]
+    fn pkgver_list_allows_trailing_blank_lines_only() {
+        let names = parse_pkgver_list("good-1.0_1\n\n\n").expect("trailing blanks parse");
+        assert_eq!(names, vec!["good".to_owned()]);
+        let (line, _) = line_error(parse_pkgver_list("good-1.0_1\n\nother-1.0_1\n"));
+        assert_eq!(line, 2, "an interior blank line is a format change");
     }
 }

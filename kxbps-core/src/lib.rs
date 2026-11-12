@@ -28,5 +28,6 @@ pub use types::{
 };
 pub use xbps::{
     InstallState, InstalledPackage, RepoEntry, SearchHit, UpdateEntry, XbpsAction, XbpsError,
-    parse_installed, parse_property, parse_repos, parse_search, parse_updates, split_pkgver,
+    parse_installed, parse_pkgver_list, parse_property, parse_repos, parse_search, parse_updates,
+    split_pkgver,
 };
