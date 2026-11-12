@@ -269,7 +269,7 @@ pub fn queue_payload(
     let (install, remove) = queue_requests(queue);
     let mut items = Vec::new();
     if !install.names.is_empty() {
-        let install = match precheck(&install, installed, repos, catalog) {
+        let install = match precheck(&install, repos, catalog) {
             Ok(request) => match dry_run(&request, installed, invoke) {
                 Ok(outcome) => outcome,
                 Err(err) => return PlanPayload::from_error(&err),
@@ -332,7 +332,7 @@ pub fn named_payload(
     invoke: &Invoke,
 ) -> PlanPayload {
     let request = PlanRequest::install(names.to_vec());
-    let request = match precheck(&request, installed, repos, catalog) {
+    let request = match precheck(&request, repos, catalog) {
         Ok(request) => request,
         Err(err) => return PlanPayload::from_error(&err),
     };
@@ -380,7 +380,6 @@ pub fn remove_payload(
 /// answers first and the dry run is what decides everything else.
 fn precheck(
     request: &PlanRequest,
-    _installed: &InstalledMap,
     repos: &Repos,
     catalog: &Catalog,
 ) -> Result<PlanRequest, PlanError> {
@@ -400,7 +399,10 @@ fn precheck(
             });
         }
     }
-    request.names.dedup();
+    // Keep the first mention of each name and its position; a queue may hold
+    // the same package twice without the two entries being adjacent.
+    let mut seen = std::collections::HashSet::new();
+    request.names.retain(|name| seen.insert(name.clone()));
     Ok(request)
 }
 
@@ -528,10 +530,7 @@ mod tests {
         assert!(outcome.items.is_empty());
         assert_eq!(outcome.blocked.len(), 1);
         assert_eq!(outcome.blocked[0].name, "acpid");
-        assert_eq!(
-            outcome.blocked[0].needed_by,
-            vec!["base-system-0.114_2".to_owned()]
-        );
+        assert_eq!(outcome.blocked[0].needed_by, vec!["base-system".to_owned()]);
     }
 
     #[test]

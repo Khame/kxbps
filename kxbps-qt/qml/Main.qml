@@ -178,6 +178,9 @@ Kirigami.ApplicationWindow {
         function onQueueCountChanged() {
             // A queue change invalidates the plan a dialog is showing; the
             // dialog drops the stale snapshot and releases the backend child.
+            // The pending request goes too: its answer describes the queue the
+            // user just changed and must not reopen the dialog.
+            root.planPending = 0
             if (planDialog.opened) {
                 planDialog.close()
             }
@@ -211,6 +214,17 @@ Kirigami.ApplicationWindow {
         installedBackend: installedBackend
         onJobStarted: (started) => root.startJob(started)
         onBlockedRequested: (blockedPlan) => blockedDialog.showPlan(blockedPlan)
+    }
+
+    // Closing the dialog abandons the request it was waiting for; without this
+    // a dry run that answers after Cancel would find its id still pending and
+    // reopen the dialog. The backend's generation guard stays as the second
+    // net for a plan superseded by a newer one.
+    Connections {
+        target: planDialog
+        function onClosed() {
+            root.planPending = 0
+        }
     }
 
     // The dry run answered: build the plan object the backend described and

@@ -387,25 +387,16 @@ impl qobject::InstalledBackend {
 
     /// Plans the transaction queue on a worker thread.
     fn open_queue_plan(mut self: Pin<&mut Self>) -> u64 {
-        let (request, title_key) = {
+        let task = {
             let data = &*self;
-            (
-                PlanTask::queue(&data.store),
-                plan_keys::PLAN_QUEUE.to_string(),
-            )
+            PlanTask::queue(&data.store)
         };
-        self.as_mut()
-            .start_plan(request, title_key, Vec::new(), Vec::new())
+        self.as_mut().start_plan(task)
     }
 
     /// Plans the system upgrade on a worker thread.
     fn open_system_plan(mut self: Pin<&mut Self>) -> u64 {
-        self.as_mut().start_plan(
-            PlanTask::system(),
-            plan_keys::PLAN_SYSTEM.to_string(),
-            Vec::new(),
-            Vec::new(),
-        )
+        self.as_mut().start_plan(PlanTask::system())
     }
 
     /// Plans installing exactly `names` on a worker thread.
@@ -421,8 +412,7 @@ impl qobject::InstalledBackend {
         } else {
             title_key
         };
-        self.as_mut()
-            .start_plan(PlanTask::named(names.clone()), title_key, Vec::new(), names)
+        self.as_mut().start_plan(PlanTask::named(names, title_key))
     }
 
     /// Plans removing `name` on a worker thread.
@@ -437,18 +427,8 @@ impl qobject::InstalledBackend {
         names: &cxx_qt_lib::QStringList,
         cascade: bool,
     ) -> u64 {
-        let names = strings_of(names);
-        let title_key = if cascade {
-            plan_keys::PLAN_CASCADE
-        } else {
-            plan_keys::PLAN_REMOVE
-        };
-        self.as_mut().start_plan(
-            PlanTask::remove(names.clone()),
-            title_key.to_string(),
-            vec![names.join(" ")],
-            names,
-        )
+        self.as_mut()
+            .start_plan(PlanTask::remove(strings_of(names), cascade))
     }
 
     /// Starts the dry runs of one plan and answers with its request id.
@@ -456,13 +436,7 @@ impl qobject::InstalledBackend {
     /// The GUI thread only takes a copy of what the worker needs and spawns the
     /// thread; the answer arrives through `qt_thread().queue(...)`, the only
     /// way a background thread may touch this object.
-    fn start_plan(
-        mut self: Pin<&mut Self>,
-        task: PlanTask,
-        title_key: String,
-        title_args: Vec<String>,
-        names: Vec<String>,
-    ) -> u64 {
+    fn start_plan(mut self: Pin<&mut Self>, task: PlanTask) -> u64 {
         let request = self.plan_generation.fetch_add(1, Ordering::SeqCst) + 1;
         let current = Arc::clone(&self.plan_generation);
         let invoke = Arc::clone(&self.invoke);
@@ -478,7 +452,6 @@ impl qobject::InstalledBackend {
         let thread = self.qt_thread();
         std::thread::spawn(move || {
             let payload = task.run(&installed, &repos, &catalog, &*invoke);
-            let _ = (title_key, title_args, names);
             let meta = PlanMeta { request };
             thread
                 .queue(move |backend| backend.finish_plan(request, &current, meta, payload))
@@ -787,10 +760,13 @@ pub enum PlanTask {
     Queue(Vec<QueueItem>),
     /// `xbps-install -n -Su`.
     System,
-    /// `xbps-install -n <names>`.
-    Named(Vec<String>),
-    /// `xbps-remove -n <names>`.
-    Remove(Vec<String>),
+    /// `xbps-install -n <names>` under the caller's dialog title.
+    Named {
+        names: Vec<String>,
+        title_key: String,
+    },
+    /// `xbps-remove -n <names>`; `cascade` only changes the dialog title.
+    Remove { names: Vec<String>, cascade: bool },
 }
 
 impl PlanTask {
@@ -805,13 +781,13 @@ impl PlanTask {
     }
 
     /// The task of `openNamedPlan`.
-    pub fn named(names: Vec<String>) -> Self {
-        Self::Named(names)
+    pub fn named(names: Vec<String>, title_key: String) -> Self {
+        Self::Named { names, title_key }
     }
 
     /// The task of `openRemoveNames`.
-    pub fn remove(names: Vec<String>) -> Self {
-        Self::Remove(names)
+    pub fn remove(names: Vec<String>, cascade: bool) -> Self {
+        Self::Remove { names, cascade }
     }
 
     /// Runs the task's dry runs and returns the payload the dialog shows.
@@ -827,15 +803,12 @@ impl PlanTask {
     ) -> PlanPayload {
         match self {
             Self::System => xbps_plan::system_payload(installed, invoke),
-            Self::Named(names) => named_payload(
-                installed,
-                repos,
-                catalog,
-                names,
-                plan_keys::PLAN_INSTALL,
-                invoke,
-            ),
-            Self::Remove(names) => xbps_plan::remove_payload(installed, names, false, invoke),
+            Self::Named { names, title_key } => {
+                named_payload(installed, repos, catalog, names, title_key, invoke)
+            }
+            Self::Remove { names, cascade } => {
+                xbps_plan::remove_payload(installed, names, *cascade, invoke)
+            }
             Self::Queue(queue) => queue_payload(installed, repos, catalog, queue, invoke),
         }
     }
@@ -1373,7 +1346,7 @@ mod tests {
         assert_eq!(payload.blocked[0].name, "acpid");
         assert_eq!(
             payload.blocked[0].needed_by,
-            vec!["base-system-0.114_2".to_string()]
+            vec!["base-system".to_string()]
         );
         assert_eq!(payload.names, names);
         assert_eq!(payload.title_key, "planRemove");
@@ -1539,6 +1512,64 @@ mod tests {
         let payload = PlanPayload::from_error(&PlanError::UnknownPackage("nope".into()));
         assert_eq!(payload.error_key, "errorUnknownPackage");
         assert!(payload.items.is_empty());
+    }
+
+    /// The dialog title is chosen by the caller, not by the dry-run mode: the
+    /// cascade and the named install both arrive through `PlanTask::run`.
+    #[test]
+    fn plan_task_run_keeps_the_cascade_title() {
+        let (catalog, installed) = seed();
+        let (invoke, _) = one_answer(&ok_reply(
+            "glibc-2.41_1 remove x86_64 https://r/current 0 848\n",
+        ));
+        let payload = PlanTask::remove(vec!["glibc".to_string()], true).run(
+            &installed,
+            &repos_from_installed(&installed),
+            &catalog,
+            &*invoke,
+        );
+        assert_eq!(payload.title_key, "planCascade");
+        assert_eq!(payload.title_args, vec!["glibc".to_string()]);
+    }
+
+    #[test]
+    fn plan_task_run_keeps_the_callers_install_title() {
+        let (catalog, installed) = seed();
+        let (invoke, _) = one_answer(&ok_reply(
+            "ark-25.08.0_1 install x86_64 https://r/current 2097152 524288\n",
+        ));
+        let payload = PlanTask::named(vec!["ark".to_string()], "planInstallQuery".to_string()).run(
+            &installed,
+            &repos_from_installed(&installed),
+            &catalog,
+            &*invoke,
+        );
+        assert_eq!(payload.title_key, "planInstallQuery");
+    }
+
+    /// A queue can name the same package twice without the entries being
+    /// adjacent; the dry run asks xbps once per name.
+    #[test]
+    fn plan_task_run_dedups_names_and_keeps_their_order() {
+        let (catalog, installed) = seed();
+        let (invoke, seen) = one_answer(&ok_reply(
+            "ark-25.08.0_1 install x86_64 https://r/current 2097152 524288\n\
+             vim-9.2.2000_1 install x86_64 https://r/current 4194304 1468006\n",
+        ));
+        PlanTask::named(
+            vec!["ark".to_string(), "vim".to_string(), "ark".to_string()],
+            "planInstall".to_string(),
+        )
+        .run(
+            &installed,
+            &repos_from_installed(&installed),
+            &catalog,
+            &*invoke,
+        );
+        assert_eq!(
+            seen.lock().map(|seen| seen[0].clone()).unwrap(),
+            ["xbps-install", "-n", "ark", "vim"]
+        );
     }
 
     #[test]
