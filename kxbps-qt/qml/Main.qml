@@ -70,6 +70,26 @@ Kirigami.ApplicationWindow {
             return i18nd("kxbps", "Another transaction is running")
         case "jobFailed":
             return i18nd("kxbps", "Transaction failed")
+        // The helper's success verdict carries no argument: the URL is the one
+        // the dialog named a moment ago, so repeating it adds nothing.
+        case "mirrorApplyDone":
+            return i18nd("kxbps", "Mirror applied and the index synchronised.")
+        // The helper's failures. `labelArg` carries only the first verdict
+        // argument, so a `%2` the key would like (the `-S` stderr tail) is not
+        // available to QML; the argument that is there is the one that names
+        // what went wrong.
+        case "errorMirrorUrlRefused":
+            return i18nd("kxbps", "The helper refused the mirror URL.")
+        case "errorMirrorWrite":
+            return i18nd("kxbps", "Could not write the xbps configuration: %1", job.labelArg)
+        case "errorMirrorSync":
+            return i18nd("kxbps", "The repository index could not be synchronised (exit %1)", job.labelArg)
+        case "errorMirrorRevert":
+            return i18nd("kxbps", "Synchronisation failed and the previous configuration could not be restored.")
+        case "errorMirrorHelper":
+            return job.labelArg.length > 0
+                   ? i18nd("kxbps", "The mirror helper failed: %1", job.labelArg)
+                   : i18nd("kxbps", "The mirror helper failed")
         }
         return ""
     }
@@ -447,6 +467,77 @@ Kirigami.ApplicationWindow {
         version: appBackend.version()
     }
 
+    // Applying the selected mirror rewrites the file xbps reads.
+    //
+    // The confirmation names the URL and the backup the helper leaves behind,
+    // because this is the one action that changes the system from this page.
+    // Running the job needs root, so the dialog does not do it for the user: it
+    // hands the job to `startJob`, which shows it and the log.
+    Kirigami.Dialog {
+        id: mirrorApplyDialog
+
+        // The path the helper backs `00-repository-main.conf` up to before it
+        // writes. Named here so the user knows what to restore by hand.
+        readonly property string backupPath: "/etc/xbps.d/00-repository-main.conf.kxbps-bak"
+
+        title: i18nd("kxbps", "Use this mirror on the system?")
+        preferredWidth: Kirigami.Units.gridUnit * 40
+        padding: Kirigami.Units.largeSpacing
+
+        function apply() {
+            const started = mirrorBackend.applySystemMirror()
+            close()
+            // Null means nothing was applied: the slot already refused it. The
+            // backend clears `applyBusy` and re-reads the system half, so the
+            // footer follows without a second read here.
+            root.startJob(started)
+        }
+
+        ColumnLayout {
+            implicitWidth: Kirigami.Units.gridUnit * 38
+            spacing: Kirigami.Units.smallSpacing
+
+            Kirigami.Action {
+                id: mirrorCancelAction
+                text: i18nd("kxbps", "Cancel")
+                onTriggered: mirrorApplyDialog.reject()
+            }
+
+            Kirigami.Action {
+                id: mirrorUseAction
+                text: i18nd("kxbps", "Use on the system")
+                onTriggered: mirrorApplyDialog.apply()
+            }
+
+            QQC2.Label {
+                Layout.fillWidth: true
+                text: i18nd("kxbps", "xbps starts using %1, and the repository index is synchronised.",
+                            mirrorBackend.currentMirror)
+                font.family: "monospace"
+                wrapMode: Text.WordWrap
+            }
+
+            QQC2.Label {
+                Layout.fillWidth: true
+                text: i18nd("kxbps", "The helper writes %1 and keeps the previous file as %2.",
+                            "/etc/xbps.d/00-repository-main.conf", mirrorApplyDialog.backupPath)
+                color: Kirigami.Theme.disabledTextColor
+                font: Kirigami.Theme.smallFont
+                wrapMode: Text.WordWrap
+            }
+
+            QQC2.Label {
+                Layout.fillWidth: true
+                text: i18nd("kxbps", "This changes the system for every user. It needs administrator authentication.")
+                color: Kirigami.Theme.negativeTextColor
+                font: Kirigami.Theme.smallFont
+                wrapMode: Text.WordWrap
+            }
+        }
+
+        customFooterActions: [mirrorCancelAction, mirrorUseAction]
+    }
+
     pageStack.initialPage: Kirigami.Page {
         padding: 0
 
@@ -628,6 +719,23 @@ Kirigami.ApplicationWindow {
                             onClicked: mirrorBackend.probeAll()
                         }
 
+                        // Writing `/etc/xbps.d` needs root, so the button only
+                        // opens a confirmation; the job dialog carries progress.
+                        // Every guard is its own property: a probe, a system
+                        // read or a running apply each make the write unsafe or
+                        // pointless, and `pending` keeps it from offering to
+                        // write what xbps already uses.
+                        QQC2.Button {
+                            visible: root.section === "mirrors"
+                            text: i18nd("kxbps", "Apply to system")
+                            icon.name: "dialog-ok-apply"
+                            enabled: mirrorBackend.pending
+                                     && !mirrorBackend.probing
+                                     && !mirrorBackend.systemLoading
+                                     && !mirrorBackend.applyBusy
+                            onClicked: mirrorApplyDialog.open()
+                        }
+
                         // Task 13 replaces this with the menu bar; until then
                         // the two global actions live behind one toolbar menu.
                         QQC2.ToolButton {
@@ -697,7 +805,6 @@ Kirigami.ApplicationWindow {
 
                     MirrorsView {
                         mirrorBackend: mirrorBackend
-                        installedBackend: installedBackend
                     }
                 }
 

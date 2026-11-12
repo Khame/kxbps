@@ -3,6 +3,11 @@
 // The row itself is the "Use" control: there is one source of truth for the
 // selection (`mirrorBackend.currentMirror`) and no second checkbox that could
 // disagree with it.
+//
+// Two different questions share this row, so they get two different badges:
+// `Selected` is the app's own choice (the store's `mirror.json`) and `In use`
+// is what xbps resolves from `/etc/xbps.d/00-repository-main.conf`. Both can be
+// true, and when neither is the system mirror the list is `pending` an apply.
 
 import QtQuick
 import QtQuick.Controls as QQC2
@@ -16,6 +21,11 @@ QQC2.ItemDelegate {
     property var mirrorBackend
 
     readonly property bool selected: model.url === mirrorBackend.currentMirror
+    // Both sides are base URLs ending in one `/`, the shape `mirror.json` and
+    // `00-repository-main.conf` store, so equality is the same comparison the
+    // backend's `pending()` makes.
+    readonly property bool inUse: mirrorBackend.systemMirror.length > 0
+                                  && model.url === mirrorBackend.systemMirror
 
     height: Kirigami.Units.gridUnit * 2.4
     implicitHeight: height
@@ -26,8 +36,24 @@ QQC2.ItemDelegate {
     highlighted: delegate.selected
 
     Accessible.role: Accessible.RadioButton
-    Accessible.name: model.name
+    Accessible.name: model.country.length > 0
+                     ? i18nd("kxbps", "%1, %2", model.name, model.country)
+                     : model.name
     Accessible.checked: delegate.selected
+    // The badges and the state are painted next to the row, so a screen reader
+    // would read them as separate items with no owner. The description carries
+    // them with the row instead.
+    Accessible.description: {
+        let parts = []
+        if (delegate.selected) {
+            parts.push(i18nd("kxbps", "Selected"))
+        }
+        if (delegate.inUse) {
+            parts.push(i18nd("kxbps", "In use"))
+        }
+        parts.push(delegate.stateText(model.state, model.errorKey))
+        return parts.join(", ")
+    }
 
     onClicked: mirrorBackend.currentMirror = model.url
 
@@ -126,9 +152,9 @@ QQC2.ItemDelegate {
         }
 
         Item {
-            Layout.preferredWidth: Kirigami.Units.gridUnit * 12
-            Layout.minimumWidth: Kirigami.Units.gridUnit * 12
-            Layout.maximumWidth: Kirigami.Units.gridUnit * 12
+            Layout.preferredWidth: Kirigami.Units.gridUnit * 16
+            Layout.minimumWidth: Kirigami.Units.gridUnit * 16
+            Layout.maximumWidth: Kirigami.Units.gridUnit * 16
             Layout.fillHeight: true
             clip: true
 
@@ -139,9 +165,16 @@ QQC2.ItemDelegate {
 
                 QQC2.Label {
                     visible: delegate.selected
-                    text: i18nd("kxbps", "Active")
+                    text: i18nd("kxbps", "Selected")
                     font: Kirigami.Theme.smallFont
                     color: delegate.highlighted ? Kirigami.Theme.highlightedTextColor : Kirigami.Theme.highlightColor
+                }
+
+                QQC2.Label {
+                    visible: delegate.inUse
+                    text: i18nd("kxbps", "In use")
+                    font: Kirigami.Theme.smallFont
+                    color: Kirigami.Theme.positiveTextColor
                 }
 
                 Rectangle {

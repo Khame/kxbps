@@ -11,3 +11,235 @@ msgstr ""
 "Content-Transfer-Encoding: 8bit\n"
 "Plural-Forms: nplurals=3; plural=(n==1 ? 0 : n%10>=2 && n%10<=4 && (n%100<10 "
 "|| n%100>=20) ? 1 : 2);\n"
+
+#: kxbps-qt/qml/views/MirrorsView.qml
+msgid "Mirrors"
+msgstr "Serwery lustrzane"
+
+#: kxbps-qt/qml/views/MirrorsView.qml
+msgid "Repositories"
+msgstr "Repozytoria"
+
+#: kxbps-qt/qml/views/MirrorsView.qml
+msgid "Show"
+msgstr "Pokaż"
+
+#: kxbps-qt/qml/views/MirrorsView.qml
+msgid "Mirror state filter"
+msgstr "Filtr stanu serwera lustrzanego"
+
+#: kxbps-qt/qml/views/MirrorsView.qml
+msgid "All"
+msgstr "Wszystkie"
+
+#: kxbps-qt/qml/views/MirrorsView.qml
+msgid "OK"
+msgstr "OK"
+
+#: kxbps-qt/qml/views/MirrorsView.qml
+msgid "Failed"
+msgstr "Niepowodzenie"
+
+#: kxbps-qt/qml/views/MirrorsView.qml
+msgid "%1 of %2 mirrors probed"
+msgstr "Sprawdzono %1 z %2 serwerów lustrzanych"
+
+#: kxbps-qt/qml/views/MirrorsView.qml
+msgid "Server"
+msgstr "Serwer"
+
+#: kxbps-qt/qml/views/MirrorsView.qml
+msgid "Region"
+msgstr "Region"
+
+#: kxbps-qt/qml/views/MirrorsView.qml
+msgid "Latency"
+msgstr "Opóźnienie"
+
+#: kxbps-qt/qml/views/MirrorsView.qml
+msgid "Latency, sorted fastest first"
+msgstr "Opóźnienie, od najszybszego"
+
+#: kxbps-qt/qml/views/MirrorsView.qml
+msgid "Latency, sorted slowest first"
+msgstr "Opóźnienie, od najwolniejszego"
+
+#: kxbps-qt/qml/views/MirrorsView.qml
+msgid "State"
+msgstr "Stan"
+
+#: kxbps-qt/qml/views/MirrorsView.qml
+msgid "No mirrors."
+msgstr "Brak serwerów lustrzanych."
+
+#: kxbps-qt/qml/views/MirrorsView.qml
+msgid "No mirror matches this filter."
+msgstr "Żaden serwer lustrzany nie pasuje do filtra."
+
+#: kxbps-qt/qml/views/MirrorsView.qml
+msgid "Saved in %1"
+msgstr "Zapisano w %1"
+
+#: kxbps-qt/qml/views/MirrorsView.qml
+msgid "xbps uses %1, from %2."
+msgstr "xbps używa %1, z pliku %2."
+
+#: kxbps-qt/qml/views/MirrorsView.qml
+msgid "The selection is saved for KXbps only; xbps uses %1."
+msgstr "Wybór jest zapisany tylko dla KXbps; xbps używa %1."
+
+#: kxbps-qt/qml/views/MirrorsView.qml
+msgid "Could not read the xbps configuration."
+msgstr "Nie udało się odczytać konfiguracji xbps."
+
+#: kxbps-qt/qml/views/MirrorsView.qml
+msgid "Could not read the xbps configuration: %1."
+msgstr "Nie udało się odczytać konfiguracji xbps: %1."
+
+#: kxbps-qt/qml/views/MirrorsView.qml
+msgid "The xbps configuration could not be parsed."
+msgstr "Nie udało się przetworzyć konfiguracji xbps."
+
+#: kxbps-qt/qml/views/MirrorsView.qml
+msgid "Could not write %1."
+msgstr "Nie udało się zapisać %1."
+
+#: kxbps-qt/qml/views/MirrorsView.qml
+msgid "Could not write the xbps configuration."
+msgstr "Nie udało się zapisać konfiguracji xbps."
+
+#: kxbps-qt/qml/views/MirrorsView.qml
+msgid "The helper refused the URL."
+msgstr "Program pomocniczy odrzucił adres URL."
+
+#: kxbps-qt/qml/views/MirrorsView.qml
+msgid "Reading repositories…"
+msgstr "Odczyt repozytoriów…"
+
+#: kxbps-qt/qml/views/MirrorsView.qml
+msgid "No repositories."
+msgstr "Brak repozytoriów."
+
+#: kxbps-qt/qml/views/MirrorsView.qml
+msgid "Repository"
+msgstr "Repozytorium"
+
+#: kxbps-qt/qml/views/MirrorsView.qml
+msgid "Packages"
+msgstr "Pakiety"
+
+#: kxbps-qt/qml/views/MirrorsView.qml
+msgid "Signature"
+msgstr "Podpis"
+
+#: kxbps-qt/qml/views/MirrorsView.qml
+msgid "File"
+msgstr "Plik"
+
+#: kxbps-qt/qml/views/MirrorsView.qml
+msgid "No index"
+msgstr "Brak indeksu"
+
+#: kxbps-qt/qml/views/MirrorsView.qml
+msgid "Signed"
+msgstr "Podpisane"
+
+#: kxbps-qt/qml/views/MirrorsView.qml
+msgid "Not verified"
+msgstr "Niezweryfikowane"
+
+#: kxbps-qt/qml/views/MirrorsView.qml
+msgid "Read from xbps-query -L and the xbps.d files. Changing a repository is a later task."
+msgstr "Odczytane z xbps-query -L i plików xbps.d. Zmiana repozytorium to późniejsze zadanie."
+
+#: kxbps-qt/qml/components/MirrorDelegate.qml
+msgid "Selected"
+msgstr "Wybrany"
+
+#: kxbps-qt/qml/components/MirrorDelegate.qml
+msgid "In use"
+msgstr "W użyciu"
+
+#: kxbps-qt/qml/components/MirrorDelegate.qml
+msgid "%1, %2"
+msgstr "%1, %2"
+
+#: kxbps-qt/qml/components/MirrorDelegate.qml
+msgid "%1 ms"
+msgstr "%1 ms"
+
+#: kxbps-qt/qml/components/MirrorDelegate.qml
+msgid "Not probed"
+msgstr "Niesprawdzony"
+
+#: kxbps-qt/qml/components/MirrorDelegate.qml
+msgid "Probing"
+msgstr "Sprawdzanie"
+
+#: kxbps-qt/qml/components/MirrorDelegate.qml
+msgid "Plain HTTP is not probed"
+msgstr "Zwykły HTTP nie jest sprawdzany"
+
+#: kxbps-qt/qml/components/MirrorDelegate.qml
+msgid "Timed out"
+msgstr "Przekroczono czas"
+
+#: kxbps-qt/qml/components/MirrorDelegate.qml
+msgid "No response"
+msgstr "Brak odpowiedzi"
+
+#: kxbps-qt/qml/Main.qml
+msgid "Apply to system"
+msgstr "Zastosuj w systemie"
+
+#: kxbps-qt/qml/Main.qml
+msgid "Use this mirror on the system?"
+msgstr "Użyć tego serwera lustrzanego w systemie?"
+
+#: kxbps-qt/qml/Main.qml
+msgid "Cancel"
+msgstr "Anuluj"
+
+#: kxbps-qt/qml/Main.qml
+msgid "Use on the system"
+msgstr "Użyj w systemie"
+
+#: kxbps-qt/qml/Main.qml
+msgid "xbps starts using %1, and the repository index is synchronised."
+msgstr "xbps zacznie używać %1, a indeks repozytoriów zostanie zsynchronizowany."
+
+#: kxbps-qt/qml/Main.qml
+msgid "The helper writes %1 and keeps the previous file as %2."
+msgstr "Program pomocniczy zapisze %1 i zachowa poprzedni plik jako %2."
+
+#: kxbps-qt/qml/Main.qml
+msgid "This changes the system for every user. It needs administrator authentication."
+msgstr "Ta zmiana dotyczy systemu wszystkich użytkowników. Wymaga uwierzytelnienia administratora."
+
+#: kxbps-qt/qml/Main.qml
+msgid "Mirror applied and the index synchronised."
+msgstr "Zastosowano serwer lustrzany i zsynchronizowano indeks."
+
+#: kxbps-qt/qml/Main.qml
+msgid "The helper refused the mirror URL."
+msgstr "Program pomocniczy odrzucił adres serwera lustrzanego."
+
+#: kxbps-qt/qml/Main.qml
+msgid "Could not write the xbps configuration: %1"
+msgstr "Nie udało się zapisać konfiguracji xbps: %1"
+
+#: kxbps-qt/qml/Main.qml
+msgid "The repository index could not be synchronised (exit %1)"
+msgstr "Nie udało się zsynchronizować indeksu repozytoriów (kod wyjścia %1)"
+
+#: kxbps-qt/qml/Main.qml
+msgid "Synchronisation failed and the previous configuration could not be restored."
+msgstr "Synchronizacja nie powiodła się, a poprzedniej konfiguracji nie udało się przywrócić."
+
+#: kxbps-qt/qml/Main.qml
+msgid "The mirror helper failed"
+msgstr "Program pomocniczy zgłosił błąd"
+
+#: kxbps-qt/qml/Main.qml
+msgid "The mirror helper failed: %1"
+msgstr "Program pomocniczy zgłosił błąd: %1"
