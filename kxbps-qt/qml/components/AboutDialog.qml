@@ -54,6 +54,14 @@ Kirigami.Dialog {
 
         QQC2.Label {
             Layout.fillWidth: true
+            // Legal notice: a name and a licence identifier do not translate.
+            text: "Copyright © 2026 Łukasz \"Khame\" Linhard · GPL-3.0-or-later"
+            color: Kirigami.Theme.disabledTextColor
+            wrapMode: Text.WordWrap
+        }
+
+        QQC2.Label {
+            Layout.fillWidth: true
             Layout.topMargin: Kirigami.Units.smallSpacing
             text: i18nd("kxbps", "A graphical front end for xbps, the Void Linux package manager.")
             wrapMode: Text.WordWrap

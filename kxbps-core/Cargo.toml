@@ -2,6 +2,8 @@
 name = "kxbps-core"
 version.workspace = true
 edition.workspace = true
+license.workspace = true
+authors.workspace = true
 
 # The privileged helper polkit runs as root; the package installs it as
 # `/usr/libexec/kxbps-mirror-apply`, which is the path the policy annotates.
