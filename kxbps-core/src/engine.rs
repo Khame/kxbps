@@ -18,32 +18,6 @@ use crate::types::{
 use crate::xbps::UpdateEntry;
 use std::collections::BTreeSet;
 
-/// Everything that can go wrong while planning a transaction.
-///
-/// Only the checks that run *before* a dry run produce one of these: xbps
-/// answers the rest in its own words, which [`crate::plan`] parses. The
-/// variants are structured rather than pre-formatted so the Qt/QML layer can
-/// translate them; the `Display` text is for logs and tests only.
-#[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
-pub enum EngineError {
-    /// The package is only in a repository the user has not enabled.
-    #[error("repository {repo:?} is disabled for package `{package}`")]
-    RepoDisabled {
-        package: String,
-        repo: crate::types::RepoId,
-    },
-    /// A direct dependency comes from a repository the user has not enabled.
-    #[error("package `{package}` needs `{dependency}` from disabled repository {repo:?}")]
-    DependencyRepoDisabled {
-        package: String,
-        dependency: String,
-        repo: crate::types::RepoId,
-    },
-    /// An update was requested for packages that are not installed.
-    #[error("not installed: {0:?}")]
-    NotInstalled(Vec<String>),
-}
-
 /// Ordered steps of a plan, plus the packages that blocked a removal.
 ///
 /// A blocked removal carries no steps: the caller shows the blocking list and
