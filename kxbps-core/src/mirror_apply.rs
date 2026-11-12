@@ -335,8 +335,8 @@ impl Cli {
 /// No shell, no `-y`, no timeout of our own: xbps is the one that knows how
 /// long a repository may take, and a key prompt gets EOF instead of a hang.
 fn run_sync() -> Result<(), (i32, String)> {
-    let output = Command::new(XBPS_INSTALL)
-        .arg("-S")
+    let output = Command::new(command_path(XBPS_INSTALL))
+        .args(sync_argv().iter().skip(1))
         .stdin(Stdio::null())
         .output();
     let output = match output {
@@ -353,7 +353,7 @@ fn run_sync() -> Result<(), (i32, String)> {
 
 /// Runs `xbps-query -L` and checks the new URL is listed with an index.
 fn run_verify(url: &str) -> Result<(), String> {
-    let output = Command::new(XBPS_QUERY)
+    let output = Command::new(command_path(XBPS_QUERY))
         .arg("-L")
         .stdin(Stdio::null())
         .output();
@@ -386,6 +386,24 @@ pub const HELPER_PATH: &str = "/usr/libexec/kxbps-mirror-apply";
 /// file name; kept here so the binary stays a thin `main`.
 pub fn config_path() -> &'static Path {
     Path::new(crate::mirror_config::SYSTEM_CONFIG_PATH)
+}
+
+/// The production path of an xbps command.
+///
+/// `KXBPS_XBPS_BIN_DIR` exists so a test can point both commands at the same
+/// fake script: the helper is root-only, and a test that needs the whole
+/// pipeline must not shell out to a real xbps. Unset, the documented absolute
+/// paths are used, which is what polkit authorizes in a real run.
+fn command_path(name: &str) -> String {
+    match std::env::var_os("KXBPS_XBPS_BIN_DIR") {
+        Some(dir) => {
+            let file = Path::new(name)
+                .file_name()
+                .unwrap_or_else(|| std::ffi::OsStr::new(name));
+            Path::new(&dir).join(file).to_string_lossy().into_owned()
+        }
+        None => name.to_owned(),
+    }
 }
 
 #[cfg(test)]
@@ -712,6 +730,95 @@ mod tests {
             refused.detail
         );
         assert_eq!(refused.url, "", "nothing was attempted");
+    }
+
+    /// A CLI over a private config path, so `run` never touches `/etc`.
+    fn cli_over(config_path: &Path, url: Option<&str>) -> Cli {
+        Cli {
+            config_path: config_path.to_path_buf(),
+            url: url.map(str::to_owned),
+        }
+    }
+
+    #[test]
+    fn the_cli_writes_syncs_and_verifies_with_the_fake_commands() {
+        let dir = tempdir("cli-ok");
+        let path = dir.join("00-repository-main.conf");
+        let listing = format!("7 {GOOD}current (RSA signed)");
+        let script = format!(
+            "#!/bin/sh\ncase \"$1\" in\n  -S) exit 0 ;;\n  -L) echo '{listing}' ;;\n  *) exit 9 ;;\nesac\n"
+        );
+        let bin = write_fake_xbps(&dir, &script);
+
+        let result = with_fake_xbps(&bin, || cli_over(&path, Some(GOOD)).run());
+        assert_eq!(
+            result.exit,
+            Exit::Ok,
+            "{} | bin dir {}",
+            result.detail,
+            bin.display()
+        );
+        assert_eq!(result.base, GOOD);
+        assert_eq!(
+            fs::read_to_string(&path).expect("written"),
+            render_config(GOOD)
+        );
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn a_production_run_without_root_ends_on_a_documented_code() {
+        // The real commands, a temp path: a normal user cannot write /etc, so
+        // the helper exits with a documented code instead of panicking.
+        let dir = tempdir("cli-no-root");
+        let path = dir.join("00-repository-main.conf");
+        let result = cli_over(&path, Some(GOOD)).run();
+        assert!(
+            result.exit.code() == 3 || result.exit.code() == 4,
+            "write or sync, never a panic: {} {}",
+            result.exit.code(),
+            result.detail
+        );
+        assert!(!path.exists(), "nothing was written");
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    /// Writes one executable script under both xbps names, so either command
+    /// reaches it; `body` is the whole script.
+    fn write_fake_xbps(dir: &Path, body: &str) -> PathBuf {
+        let bin = dir.join("bin");
+        fs::create_dir_all(&bin).expect("bin dir");
+        for name in ["xbps-install", "xbps-query"] {
+            let path = bin.join(name);
+            fs::write(&path, body).expect("script");
+            fs::set_permissions(&path, fs::Permissions::from_mode(0o755)).expect("executable");
+        }
+        bin
+    }
+
+    /// The lock every test that sets `KXBPS_XBPS_BIN_DIR` holds.
+    static BIN_DIR_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
+
+    /// Runs `body` with both xbps commands answered by `bin/fake-xbps`.
+    fn with_fake_xbps<T>(bin: &Path, body: impl FnOnce() -> T) -> T {
+        let guard = BIN_DIR_LOCK
+            .lock()
+            .unwrap_or_else(|poison| poison.into_inner());
+        let saved = std::env::var_os("KXBPS_XBPS_BIN_DIR");
+        // SAFETY: the lock above is the only access to this variable in the
+        // whole suite, so no other thread reads it while it points at a test
+        // directory.
+        let bin = bin.to_path_buf();
+        unsafe { std::env::set_var("KXBPS_XBPS_BIN_DIR", &bin) };
+        let answer = body();
+        unsafe {
+            match saved {
+                Some(value) => std::env::set_var("KXBPS_XBPS_BIN_DIR", value),
+                None => std::env::remove_var("KXBPS_XBPS_BIN_DIR"),
+            }
+        }
+        drop(guard);
+        answer
     }
 
     #[test]
