@@ -34,11 +34,10 @@ Kirigami.ApplicationWindow {
     // snapshot it was built from.
     property var catalogIndex: []
 
-    // Task 11: replace with the plan/job dialogs.
-    property var plan: null
-    // The finished job is kept until the next transaction starts, so its log
-    // stays readable after it ends. Its result line leaves the strip as soon as
-    // the queue is used again.
+    // The current or last finished job. It is kept until the next transaction
+    // starts, so the status strip and the log drawer stay readable after the
+    // JobDialog closes; the dialog releases the previous job when it takes the
+    // next one.
     property var job: null
     property bool showJobResult: false
 
@@ -78,6 +77,11 @@ Kirigami.ApplicationWindow {
         // The query façade answers `search`/`get` from the same snapshot; without
         // this wiring its results would report every package as not installed.
         queryBackend: catalogBackend
+    }
+
+    // The version string the About dialog shows.
+    AppBackend {
+        id: appBackend
     }
 
     // The mirror list, its probe batch and the persisted selection. `owner` is
@@ -144,46 +148,38 @@ Kirigami.ApplicationWindow {
         return i18ndp("khaxbps", "%1 package", "%1 packages", count)
     }
 
-    // Task 11: replace with the plan/job dialogs.
-    //
-    // First press opens the queue plan and the strip shows what it would cost;
-    // the second press applies it. Plan and job objects are C++-parented
-    // children of the backend and must be released, never garbage-collected.
-    function reviewOrApply() {
-        if (plan !== null) {
-            const opened = plan
-            const started = installedBackend.applyPlan(opened)
-            plan = null
-            installedBackend.release(opened)
-            if (job !== null) {
-                const previous = job
-                job = null
-                installedBackend.release(previous)
-            }
-            showJobResult = false
-            job = started
-            if (job !== null) {
-                logDrawer.expand()
-            }
-            return
-        }
-        plan = installedBackend.openQueuePlan()
+    // Plan and job objects are C++-parented children of the backend, so the
+    // dialog that opens one releases it. `startJob` hands the job to JobDialog,
+    // which releases the previous job when it takes the new one; the strip and
+    // the drawer keep reading `root.job` in between.
+    function openQueuePlan() {
+        planDialog.showPlan(installedBackend.openQueuePlan())
     }
 
-    function closePlan() {
-        if (plan === null) {
+    function openSystemPlan() {
+        planDialog.showPlan(installedBackend.openSystemPlan())
+    }
+
+    function startJob(started) {
+        if (started === null) {
             return
         }
-        const opened = plan
-        plan = null
-        installedBackend.release(opened)
+        // Assign before the dialog releases the previous job, so no binding
+        // ever reads a job that is already scheduled for deletion.
+        job = started
+        showJobResult = false
+        jobDialog.showJob(started)
+        logDrawer.expand()
     }
 
     Connections {
         target: installedBackend
         function onQueueCountChanged() {
-            // A queue change invalidates the plan the strip was showing.
-            root.closePlan()
+            // A queue change invalidates the plan a dialog is showing; the
+            // dialog drops the stale snapshot and releases the backend child.
+            if (planDialog.opened) {
+                planDialog.close()
+            }
             if (installedBackend.queueCount > 0) {
                 root.showJobResult = false
             }
@@ -203,6 +199,37 @@ Kirigami.ApplicationWindow {
                 root.showJobResult = true
             }
         }
+    }
+
+    // The confirm surface: queue plan, system plan, named install and the
+    // cascade plan BlockedDialog produces all arrive here.
+    PlanDialog {
+        id: planDialog
+        installedBackend: installedBackend
+        onJobStarted: (started) => root.startJob(started)
+        onBlockedRequested: (blockedPlan) => blockedDialog.showPlan(blockedPlan)
+    }
+
+    JobDialog {
+        id: jobDialog
+        installedBackend: installedBackend
+        labelText: root.jobLabel
+    }
+
+    BlockedDialog {
+        id: blockedDialog
+        installedBackend: installedBackend
+        onCascadeRequested: (cascadePlan) => planDialog.showPlan(cascadePlan)
+    }
+
+    ResetDialog {
+        id: resetDialog
+        installedBackend: installedBackend
+    }
+
+    AboutDialog {
+        id: aboutDialog
+        version: appBackend.version()
     }
 
     Component.onCompleted: {
@@ -380,6 +407,31 @@ Kirigami.ApplicationWindow {
                             enabled: !mirrorBackend.probing
                             onClicked: mirrorBackend.probeAll()
                         }
+
+                        // Task 13 replaces this with the menu bar; until then
+                        // the two global actions live behind one toolbar menu.
+                        QQC2.ToolButton {
+                            id: menuButton
+                            icon.name: "application-menu"
+                            Accessible.name: i18nd("khaxbps", "Application menu")
+                            onClicked: menu.open()
+
+                            QQC2.Menu {
+                                id: menu
+                                y: menuButton.height
+                                width: Kirigami.Units.gridUnit * 14
+
+                                QQC2.MenuItem {
+                                    text: i18nd("khaxbps", "About Khaxbps")
+                                    onTriggered: aboutDialog.open()
+                                }
+
+                                QQC2.MenuItem {
+                                    text: i18nd("khaxbps", "Restore base image")
+                                    onTriggered: resetDialog.open()
+                                }
+                            }
+                        }
                     }
 
                     Rectangle {
@@ -402,6 +454,8 @@ Kirigami.ApplicationWindow {
                         installedBackend: installedBackend
                         catalogBackend: catalogBackend
                         catalogIndex: root.catalogIndex
+                        job: root.job
+                        onUpdateAllRequested: root.openSystemPlan()
                     }
 
                     QueryView {
@@ -420,12 +474,11 @@ Kirigami.ApplicationWindow {
                 StatusStrip {
                     Layout.fillWidth: true
                     installedBackend: installedBackend
-                    plan: root.plan
                     job: root.job
                     jobLabel: root.jobLabel
                     showResult: root.showJobResult
                     currentMirror: mirrorBackend.currentMirror
-                    onReviewRequested: root.reviewOrApply()
+                    onReviewRequested: root.openQueuePlan()
                     onCancelRequested: {
                         if (root.job !== null) {
                             root.job.cancel()

@@ -1,12 +1,12 @@
 // The permanent strip between the page and the log.
 //
-// It answers three questions without opening anything: what is queued, what the
-// queue would cost, and which mirror a transaction would use. While a job runs
+// It answers three questions without opening anything: what is queued, which
+// mirror a transaction would use, and how the last one ended. While a job runs
 // the strip belongs to the job, because progress is the only thing that matters
 // then.
 //
-// Task 11: the plan summary becomes a dialog and this strip goes back to being
-// a one-line status bar.
+// Task 11: the plan summary moved into `PlanDialog`; this strip is a one-line
+// status bar again.
 
 import QtQuick
 import QtQuick.Controls as QQC2
@@ -18,7 +18,6 @@ Rectangle {
     id: strip
 
     property var installedBackend
-    property var plan
     property var job
     property string jobLabel
     // False once the queue is used again: the last transaction's result must
@@ -50,22 +49,6 @@ Rectangle {
             return i18nd("khaxbps", "Queue is empty")
         }
         return i18ndp("khaxbps", "%1 package queued", "%1 packages queued", count)
-    }
-
-    function planText() {
-        if (!plan) {
-            return ""
-        }
-        if (plan.errorKey.length > 0) {
-            return i18nd("khaxbps", "The plan could not be built.")
-        }
-        if (plan.isBlocked) {
-            return i18nd("khaxbps", "The change is blocked.")
-        }
-        if (plan.count === 0) {
-            return i18nd("khaxbps", "Nothing to do.")
-        }
-        return i18nd("khaxbps", "%1 to download · %2 disk", plan.downloadText, plan.diskDeltaText)
     }
 
     RowLayout {
@@ -110,8 +93,8 @@ Rectangle {
             }
 
             QQC2.Button {
-                text: strip.plan ? i18nd("khaxbps", "Apply") : i18nd("khaxbps", "Review changes")
-                enabled: strip.installedBackend.queueCount > 0 || strip.plan !== null
+                text: i18nd("khaxbps", "Review changes")
+                enabled: strip.installedBackend.queueCount > 0
                 onClicked: strip.reviewRequested()
             }
 
@@ -121,16 +104,6 @@ Rectangle {
                 // A failed transaction must not read like a finished one.
                 color: strip.job !== null && strip.job.failed ? Kirigami.Theme.negativeTextColor
                                                               : Kirigami.Theme.disabledTextColor
-                elide: Text.ElideRight
-            }
-
-            QQC2.Label {
-                visible: strip.plan !== null
-                Layout.fillWidth: true
-                text: strip.planText()
-                color: strip.plan !== null && (strip.plan.isBlocked || strip.plan.errorKey.length > 0)
-                       ? Kirigami.Theme.negativeTextColor
-                       : Kirigami.Theme.disabledTextColor
                 elide: Text.ElideRight
             }
 

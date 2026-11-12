@@ -13,7 +13,12 @@ fn main() {
             .qml_file("qml/components/MirrorDelegate.qml")
             .qml_file("qml/components/DetailsPane.qml")
             .qml_file("qml/components/StatusStrip.qml")
-            .qml_file("qml/components/LogDrawer.qml"),
+            .qml_file("qml/components/LogDrawer.qml")
+            .qml_file("qml/components/PlanDialog.qml")
+            .qml_file("qml/components/JobDialog.qml")
+            .qml_file("qml/components/BlockedDialog.qml")
+            .qml_file("qml/components/ResetDialog.qml")
+            .qml_file("qml/components/AboutDialog.qml"),
     )
     .qt_module("Network")
     // Every file with a `#[cxx_qt::bridge]` module: the app backend, the

@@ -22,6 +22,11 @@ Item {
     property var installedBackend
     property var catalogBackend
     property var catalogIndex: []
+    // The current or last finished job: Update all must not start a second
+    // transaction on top of a running one.
+    property var job
+
+    signal updateAllRequested()
 
     // QML cannot index the model by row, so the selected package travels as its
     // name and the details pane reads it back through `catalogBackend.get()`.
@@ -126,6 +131,18 @@ Item {
                 model: [i18nd("khaxbps", "All categories")].concat(view.categories)
                 currentIndex: 0
                 onActivated: view.packages.category = index === 0 ? "all" : view.categories[index - 1]
+            }
+
+            // The bulk action belongs to the Updates filter only. It sits in
+            // this row, not the chip flow below, so appearing and disappearing
+            // never pushes the filter chips around.
+            QQC2.Button {
+                visible: view.packages.filter === "updates" && view.installedBackend.updatesCount > 0
+                text: i18nd("khaxbps", "Update all")
+                icon.name: "system-software-update"
+                highlighted: true
+                enabled: (view.job === null || view.job.done) && view.packages.count > 0
+                onClicked: view.updateAllRequested()
             }
         }
 
