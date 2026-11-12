@@ -30,6 +30,16 @@ Kirigami.Dialog {
             onTriggered: dialog.close()
         }
 
+        Image {
+            source: "qrc:/qt/qml/org/kde/kxbps/icons/kxbps.svg"
+            sourceSize.width: Kirigami.Units.iconSizes.huge
+            sourceSize.height: Kirigami.Units.iconSizes.huge
+            Layout.preferredWidth: Kirigami.Units.iconSizes.huge
+            Layout.preferredHeight: Kirigami.Units.iconSizes.huge
+            fillMode: Image.PreserveAspectFit
+            Accessible.name: i18nd("kxbps", "KXbps")
+        }
+
         Kirigami.Heading {
             Layout.fillWidth: true
             level: 2

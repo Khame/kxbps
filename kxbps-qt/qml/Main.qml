@@ -436,6 +436,17 @@ Kirigami.ApplicationWindow {
                         anchors.margins: Kirigami.Units.largeSpacing
                         spacing: Kirigami.Units.largeSpacing
 
+                        // The app icon, the same file the desktop entry installs.
+                        Image {
+                            source: "qrc:/qt/qml/org/kde/kxbps/icons/kxbps.svg"
+                            sourceSize.width: Kirigami.Units.iconSizes.medium
+                            sourceSize.height: Kirigami.Units.iconSizes.medium
+                            Layout.preferredWidth: Kirigami.Units.iconSizes.medium
+                            Layout.preferredHeight: Kirigami.Units.iconSizes.medium
+                            fillMode: Image.PreserveAspectFit
+                            Accessible.name: i18nd("kxbps", "KXbps")
+                        }
+
                         ColumnLayout {
                             Layout.fillWidth: true
                             spacing: 0

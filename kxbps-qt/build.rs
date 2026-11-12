@@ -1,4 +1,8 @@
 fn main() {
+    // `qrc` only watches the `.qrc` itself; without this line a replaced icon
+    // would not trigger a rebuild.
+    println!("cargo:rerun-if-changed=../packaging/io.github.khame.kxbps.svg");
+
     // Hand-written C++ shim that installs KI18n's `KLocalizedContext` on the QML
     // engine's root context, which is what makes `i18nd()` callable in QML.
     let builder = cxx_qt_build::CxxQtBuilder::new_qml_module(
@@ -21,6 +25,10 @@ fn main() {
             .qml_file("qml/components/AboutDialog.qml"),
     )
     .qt_module("Network")
+    // The application icon, kept in `packaging/` as the single source. The
+    // `.qrc` alias puts it under the QML module's own import path, so QML reads
+    // it as `qrc:/qt/qml/org/kde/kxbps/icons/kxbps.svg`.
+    .qrc("resources.qrc")
     // Every file with a `#[cxx_qt::bridge]` module: the app backend, the
     // package/queue/log models, the plan/job dialogs and the installed backend.
     // All of them must live flat in `src/` (cxx-qt-build 0.10 panics otherwise).
