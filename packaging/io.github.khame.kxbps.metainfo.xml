@@ -1,0 +1,78 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<component type="desktop-application">
+  <id>io.github.khame.kxbps</id>
+
+  <metadata_license>CC0-1.0</metadata_license>
+  <project_license>GPL-3.0-or-later</project_license>
+
+  <name>KXbps</name>
+  <summary>Package manager for Void Linux</summary>
+  <summary xml:lang="pl">Menedżer pakietów dla Void Linux</summary>
+
+  <description>
+    <p>
+      KXbps is a native KDE application for the XBPS package manager on Void Linux.
+      It reads the installed packages and the available updates from xbps-query,
+      searches the repositories on demand and shows the exact transaction xbps
+      will perform before anything is changed on disk.
+    </p>
+    <p xml:lang="pl">
+      KXbps to natywna aplikacja KDE dla menedżera pakietów XBPS w Void Linux.
+      Czyta zainstalowane pakiety i dostępne aktualizacje z xbps-query, wyszukuje
+      w repozytoriach na żądanie i pokazuje dokładną transakcję, którą wykona
+      xbps, zanim cokolwiek zmieni się na dysku.
+    </p>
+    <p>
+      Installs and removals run through polkit, so they ask for authentication
+      only when needed. The repository mirror can be switched from the same
+      window, and every command the application runs is shown in its log drawer.
+    </p>
+    <p xml:lang="pl">
+      Instalacje i usuwanie przechodzą przez polkit, więc pytają o
+      uwierzytelnienie tylko wtedy, gdy jest potrzebne. Mirror repozytorium można
+      zmienić z tego samego okna, a każde uruchomione polecenie widać w szufladzie
+      z logiem.
+    </p>
+  </description>
+
+  <launchable type="desktop-id">io.github.khame.kxbps.desktop</launchable>
+  <provides>
+    <binary>kxbps</binary>
+  </provides>
+
+  <categories>
+    <category>System</category>
+    <category>PackageManager</category>
+  </categories>
+
+  <keywords>
+    <keyword>package</keyword>
+    <keyword>manager</keyword>
+    <keyword>xbps</keyword>
+    <keyword>void</keyword>
+    <keyword>install</keyword>
+    <keyword>remove</keyword>
+    <keyword>update</keyword>
+    <keyword>repository</keyword>
+    <keyword>mirror</keyword>
+    <keyword xml:lang="pl">pakiety</keyword>
+    <keyword xml:lang="pl">menedżer</keyword>
+    <keyword xml:lang="pl">instalacja</keyword>
+    <keyword xml:lang="pl">usuwanie</keyword>
+    <keyword xml:lang="pl">aktualizacja</keyword>
+    <keyword xml:lang="pl">repozytorium</keyword>
+  </keywords>
+
+  <developer id="io.github.khame">
+    <name>Khame</name>
+  </developer>
+
+  <url type="homepage">https://github.com/Khame/kxbps</url>
+  <url type="bugtracker">https://github.com/Khame/kxbps/issues</url>
+
+  <content_rating type="oars-1.1"/>
+
+  <releases>
+    <release version="0.1.0" date="2026-11-12"/>
+  </releases>
+</component>

@@ -1,0 +1,15 @@
+[Desktop Entry]
+Type=Application
+Name=KXbps
+GenericName=Package Manager
+Comment=Install, update and remove packages with XBPS
+Comment[pl]=Instaluj, aktualizuj i usuwaj pakiety przez XBPS
+Exec=kxbps
+TryExec=kxbps
+Icon=io.github.khame.kxbps
+Terminal=false
+Categories=System;PackageManager;
+Keywords=package;manager;xbps;void;install;remove;update;repository;mirror;
+Keywords[pl]=pakiety;menedżer;xbps;void;instalacja;usuwanie;aktualizacja;repozytorium;mirror;
+StartupNotify=true
+StartupWMClass=io.github.khame.kxbps

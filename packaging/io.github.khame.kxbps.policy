@@ -1,0 +1,39 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE policyconfig PUBLIC
+ "-//freedesktop//DTD PolicyKit Policy Configuration 1.0//EN"
+ "http://www.freedesktop.org/standards/PolicyKit/1/policyconfig.dtd">
+<policyconfig>
+  <!-- One action per executable: polkit matches a single
+       org.freedesktop.policykit.exec.path per action id. -->
+  <action id="io.github.khame.kxbps.install">
+    <description>Install or update packages with xbps-install</description>
+    <message>Authentication is required to install or update packages</message>
+    <annotate key="org.freedesktop.policykit.exec.path">/usr/bin/xbps-install</annotate>
+    <defaults>
+      <allow_active>auth_admin</allow_active>
+      <allow_inactive>no</allow_inactive>
+    </defaults>
+  </action>
+
+  <action id="io.github.khame.kxbps.remove">
+    <description>Remove packages with xbps-remove</description>
+    <message>Authentication is required to remove packages</message>
+    <annotate key="org.freedesktop.policykit.exec.path">/usr/bin/xbps-remove</annotate>
+    <defaults>
+      <allow_active>auth_admin</allow_active>
+      <allow_inactive>no</allow_inactive>
+    </defaults>
+  </action>
+
+  <!-- Apply to system: the helper writes 00-repository-main.conf, runs
+       `xbps-install -S` and reverts on failure, all under one authorization. -->
+  <action id="io.github.khame.kxbps.mirror">
+    <description>Apply a repository mirror to the system configuration</description>
+    <message>Authentication is required to change the system repository and sync it</message>
+    <annotate key="org.freedesktop.policykit.exec.path">/usr/libexec/kxbps-mirror-apply</annotate>
+    <defaults>
+      <allow_active>auth_admin</allow_active>
+      <allow_inactive>no</allow_inactive>
+    </defaults>
+  </action>
+</policyconfig>
