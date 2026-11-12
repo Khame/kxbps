@@ -241,7 +241,20 @@ pub struct Prefs {
     pub notify_on_start: bool,
     pub desktop: bool,
     /// Dismissed notification key, empty when nothing was dismissed.
+    #[serde(default)]
     pub dismissed: String,
+    /// Whether the app starts with the session, as an autostart entry in the
+    /// user's `~/.config/autostart`. Defaults to `true`, so a `prefs.json`
+    /// written before this key existed starts with the notifier on. The Qt
+    /// layer writes or removes the entry from this value; nothing here touches
+    /// the filesystem.
+    #[serde(default = "default_start_with_session")]
+    pub start_with_session: bool,
+}
+
+/// The default of [`Prefs::start_with_session`]: on.
+fn default_start_with_session() -> bool {
+    true
 }
 
 /// Result of the last mirror latency probe.
@@ -252,4 +265,40 @@ pub enum ProbeState {
     Running,
     Ok { ms: u64 },
     Fail { error: String },
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn a_prefs_block_without_the_new_key_starts_with_autostart_on() {
+        // `prefs.json` from the version before autostart has no
+        // `startWithSession`; it must read as "on", and the two older optional
+        // fields must not be able to fail the whole block either.
+        let prefs: Prefs =
+            serde_json::from_str(r#"{"notifyOnStart":false,"desktop":true,"dismissed":"7"}"#)
+                .expect("the old block still reads");
+        assert!(prefs.start_with_session);
+        assert!(!prefs.notify_on_start);
+        assert!(prefs.desktop);
+
+        let stored: Prefs = serde_json::from_str(r#"{"notifyOnStart":true,"desktop":false}"#)
+            .expect("the minimal block reads");
+        assert!(stored.start_with_session);
+        assert_eq!(stored.dismissed, "");
+    }
+
+    #[test]
+    fn an_autostart_turned_off_survives_the_round_trip() {
+        let prefs = Prefs {
+            notify_on_start: true,
+            desktop: false,
+            dismissed: String::new(),
+            start_with_session: false,
+        };
+        let json = serde_json::to_string(&prefs).expect("serialise");
+        assert!(json.contains("\"startWithSession\":false"));
+        assert_eq!(serde_json::from_str::<Prefs>(&json).expect("decode"), prefs);
+    }
 }

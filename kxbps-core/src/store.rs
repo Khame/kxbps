@@ -135,6 +135,7 @@ fn default_prefs() -> Prefs {
         notify_on_start: true,
         desktop: false,
         dismissed: String::new(),
+        start_with_session: true,
     }
 }
 
@@ -304,6 +305,12 @@ impl Store {
         self.dirty = true;
     }
 
+    /// Whether the app starts with the session.
+    pub fn set_pref_start_with_session(&mut self, on: bool) {
+        self.prefs.start_with_session = on;
+        self.dirty = true;
+    }
+
     /// Pins or unpins an installed package, returning whether it is now held.
     ///
     /// Returns `false` for a package that is not installed; nothing changes.
@@ -340,7 +347,9 @@ impl Store {
     /// defaults, except for the desktop-notification switch, which the web app
     /// keeps across a reset. The installed cache and the pending updates are
     /// dropped too; nothing is installed or restored here, and the Qt layer
-    /// re-reads xbps afterwards.
+    /// re-reads xbps afterwards. Starting with the session is a default too, so
+    /// a reset turns it back on; the Qt layer rewrites the autostart entry from
+    /// the restored block.
     pub fn reset(&mut self) {
         self.installed.clear();
         self.updates.clear();
@@ -350,6 +359,7 @@ impl Store {
             notify_on_start: true,
             desktop: self.prefs.desktop,
             dismissed: String::new(),
+            start_with_session: true,
         };
         self.synced_at = None;
         self.dirty = true;
@@ -675,6 +685,7 @@ mod tests {
             notify_on_start: false,
             desktop: true,
             dismissed: "7".to_string(),
+            start_with_session: false,
         };
         write_json(dir.path(), PREFS_FILE, &prefs).expect("seed prefs");
         // A writer that died before its rename leaves a truncated temp file.
@@ -686,6 +697,32 @@ mod tests {
 
         store.save_at(dir.path()).expect("save");
         assert!(!stale.exists(), "the next save cleans the leftover up");
+    }
+
+    #[test]
+    fn a_prefs_file_from_before_autostart_starts_with_it_on() {
+        // The key is new; a `prefs.json` the previous version wrote has no
+        // `startWithSession`, and the decision was that such a profile starts
+        // with the autostart entry on. A file that says `false` keeps it off.
+        let dir = TempDir::new("prefs-default");
+        fs::write(
+            dir.path().join(PREFS_FILE),
+            br#"{"notifyOnStart":false,"desktop":true,"dismissed":"7"}"#,
+        )
+        .expect("seed old prefs");
+
+        let mut store = Store::load_at(dir.path()).expect("load");
+        assert!(store.prefs.start_with_session, "the default is on");
+        assert!(!store.prefs.notify_on_start, "the stored keys still win");
+        assert!(store.prefs.desktop);
+
+        store.set_pref_start_with_session(false);
+        store.save_at(dir.path()).expect("save");
+        let reloaded = Store::load_at(dir.path()).expect("reload");
+        assert!(
+            !reloaded.prefs.start_with_session,
+            "the stored value is read back"
+        );
     }
 
     #[test]
@@ -953,6 +990,7 @@ mod tests {
         store.set_pref_notify_on_start(false);
         store.set_pref_desktop_notifications(true);
         store.set_pref_dismissed_version("42");
+        store.set_pref_start_with_session(false);
         store.synced_at = Some(9);
 
         store.reset();
@@ -969,6 +1007,7 @@ mod tests {
                 notify_on_start: true,
                 desktop: true,
                 dismissed: String::new(),
+                start_with_session: true,
             }
         );
         assert_eq!(store.synced_at, None);
