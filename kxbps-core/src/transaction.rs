@@ -1,7 +1,8 @@
 //! The privileged transaction: what to run and what its exit code means.
 //!
-//! One transaction is `pkexec /usr/bin/xbps-install -y <pkgver>…` or
-//! `pkexec /usr/bin/xbps-remove -y <pkgver>…`. The program and every package
+//! One transaction is a sequence of `pkexec /usr/bin/xbps-install -y <pkgver>…`
+//! and `pkexec /usr/bin/xbps-remove -y <pkgver>…` commands: installations,
+//! updates and reinstalls first, removals after. The program and every package
 //! are separate argv elements, and no `sudo` ever appears: polkit is the only
 //! escalation, and it matches the executable against the action ids in
 //! `packaging/io.github.khame.kxbps.policy`.
@@ -36,12 +37,12 @@ pub enum Transaction {
 }
 
 impl Transaction {
-    /// The transaction a plan performs.
+    /// The transaction a uniform plan performs.
     ///
-    /// A plan that holds any install, update or reinstall is one transaction:
-    /// `xbps-install` also handles the removals a plan never mixes in there.
-    /// Only an all-remove plan goes through `xbps-remove`, otherwise there is
-    /// nothing to run.
+    /// A plan that holds any install, update or reinstall is an install
+    /// transaction; only an all-remove plan is a removal, and an empty plan has
+    /// nothing to run. [`TransactionPlan`] uses this per group of items, so a
+    /// mixed plan becomes one install command and one remove command.
     pub fn for_items(items: &[PlanItem]) -> Option<Self> {
         if items.iter().any(|item| item.action != PlanAction::Remove) {
             Some(Self::Install)
@@ -94,12 +95,62 @@ impl Transaction {
     }
 }
 
+/// The commands a plan runs, in order: `pkexec xbps-install` first, then
+/// `pkexec xbps-remove` for the removals.
+///
+/// Each command carries only the package versions its own tool owns. A mixed
+/// plan is reachable — xbps' own dry run reports `remove` rows for packages an
+/// install replaces — so a removal must never be passed to `xbps-install` as an
+/// explicit version, which would reinstall what the plan asked to drop.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct TransactionPlan {
+    pub commands: Vec<Vec<String>>,
+}
+
+impl TransactionPlan {
+    /// `None` for an empty plan, which has nothing to run.
+    pub fn for_items(items: &[PlanItem]) -> Option<Self> {
+        let installs: Vec<&PlanItem> = items
+            .iter()
+            .filter(|item| item.action != PlanAction::Remove)
+            .collect();
+        let removes: Vec<&PlanItem> = items
+            .iter()
+            .filter(|item| item.action == PlanAction::Remove)
+            .collect();
+        let mut commands = Vec::with_capacity(2);
+        if !installs.is_empty() {
+            commands.push(Transaction::Install.argv(&pkgvers_of(&installs)));
+        }
+        if !removes.is_empty() {
+            commands.push(Transaction::Remove.argv(&pkgvers_of(&removes)));
+        }
+        if commands.is_empty() {
+            None
+        } else {
+            Some(Self { commands })
+        }
+    }
+
+    /// The complete argv lists, each with pkexec in front, run in this order.
+    pub fn commands(&self) -> Vec<Vec<String>> {
+        self.commands.clone()
+    }
+}
+
 /// The package versions a plan hands to xbps.
 ///
 /// An install step carries its target version, a removal the installed one;
 /// a step with neither falls back to the bare name, which xbps accepts as a
 /// package expression.
 pub fn pkgvers(items: &[PlanItem]) -> Vec<String> {
+    let borrowed: Vec<&PlanItem> = items.iter().collect();
+    pkgvers_of(&borrowed)
+}
+
+/// The same list for a group of borrowed items, as the command builder holds
+/// them.
+fn pkgvers_of(items: &[&PlanItem]) -> Vec<String> {
     items
         .iter()
         .map(|item| {
@@ -115,28 +166,6 @@ pub fn pkgvers(items: &[PlanItem]) -> Vec<String> {
             }
         })
         .collect()
-}
-
-/// Everything the argv list of a plan needs, computed once.
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub struct TransactionPlan {
-    pub transaction: Transaction,
-    pub pkgvers: Vec<String>,
-}
-
-impl TransactionPlan {
-    /// `None` for an empty plan, which has nothing to run.
-    pub fn for_items(items: &[PlanItem]) -> Option<Self> {
-        Transaction::for_items(items).map(|transaction| Self {
-            transaction,
-            pkgvers: pkgvers(items),
-        })
-    }
-
-    /// `pkexec /usr/bin/xbps-install -y <pkgver>…`.
-    pub fn argv(&self) -> Vec<String> {
-        self.transaction.argv(&self.pkgvers)
-    }
 }
 
 /// What a finished process means, as the UI reports it.
@@ -327,16 +356,103 @@ mod tests {
     fn a_transaction_plan_is_the_argv_qml_would_read() {
         let items = [item("vim", PlanAction::Install, None, Some("9.2.1031_1"))];
         let plan = TransactionPlan::for_items(&items).expect("a plan has a transaction");
-        assert_eq!(plan.transaction, Transaction::Install);
         assert_eq!(
-            plan.argv(),
-            ["pkexec", "/usr/bin/xbps-install", "-y", "vim-9.2.1031_1"]
+            plan.commands(),
+            [v(&[
+                "pkexec",
+                "/usr/bin/xbps-install",
+                "-y",
+                "vim-9.2.1031_1"
+            ])]
         );
         assert_eq!(
-            plan.transaction.command_line(&plan.pkgvers),
+            Transaction::Install.command_line(&v(&["vim-9.2.1031_1"])),
             "pkexec /usr/bin/xbps-install -y vim-9.2.1031_1"
         );
         assert_eq!(TransactionPlan::for_items(&[]), None);
+    }
+
+    #[test]
+    fn a_mixed_plan_installs_first_and_removes_afterwards() {
+        let items = [
+            item("vim", PlanAction::Install, None, Some("9.2.1031_1")),
+            item("tzdata", PlanAction::Remove, Some("2025.1_1"), None),
+            item(
+                "git",
+                PlanAction::Update,
+                Some("2.50.0_1"),
+                Some("2.51.0_1"),
+            ),
+        ];
+        let plan = TransactionPlan::for_items(&items).expect("a mixed plan has commands");
+        assert_eq!(
+            plan.commands(),
+            [
+                v(&[
+                    "pkexec",
+                    "/usr/bin/xbps-install",
+                    "-y",
+                    "vim-9.2.1031_1",
+                    "git-2.51.0_1"
+                ]),
+                v(&["pkexec", "/usr/bin/xbps-remove", "-y", "tzdata-2025.1_1"]),
+            ],
+            "installs and updates go to xbps-install, removals to xbps-remove"
+        );
+        let install = &plan.commands()[0];
+        assert!(
+            !install.iter().any(|arg| arg == "tzdata-2025.1_1"),
+            "a removal never reaches the install argv: {install:?}"
+        );
+    }
+
+    #[test]
+    fn an_all_remove_plan_is_one_remove_command() {
+        let items = [
+            item("tzdata", PlanAction::Remove, Some("2025.1_1"), None),
+            item("nano", PlanAction::Remove, Some("8.0_1"), None),
+        ];
+        let plan = TransactionPlan::for_items(&items).expect("a removal plan has commands");
+        assert_eq!(
+            plan.commands(),
+            [v(&[
+                "pkexec",
+                "/usr/bin/xbps-remove",
+                "-y",
+                "tzdata-2025.1_1",
+                "nano-8.0_1"
+            ])]
+        );
+    }
+
+    #[test]
+    fn an_all_install_plan_is_one_install_command() {
+        let items = [
+            item("vim", PlanAction::Install, None, Some("9.2.1031_1")),
+            item(
+                "git",
+                PlanAction::Reinstall,
+                Some("2.51.0_1"),
+                Some("2.51.0_1"),
+            ),
+        ];
+        let plan = TransactionPlan::for_items(&items).expect("a plan has commands");
+        assert_eq!(
+            plan.commands(),
+            [v(&[
+                "pkexec",
+                "/usr/bin/xbps-install",
+                "-y",
+                "vim-9.2.1031_1",
+                "git-2.51.0_1"
+            ])]
+        );
+    }
+
+    #[test]
+    fn an_empty_plan_has_no_commands() {
+        assert_eq!(TransactionPlan::for_items(&[]), None);
+        assert!(TransactionPlan::default().commands().is_empty());
     }
 
     #[test]
