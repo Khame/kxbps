@@ -3,15 +3,20 @@
 //! CXX-Qt 0.10 has no `QAbstractListModel` wrapper, so this follows the same
 //! `#[base = QAbstractItemModel]` + C++ shim recipe as [`crate::package_model`].
 //!
-//! Rows are built once from [`MIRRORS`] and never re-created: the row set is the
-//! static list, so there is no reset path at all. A probe result rewrites the
-//! `state`, `latencyMs` and `errorKey` of one row and emits `dataChanged` for
-//! that row, which is what keeps the view's scroll position and selection alive
-//! while a batch runs (Global Constraints: no needless copying, no needless
-//! resets).
+//! Rows are built once from [`MIRRORS`] and never re-created; there is no
+//! rebuild of the row data. What changes is the *visible* order: `sortDescending`
+//! and `filter` recompute a permutation (`display`) over the stable row list, and
+//! `rowCount`/`index`/`data` read through it, so the view can sort by latency and
+//! hide failed rows without cloning a mirror. One `dataChanged` keeps the view's
+//! scroll position and selection alive while a batch runs (Global Constraints:
+//! no needless copying, no needless resets).
 //!
-//! Row `i` is `MIRRORS[i]` — [`crate::mirror_backend`] probes by index and the
-//! model answers by index, so the two agree without passing URLs back and forth.
+//! Row identity is the *source* row, i.e. the `MIRRORS` index, and it survives
+//! every permutation: [`crate::mirror_backend`] probes by source row and the
+//! model answers by source row, so a sorted or filtered view still writes each
+//! result into the row that holds that URL. A visible-set or order change resets
+//! the model; a single result does not, unless it moves a row across the active
+//! filter, in which case the reset is the only honest announcement.
 
 use std::pin::Pin;
 
@@ -54,6 +59,15 @@ pub mod qobject {
             column: i32,
         ) -> QModelIndex;
 
+        // `beginResetModel`/`endResetModel` are protected and cannot be called
+        // from Rust; a filter or sort change resets the visible rows through
+        // these.
+        #[cxx_name = "kxbps_mirror_model_begin_reset"]
+        fn mirror_model_begin_reset(model: Pin<&mut QAbstractItemModel>);
+
+        #[cxx_name = "kxbps_mirror_model_end_reset"]
+        fn mirror_model_end_reset(model: Pin<&mut QAbstractItemModel>);
+
         // `dataChanged` is a signal and cannot be emitted from Rust.
         #[cxx_name = "kxbps_mirror_model_data_changed"]
         fn mirror_model_data_changed(model: Pin<&mut QAbstractItemModel>, first: i32, last: i32);
@@ -66,6 +80,12 @@ pub mod qobject {
         #[qml_element]
         #[qml_uncreatable]
         #[qproperty(i32, count, READ, NOTIFY)]
+        /// Latency order: ascending (fastest first) by default. A row without a
+        /// latency is last in both directions.
+        #[qproperty(bool, sort_descending, READ, WRITE = set_sort_descending, NOTIFY)]
+        /// State filter: `0` all (default), `1` answered (`ok`), `2` failed.
+        /// An unknown value means all.
+        #[qproperty(i32, filter, READ, WRITE = set_filter, NOTIFY)]
         type MirrorModel = super::MirrorModelRust;
 
         #[qinvokable]
@@ -105,6 +125,10 @@ pub mod qobject {
             latency_ms: u32,
             error_key: &QString,
         );
+
+        fn set_sort_descending(self: Pin<&mut MirrorModel>, value: bool);
+
+        fn set_filter(self: Pin<&mut MirrorModel>, value: i32);
     }
 
     // QML never creates the model: `MirrorBackend` owns it and hands it out as a
@@ -160,10 +184,97 @@ pub struct MirrorRow {
     pub state: ProbeState,
 }
 
+/// `filter` value: every row.
+pub const FILTER_ALL: i32 = 0;
+/// `filter` value: rows that answered.
+pub const FILTER_OK: i32 = 1;
+/// `filter` value: rows whose probe failed.
+pub const FILTER_FAILED: i32 = 2;
+
+/// What a row-set change did, so the caller knows how much to announce.
+///
+/// The model does the right thing by itself; this exists for the tests, which
+/// check the behaviour (what is visible) rather than the emission calls.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum AssignOutcome {
+    /// The state is the one the row already had.
+    Unchanged,
+    /// The state changed and the visible rows are the same list in the same
+    /// order: one `dataChanged` covers it.
+    RowChanged,
+    /// The state changed and the active filter or the sort moved the rows:
+    /// only a reset can describe the new visible list.
+    Reset,
+}
+
+/// The `filter` value QML asked for, folded onto the three known codes.
+pub const fn normalise_filter(filter: i32) -> i32 {
+    match filter {
+        FILTER_OK => FILTER_OK,
+        FILTER_FAILED => FILTER_FAILED,
+        _ => FILTER_ALL,
+    }
+}
+
+/// Whether a row passes `filter`.
+pub const fn passes_filter(state: &ProbeState, filter: i32) -> bool {
+    match normalise_filter(filter) {
+        FILTER_OK => matches!(state, ProbeState::Ok { .. }),
+        FILTER_FAILED => matches!(state, ProbeState::Fail { .. }),
+        _ => true,
+    }
+}
+
+/// The visible order as a permutation of source rows.
+///
+/// Sort first, filter after, so a filter never changes what "fastest" means.
+/// Ordering: the rows with a latency, ascending or descending; then the rows
+/// without one, in both directions (an unknown latency is not "0 ms", so it is
+/// neither the fastest nor the slowest), tie-broken by name and then by source
+/// index, which is the order the user can predict from the list.
+///
+/// `states` and `mirrors` are parallel slices; a row past the end of `mirrors`
+/// takes an empty name and sorts with the unnamed rows instead of panicking.
+pub fn visible_order(
+    states: &[ProbeState],
+    mirrors: &[MirrorInfo],
+    sort_descending: bool,
+    filter: i32,
+) -> Vec<usize> {
+    let name_of = |row: usize| mirrors.get(row).map_or("", |info| info.name);
+    let mut order: Vec<usize> = (0..states.len())
+        .filter(|row| passes_filter(&states[*row], filter))
+        .collect();
+    order.sort_by(|left, right| {
+        let left_ms = latency_of(&states[*left]);
+        let right_ms = latency_of(&states[*right]);
+        match (left_ms > 0, right_ms > 0) {
+            (true, true) => {
+                let by_latency = left_ms.cmp(&right_ms);
+                let by_latency = if sort_descending {
+                    by_latency.reverse()
+                } else {
+                    by_latency
+                };
+                by_latency.then_with(|| (name_of(*left), *left).cmp(&(name_of(*right), *right)))
+            }
+            (true, false) => std::cmp::Ordering::Less,
+            (false, true) => std::cmp::Ordering::Greater,
+            (false, false) => (name_of(*left), *left).cmp(&(name_of(*right), *right)),
+        }
+    });
+    order
+}
+
 /// Rust side of [`qobject::MirrorModel`].
 pub struct MirrorModelRust {
     rows: Vec<MirrorRow>,
     count: i32,
+    /// Source rows in visible order; rebuilt from `rows`, the sort direction and
+    /// the filter, never reordered in place.
+    display: Vec<usize>,
+    sort_descending: bool,
+    filter: i32,
 }
 
 impl MirrorModelRust {
@@ -181,33 +292,116 @@ impl MirrorModelRust {
                 state: ProbeState::Idle,
             })
             .collect();
-        Self {
+        let mut model = Self {
             count: i32::try_from(rows.len()).unwrap_or(i32::MAX),
             rows,
-        }
+            display: Vec::new(),
+            sort_descending: false,
+            filter: FILTER_ALL,
+        };
+        model.display = model.compute_display();
+        model
     }
 
     fn row_at(&self, row: i32) -> Option<&MirrorRow> {
         usize::try_from(row).ok().and_then(|row| self.rows.get(row))
     }
 
-    /// Records one row's probe result; `false` when the row already said that.
-    fn assign(&mut self, row: i32, state: ProbeState) -> bool {
-        let Some(entry) = usize::try_from(row)
+    /// Recomputes the visible order from the current states.
+    fn compute_display(&self) -> Vec<usize> {
+        let states: Vec<ProbeState> = self.rows.iter().map(|row| row.state.clone()).collect();
+        let mirrors: Vec<MirrorInfo> = self.rows.iter().map(|row| row.info).collect();
+        visible_order(&states, &mirrors, self.sort_descending, self.filter)
+    }
+
+    /// Source rows in visible order, for the view and the tests.
+    pub fn visible_rows(&self) -> Vec<usize> {
+        self.display.clone()
+    }
+
+    /// How many rows the view shows.
+    fn visible_count(&self) -> i32 {
+        i32::try_from(self.display.len()).unwrap_or(i32::MAX)
+    }
+
+    /// The filter QML will see, folded onto the three known codes.
+    pub const fn filter_value(&self) -> i32 {
+        normalise_filter(self.filter)
+    }
+
+    /// The source row at a visible row, `None` past the end.
+    fn source_of_visible(&self, row: i32) -> Option<usize> {
+        usize::try_from(row)
             .ok()
-            .and_then(|row| self.rows.get_mut(row))
-        else {
-            return false;
-        };
-        if entry.state == state {
+            .and_then(|row| self.display.get(row).copied())
+    }
+
+    /// The visible row that currently shows a source row, `None` when hidden.
+    fn visible_of_source(&self, source: usize) -> Option<usize> {
+        self.display.iter().position(|row| *row == source)
+    }
+
+    /// Sets the sort direction; `true` when the visible order changed.
+    pub fn set_sort_descending(&mut self, value: bool) -> bool {
+        if self.sort_descending == value {
             return false;
         }
-        entry.state = state;
+        self.sort_descending = value;
+        self.recompute_display()
+    }
+
+    /// Sets the filter; `true` when the visible order changed.
+    pub fn set_filter(&mut self, value: i32) -> bool {
+        let value = normalise_filter(value);
+        if self.filter == value {
+            return false;
+        }
+        self.filter = value;
+        self.recompute_display()
+    }
+
+    fn recompute_display(&mut self) -> bool {
+        let next = self.compute_display();
+        if next == self.display {
+            return false;
+        }
+        self.display = next;
         true
     }
 
+    /// Records one source row's probe result.
+    ///
+    /// The visible list decides the answer: a row that was hidden and stays
+    /// hidden changes nothing on screen (`RowChanged`), as does a visible row
+    /// that keeps its place; a row that enters or leaves the filter, or moves in
+    /// the latency order, needs a reset because the list itself is different.
+    pub fn assign(&mut self, row: i32, state: ProbeState) -> AssignOutcome {
+        let Some(source) = usize::try_from(row)
+            .ok()
+            .filter(|row| *row < self.rows.len())
+        else {
+            return AssignOutcome::Unchanged;
+        };
+        if self.rows[source].state == state {
+            return AssignOutcome::Unchanged;
+        }
+        let was_visible = self.visible_of_source(source).is_some();
+        self.rows[source].state = state;
+        let passes = passes_filter(&self.rows[source].state, self.filter);
+        let moved = self.recompute_display();
+        if moved && was_visible != passes {
+            // The row entered or left the filter: the visible list itself changed.
+            return AssignOutcome::Reset;
+        }
+        if moved && was_visible && passes {
+            // Same rows, new place in the latency order.
+            return AssignOutcome::Reset;
+        }
+        AssignOutcome::RowChanged
+    }
+
     /// Puts every row into `running`; `false` when they all already were.
-    fn mark_all_running(&mut self) -> bool {
+    pub fn mark_all_running(&mut self) -> bool {
         let mut changed = false;
         for entry in &mut self.rows {
             if entry.state != ProbeState::Running {
@@ -220,7 +414,7 @@ impl MirrorModelRust {
 
     /// Returns the rows a cancelled batch left `running` to `idle`; rows that
     /// already have a result keep it, so nothing measured is thrown away.
-    fn clear_running(&mut self) -> bool {
+    pub fn clear_running(&mut self) -> bool {
         let mut changed = false;
         for entry in &mut self.rows {
             if entry.state == ProbeState::Running {
@@ -261,7 +455,11 @@ impl cxx_qt::Constructor<(QObjectMutPtr,)> for qobject::MirrorModel {
 
 impl qobject::MirrorModel {
     fn row_count(&self, parent: &cxx_qt_lib::QModelIndex) -> i32 {
-        if parent.is_valid() { 0 } else { self.count }
+        if parent.is_valid() {
+            0
+        } else {
+            i32::try_from(self.display.len()).unwrap_or(i32::MAX)
+        }
     }
 
     fn column_count(&self, parent: &cxx_qt_lib::QModelIndex) -> i32 {
@@ -269,7 +467,10 @@ impl qobject::MirrorModel {
     }
 
     fn data(&self, index: &cxx_qt_lib::QModelIndex, role: i32) -> cxx_qt_lib::QVariant {
-        let Some(row) = self.row_at(index.row()) else {
+        let Some(source) = self.source_of_visible(index.row()) else {
+            return cxx_qt_lib::QVariant::default();
+        };
+        let Some(row) = self.row_at(i32::try_from(source).unwrap_or(i32::MAX)) else {
             return cxx_qt_lib::QVariant::default();
         };
         match role {
@@ -297,7 +498,11 @@ impl qobject::MirrorModel {
         column: i32,
         parent: &cxx_qt_lib::QModelIndex,
     ) -> cxx_qt_lib::QModelIndex {
-        if parent.is_valid() || column != 0 || row < 0 || row >= self.count {
+        if parent.is_valid()
+            || column != 0
+            || row < 0
+            || usize::try_from(row).map_or(true, |row| row >= self.display.len())
+        {
             return cxx_qt_lib::QModelIndex::default();
         }
         let base = <qobject::MirrorModel as Upcast<qobject::QAbstractItemModel>>::upcast(self);
@@ -308,32 +513,43 @@ impl qobject::MirrorModel {
         cxx_qt_lib::QModelIndex::default()
     }
 
-    /// Every row `running`, announced as one range so nothing resets.
+    /// Every row `running`, announced as one range over the visible rows so
+    /// nothing resets; a running row never leaves a state filter, because
+    /// `running` is neither `ok` nor `fail`, so the visible set is unchanged
+    /// only when the filter is `all` — otherwise the list legitimately shrinks
+    /// and the caller gets a reset.
     fn set_all_running(mut self: Pin<&mut Self>) {
-        let changed = {
+        let (changed, reset, rows) = {
             let data = Pin::get_mut(self.as_mut().rust_mut());
-            data.mark_all_running()
+            let changed = data.mark_all_running();
+            let reset = changed && data.recompute_display();
+            (changed, reset, data.visible_count())
         };
-        let count = self.count;
-        if changed && count > 0 {
-            qobject::mirror_model_data_changed(base(self.as_mut()), 0, count - 1);
+        if changed {
+            reset_visible(base(self.as_mut()), reset, rows);
         }
     }
 
     /// Ends a batch that stopped before its last row: the unanswered rows go back
     /// to `idle`, so a cancelled sweep leaves no spinner behind.
     fn finish_running(mut self: Pin<&mut Self>) {
-        let changed = {
+        let (changed, reset, rows) = {
             let data = Pin::get_mut(self.as_mut().rust_mut());
-            data.clear_running()
+            let changed = data.clear_running();
+            let reset = changed && data.recompute_display();
+            (changed, reset, data.visible_count())
         };
-        let count = self.count;
-        if changed && count > 0 {
-            qobject::mirror_model_data_changed(base(self.as_mut()), 0, count - 1);
+        if changed {
+            reset_visible(base(self.as_mut()), reset, rows);
         }
     }
 
-    /// One row's result, announced for that row only.
+    /// One row's result, announced for that source row only.
+    ///
+    /// `row` is the `MIRRORS` index, not a visible one: the permutation may put
+    /// the mirror anywhere, and a result must reach the mirror it measured. When
+    /// the result moves the row across the active filter, or the latency order
+    /// changes, the reset is the only announcement that describes the new list.
     fn set_result(
         mut self: Pin<&mut Self>,
         row: i32,
@@ -342,13 +558,75 @@ impl qobject::MirrorModel {
         error_key: &cxx_qt_lib::QString,
     ) {
         let state = parse_state(&state_key.to_string(), latency_ms, &error_key.to_string());
-        let changed = {
+        let (outcome, visible, rows) = {
             let data = Pin::get_mut(self.as_mut().rust_mut());
-            data.assign(row, state)
+            let outcome = data.assign(row, state);
+            let visible = usize::try_from(row)
+                .ok()
+                .and_then(|row| data.visible_of_source(row));
+            (outcome, visible, data.visible_count())
         };
-        if changed {
-            qobject::mirror_model_data_changed(base(self.as_mut()), row, row);
+        match outcome {
+            AssignOutcome::Unchanged => {}
+            AssignOutcome::Reset => reset_visible(base(self.as_mut()), true, rows),
+            AssignOutcome::RowChanged => {
+                if let Some(visible) = visible {
+                    let visible = i32::try_from(visible).unwrap_or(i32::MAX);
+                    qobject::mirror_model_data_changed(base(self.as_mut()), visible, visible);
+                }
+            }
         }
+    }
+
+    /// Flips the latency order and resets when the visible list moved.
+    fn set_sort_descending(mut self: Pin<&mut Self>, value: bool) {
+        let (changed, rows) = {
+            let data = Pin::get_mut(self.as_mut().rust_mut());
+            let changed = data.set_sort_descending(value);
+            (changed, data.visible_count())
+        };
+        if self.sort_descending != value {
+            self.as_mut().sort_descending_changed();
+        }
+        if changed {
+            reset_visible(base(self.as_mut()), true, rows);
+        }
+    }
+
+    /// Changes the state filter and resets when the visible list moved.
+    fn set_filter(mut self: Pin<&mut Self>, value: i32) {
+        let (changed, moved, rows) = {
+            let data = Pin::get_mut(self.as_mut().rust_mut());
+            // Compare the stored value before and after, not with the raw input:
+            // an unknown code normalises to `all`, and a property that stays
+            // `all` must not notify.
+            let before = data.filter;
+            let changed = data.set_filter(value);
+            (changed, data.filter != before, data.visible_count())
+        };
+        if moved {
+            self.as_mut().filter_changed();
+        }
+        if changed {
+            reset_visible(base(self.as_mut()), true, rows);
+        }
+    }
+}
+
+/// One model reset around a visible-set change, or a `dataChanged` over the
+/// whole visible range when only the row data moved.
+///
+/// `rows` is the visible row count, which the caller reads from the data before
+/// it hands the pin over: the base `QAbstractItemModel` does not expose this
+/// model's own `rowCount`.
+fn reset_visible(mut model: Pin<&mut qobject::QAbstractItemModel>, reset: bool, rows: i32) {
+    if reset {
+        qobject::mirror_model_begin_reset(model.as_mut());
+        qobject::mirror_model_end_reset(model);
+        return;
+    }
+    if rows > 0 {
+        qobject::mirror_model_data_changed(model, 0, rows - 1);
     }
 }
 
@@ -454,25 +732,63 @@ mod tests {
     }
 
     #[test]
+    fn an_unprobed_list_sorts_by_name() {
+        // Before the first probe every row is `idle`, so the latency sort falls
+        // back to its name tie-break: the user sees a predictable order instead
+        // of the compiled-in one.
+        let model = MirrorModelRust::new();
+        let names: Vec<&str> = model
+            .visible_rows()
+            .into_iter()
+            .map(|row| model.row_at(i32::try_from(row).unwrap()).unwrap().info.name)
+            .collect();
+        let mut sorted = names.clone();
+        sorted.sort_unstable();
+        assert_eq!(names, sorted);
+        assert!(
+            model.visible_rows().iter().any(|row| *row != 0),
+            "the visible order is not the source order"
+        );
+    }
+
+    #[test]
     fn a_probe_result_only_touches_its_row() {
         let mut model = MirrorModelRust::new();
-        assert!(model.assign(3, ProbeState::Ok { ms: 42 }));
+        assert_eq!(
+            model.assign(3, ProbeState::Ok { ms: 42 }),
+            AssignOutcome::Reset,
+            "the first latency moves the row in the name-sorted list"
+        );
         assert_eq!(model.row_at(3).unwrap().state, ProbeState::Ok { ms: 42 });
         assert_eq!(model.row_at(2).unwrap().state, ProbeState::Idle);
         assert_eq!(model.row_at(4).unwrap().state, ProbeState::Idle);
-        assert!(
-            !model.assign(3, ProbeState::Ok { ms: 42 }),
+        assert_eq!(
+            model.assign(3, ProbeState::Ok { ms: 42 }),
+            AssignOutcome::Unchanged,
             "the same result is not a change"
         );
-        assert!(model.assign(3, ProbeState::Running));
+        assert_eq!(
+            model.assign(3, ProbeState::Running),
+            AssignOutcome::Reset,
+            "the latency is gone, so the row moves back into the name order"
+        );
     }
 
     #[test]
     fn out_of_range_rows_are_ignored() {
         let mut model = MirrorModelRust::new();
-        assert!(!model.assign(-1, ProbeState::Running));
-        assert!(!model.assign(34, ProbeState::Running));
-        assert!(!model.assign(i32::MAX, ProbeState::Running));
+        assert_eq!(
+            model.assign(-1, ProbeState::Running),
+            AssignOutcome::Unchanged
+        );
+        assert_eq!(
+            model.assign(34, ProbeState::Running),
+            AssignOutcome::Unchanged
+        );
+        assert_eq!(
+            model.assign(i32::MAX, ProbeState::Running),
+            AssignOutcome::Unchanged
+        );
         assert!(model.row_at(-1).is_none());
     }
 
@@ -510,8 +826,16 @@ mod tests {
     #[test]
     fn finishing_a_batch_keeps_the_results_it_already_has() {
         let mut model = MirrorModelRust::with_mirrors(&mirrors());
-        assert!(model.assign(1, ProbeState::Ok { ms: 55 }));
-        assert!(model.assign(0, ProbeState::Running));
+        assert_eq!(
+            model.assign(1, ProbeState::Ok { ms: 55 }),
+            AssignOutcome::Reset,
+            "the measured row moves to the top of a two-row list"
+        );
+        assert_eq!(
+            model.assign(0, ProbeState::Running),
+            AssignOutcome::RowChanged,
+            "it had no latency and still has none, so its name keeps the place"
+        );
         assert!(model.clear_running());
         assert_eq!(
             model.row_at(1).unwrap().state,
@@ -561,6 +885,271 @@ mod tests {
         );
         assert_eq!(parse_state("idle", 5, "ignored"), ProbeState::Idle);
         assert_eq!(parse_state("nonsense", 0, ""), ProbeState::Idle);
+    }
+
+    /// Three mirrors with a known name order: `Alpha`, `Bravo`, `Charlie`.
+    fn ordered() -> Vec<MirrorInfo> {
+        vec![
+            MirrorInfo {
+                name: "Alpha",
+                url: "https://alpha.example/voidlinux/",
+                region: Region::Eu,
+                country: "Alpha",
+            },
+            MirrorInfo {
+                name: "Bravo",
+                url: "https://bravo.example/voidlinux/",
+                region: Region::Eu,
+                country: "Bravo",
+            },
+            MirrorInfo {
+                name: "Charlie",
+                url: "https://charlie.example/voidlinux/",
+                region: Region::Eu,
+                country: "Charlie",
+            },
+        ]
+    }
+
+    /// The visible mirror names, which is what the view paints.
+    fn visible_names(model: &MirrorModelRust) -> Vec<&str> {
+        model
+            .visible_rows()
+            .into_iter()
+            .map(|row| model.row_at(i32::try_from(row).unwrap()).unwrap().info.name)
+            .collect()
+    }
+
+    #[test]
+    fn sorting_by_latency_puts_the_fastest_first_and_unknown_last() {
+        let mut model = MirrorModelRust::with_mirrors(&ordered());
+        model.assign(2, ProbeState::Ok { ms: 80 });
+        model.assign(0, ProbeState::Ok { ms: 20 });
+        // Row 1 is never probed: no latency, so it sorts last.
+        assert_eq!(visible_names(&model), ["Alpha", "Charlie", "Bravo"]);
+        assert_eq!(model.visible_rows(), [0, 2, 1]);
+    }
+
+    #[test]
+    fn unknown_latency_stays_last_in_both_directions() {
+        let mut model = MirrorModelRust::with_mirrors(&ordered());
+        model.assign(2, ProbeState::Ok { ms: 80 });
+        model.assign(0, ProbeState::Ok { ms: 20 });
+        model.set_sort_descending(true);
+        assert_eq!(
+            visible_names(&model),
+            ["Charlie", "Alpha", "Bravo"],
+            "the measured rows flip, the unmeasured one keeps its place at the end"
+        );
+        model.set_sort_descending(false);
+        assert_eq!(visible_names(&model), ["Alpha", "Charlie", "Bravo"]);
+    }
+
+    #[test]
+    fn equal_latencies_fall_back_to_name_then_to_the_source_index() {
+        let mirrors = vec![
+            MirrorInfo {
+                name: "Zulu",
+                url: "https://zulu.example/voidlinux/",
+                region: Region::Eu,
+                country: "Zulu",
+            },
+            MirrorInfo {
+                name: "Alpha",
+                url: "https://alpha-2.example/voidlinux/",
+                region: Region::Eu,
+                country: "Alpha",
+            },
+            MirrorInfo {
+                name: "Alpha",
+                url: "https://alpha-1.example/voidlinux/",
+                region: Region::Eu,
+                country: "Alpha",
+            },
+        ];
+        let mut model = MirrorModelRust::with_mirrors(&mirrors);
+        for row in 0..3 {
+            model.assign(row, ProbeState::Ok { ms: 10 });
+        }
+        // Same latency: `Alpha` before `Zulu`; the two `Alpha` rows keep their
+        // source order, which is the only tie-break a user can predict.
+        assert_eq!(model.visible_rows(), [1, 2, 0]);
+        model.set_sort_descending(true);
+        assert_eq!(
+            model.visible_rows(),
+            [1, 2, 0],
+            "a full tie is independent of the direction, name still wins"
+        );
+    }
+
+    #[test]
+    fn the_state_filter_runs_after_the_sort() {
+        let mut model = MirrorModelRust::with_mirrors(&ordered());
+        model.assign(2, ProbeState::Ok { ms: 80 });
+        model.assign(0, ProbeState::Ok { ms: 20 });
+        model.assign(
+            1,
+            ProbeState::Fail {
+                error: "timeout".into(),
+            },
+        );
+        assert_eq!(
+            model.visible_rows(),
+            [0, 2, 1],
+            "the two measured rows by latency, then the failed one by name"
+        );
+
+        model.set_filter(FILTER_OK);
+        assert_eq!(
+            model.visible_rows(),
+            [0, 2],
+            "only the answered rows, fastest first"
+        );
+
+        model.set_filter(FILTER_FAILED);
+        assert_eq!(model.visible_rows(), [1]);
+
+        model.set_filter(FILTER_ALL);
+        assert_eq!(model.visible_rows(), [0, 2, 1]);
+    }
+
+    #[test]
+    fn a_filter_change_never_alters_a_stored_latency() {
+        let mut model = MirrorModelRust::with_mirrors(&ordered());
+        model.assign(0, ProbeState::Ok { ms: 20 });
+        model.assign(2, ProbeState::Ok { ms: 80 });
+        model.set_filter(FILTER_FAILED);
+        assert_eq!(model.visible_rows(), Vec::<usize>::new());
+        assert_eq!(
+            model.row_at(0).unwrap().state,
+            ProbeState::Ok { ms: 20 },
+            "a hidden row keeps its measurement"
+        );
+        assert_eq!(model.row_at(2).unwrap().state, ProbeState::Ok { ms: 80 });
+        model.set_filter(FILTER_ALL);
+        assert_eq!(visible_names(&model), ["Alpha", "Charlie", "Bravo"]);
+    }
+
+    #[test]
+    fn a_source_row_below_is_the_same_mirror_after_a_permutation() {
+        let mut model = MirrorModelRust::with_mirrors(&ordered());
+        model.assign(2, ProbeState::Ok { ms: 80 });
+        model.assign(0, ProbeState::Ok { ms: 20 });
+        // Visible row 0 is source row 0 (`Alpha`, 20 ms); a result written by
+        // source row must land in the visible row the permutation names.
+        assert_eq!(model.visible_rows()[0], 0);
+        assert_eq!(
+            model.assign(2, ProbeState::Ok { ms: 5 }),
+            AssignOutcome::Reset,
+            "the latency order changed, so only a reset describes it"
+        );
+        assert_eq!(
+            model.visible_rows(),
+            [2, 0, 1],
+            "Charlie is now the fastest"
+        );
+        assert_eq!(
+            model.row_at(2).unwrap().info.name,
+            "Charlie",
+            "the source row is still Charlie"
+        );
+        assert_eq!(latency_of(&model.row_at(0).unwrap().state), 20);
+    }
+
+    #[test]
+    fn a_hidden_row_that_becomes_visible_changes_the_visible_set() {
+        let mut model = MirrorModelRust::with_mirrors(&ordered());
+        model.assign(
+            1,
+            ProbeState::Fail {
+                error: "timeout".into(),
+            },
+        );
+        model.set_filter(FILTER_OK);
+        assert_eq!(
+            model.visible_rows(),
+            Vec::<usize>::new(),
+            "no row answered yet, so the filter hides the whole list"
+        );
+        // The failed row answers after a retry: it must enter the filtered view.
+        let before = model.visible_rows();
+        assert_eq!(
+            model.assign(1, ProbeState::Ok { ms: 10 }),
+            AssignOutcome::Reset,
+            "a hidden row that becomes visible changes the visible set"
+        );
+        assert_ne!(model.visible_rows(), before, "the visible set changed");
+        assert_eq!(
+            model.visible_rows(),
+            [1],
+            "the retried row is the only one that answered"
+        );
+    }
+
+    #[test]
+    fn a_result_outside_the_active_filter_leaves_the_visible_set_alone() {
+        let mut model = MirrorModelRust::with_mirrors(&ordered());
+        // Two rows already fail, so the failed filter shows them both.
+        model.assign(
+            1,
+            ProbeState::Fail {
+                error: "timeout".into(),
+            },
+        );
+        model.assign(
+            2,
+            ProbeState::Fail {
+                error: "timeout".into(),
+            },
+        );
+        model.set_filter(FILTER_FAILED);
+        assert_eq!(model.visible_rows(), [1, 2]);
+        // A hidden row fails again with the same key: nothing on screen moves.
+        assert_eq!(
+            model.assign(0, ProbeState::Ok { ms: 40 }),
+            AssignOutcome::RowChanged,
+            "row 0 was hidden and stays hidden"
+        );
+        assert_eq!(model.visible_rows(), [1, 2]);
+    }
+
+    #[test]
+    fn the_visible_order_is_a_pure_function_of_states_sort_and_filter() {
+        let mirrors = ordered();
+        let states = [
+            ProbeState::Ok { ms: 30 },
+            ProbeState::Idle,
+            ProbeState::Fail {
+                error: "timeout".into(),
+            },
+        ];
+        assert_eq!(
+            visible_order(&states, &mirrors, false, FILTER_ALL),
+            [0, 1, 2]
+        );
+        assert_eq!(visible_order(&states, &mirrors, false, FILTER_OK), [0]);
+        assert_eq!(
+            visible_order(&states, &mirrors, false, FILTER_FAILED),
+            [2],
+            "only the failed row passes; an idle row is not a failure"
+        );
+        assert_eq!(
+            visible_order(&states, &mirrors, true, FILTER_ALL),
+            [0, 1, 2],
+            "one measured row, the two unmeasured ones by name"
+        );
+    }
+
+    #[test]
+    fn the_filter_is_all_by_default_and_ignores_unknown_codes() {
+        let mut model = MirrorModelRust::with_mirrors(&ordered());
+        assert_eq!(model.filter_value(), FILTER_ALL);
+        model.set_filter(9);
+        assert_eq!(
+            model.filter_value(),
+            FILTER_ALL,
+            "an unknown code means all"
+        );
     }
 
     #[test]

@@ -46,9 +46,13 @@ QModelIndex kxbps_log_model_create_index(const QAbstractItemModel &model,
 void kxbps_log_model_begin_insert_rows(QAbstractItemModel &model, int first, int last);
 void kxbps_log_model_end_insert_rows(QAbstractItemModel &model);
 
-// The mirror model never changes its row set — the rows are the static mirror
-// list — so it needs `createIndex` and a per-row `dataChanged`, but no reset.
+// The mirror model keeps one row per mirror, but the *visible* order and set
+// follow `sortDescending` and `filter`. `createIndex` and a per-row
+// `dataChanged` cover a result arriving; a sort, a filter, or a result that
+// moves a row across the filter resets the model.
 QModelIndex kxbps_mirror_model_create_index(const QAbstractItemModel &model,
                                               int row,
                                               int column);
+void kxbps_mirror_model_begin_reset(QAbstractItemModel &model);
+void kxbps_mirror_model_end_reset(QAbstractItemModel &model);
 void kxbps_mirror_model_data_changed(QAbstractItemModel &model, int first, int last);

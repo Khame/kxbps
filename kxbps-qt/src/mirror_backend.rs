@@ -140,6 +140,9 @@ pub mod qobject {
         #[qproperty(bool, pending, READ, NOTIFY)]
         /// A system read is in flight.
         #[qproperty(bool, system_loading, READ, NOTIFY)]
+        /// An apply job is running: the slot refuses a second one, and the
+        /// button must say so before the round trip.
+        #[qproperty(bool, apply_busy, READ, NOTIFY)]
         type MirrorBackend = super::MirrorBackendRust;
 
         #[qinvokable]
@@ -255,6 +258,40 @@ impl ProbeOutcome {
     }
 }
 
+/// The apply slot's busy flag, as a value so both transitions are testable
+/// without a QObject.
+///
+/// A `pkexec` apply is one job at a time: the slot refuses a second one, so the
+/// flag must move on the first job only, and a refused creation must not turn
+/// it on. Every method returns whether the flag moved, which is exactly when the
+/// property signal is emitted.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct ApplyState {
+    busy: bool,
+}
+
+impl ApplyState {
+    /// A job was created (`created`) or refused (`!created`).
+    pub fn start(&mut self, created: bool) -> bool {
+        if !created || self.busy {
+            return false;
+        }
+        self.busy = true;
+        true
+    }
+
+    /// The job ended, whatever its outcome.
+    pub fn finish(&mut self) -> bool {
+        let was_busy = self.busy;
+        self.busy = false;
+        was_busy
+    }
+
+    pub const fn is_busy(&self) -> bool {
+        self.busy
+    }
+}
+
 /// Rust side of [`qobject::MirrorBackend`].
 pub struct MirrorBackendRust {
     /// Child model created in `initialize`; Qt owns it.
@@ -283,6 +320,10 @@ pub struct MirrorBackendRust {
     pending: bool,
     current_mirror_error: QString,
     system_loading: bool,
+    /// The apply slot: one job at a time.
+    apply_state: ApplyState,
+    /// `apply_state.is_busy()`, because a `#[qproperty]` reads a plain field.
+    apply_busy: bool,
     /// How many system reads were started; only the newest may write.
     system_generation: Arc<AtomicU64>,
     /// The transport the system read uses; tests install a fake.
@@ -310,6 +351,8 @@ impl Default for MirrorBackendRust {
             pending: false,
             current_mirror_error: QString::from(""),
             system_loading: false,
+            apply_state: ApplyState::default(),
+            apply_busy: false,
             system_generation: Arc::new(AtomicU64::new(0)),
             invoke: production_invoke(),
             config_path: std::path::PathBuf::from(SYSTEM_CONFIG),
@@ -615,7 +658,7 @@ impl qobject::MirrorBackend {
     /// job comes back as `jobBusy` from the slot, and the mirror backend tells
     /// the store owner about the job it started so `finishApply` can clear its
     /// state and re-read the system half when the job ends.
-    fn apply_system_mirror(self: Pin<&mut Self>) -> QObjectMutPtr {
+    fn apply_system_mirror(mut self: Pin<&mut Self>) -> QObjectMutPtr {
         let selected = self.current_mirror.to_string();
         if selected.is_empty()
             || !is_selectable_mirror(&selected)
@@ -629,6 +672,15 @@ impl qobject::MirrorBackend {
         }
         let payload = crate::job_backend::mirror_payload_json(&selected);
         let job = qobject::start_mirror_job(owner, &QString::from(payload.as_str()));
+        let moved = {
+            let data = Pin::get_mut(self.as_mut().rust_mut());
+            let moved = data.apply_state.start(!job.as_ptr().is_null());
+            data.apply_busy = data.apply_state.is_busy();
+            moved
+        };
+        if moved {
+            self.as_mut().apply_busy_changed();
+        }
         if job.as_ptr().is_null() {
             return job;
         }
@@ -649,8 +701,18 @@ impl qobject::MirrorBackend {
     /// Called on the GUI thread when the job this backend started has ended, by
     /// the store owner's forwarder, whatever the outcome. Whatever the helper
     /// left in `/etc/xbps.d` is what `systemMirror` and `pending` must show, so
-    /// the read runs here rather than in QML.
+    /// the read runs here rather than in QML. The busy flag moves here too, so
+    /// a failed apply does not leave the button disabled.
     fn finish_apply(mut self: Pin<&mut Self>) {
+        let moved = {
+            let data = Pin::get_mut(self.as_mut().rust_mut());
+            let moved = data.apply_state.finish();
+            data.apply_busy = data.apply_state.is_busy();
+            moved
+        };
+        if moved {
+            self.as_mut().apply_busy_changed();
+        }
         self.as_mut().refresh_system();
     }
 
@@ -856,5 +918,47 @@ mod tests {
         assert_eq!(row_of(DEFAULT_MIRROR), Some(0));
         assert_eq!(row_of("http://ftp.debian.ru/mirrors/voidlinux/"), Some(22));
         assert_eq!(row_of("https://not-a-mirror.example/"), None);
+    }
+
+    #[test]
+    fn a_refused_apply_never_makes_the_backend_busy() {
+        let mut apply = ApplyState::default();
+        assert!(!apply.start(false), "no job, no busy");
+        assert!(!apply.is_busy());
+    }
+
+    #[test]
+    fn a_handed_out_job_makes_the_backend_busy_once() {
+        let mut apply = ApplyState::default();
+        assert!(apply.start(true), "the first job moves the flag");
+        assert!(apply.is_busy());
+        assert!(
+            !apply.start(true),
+            "a second job while busy does not move the flag"
+        );
+        assert!(
+            !apply.start(false),
+            "a refused job while busy does not move the flag"
+        );
+        assert!(apply.is_busy());
+    }
+
+    #[test]
+    fn finishing_an_apply_clears_the_flag_exactly_once() {
+        let mut apply = ApplyState::default();
+        assert!(apply.start(true));
+        assert!(apply.finish(), "the end of the job moves the flag");
+        assert!(!apply.is_busy());
+        assert!(!apply.finish(), "finishing while idle is a no-op");
+        assert!(!apply.is_busy());
+    }
+
+    #[test]
+    fn a_finished_apply_can_start_again() {
+        let mut apply = ApplyState::default();
+        assert!(apply.start(true));
+        assert!(apply.finish());
+        assert!(apply.start(true), "the next apply is accepted");
+        assert!(apply.is_busy());
     }
 }

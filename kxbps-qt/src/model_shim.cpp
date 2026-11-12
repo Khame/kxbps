@@ -127,6 +127,16 @@ void kxbps_mirror_model_data_changed(QAbstractItemModel &model, int first, int l
     ModelAccess::emitDataChanged(&model, first, last);
 }
 
+void kxbps_mirror_model_begin_reset(QAbstractItemModel &model)
+{
+    ModelAccess::beginReset(&model);
+}
+
+void kxbps_mirror_model_end_reset(QAbstractItemModel &model)
+{
+    ModelAccess::endReset(&model);
+}
+
 QObject *kxbps_create_package_model(QObject *parent)
 {
     return new PackageModel(parent);

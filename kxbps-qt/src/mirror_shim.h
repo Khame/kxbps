@@ -21,15 +21,18 @@
 // static mirror list, one row per entry, in list order.
 QObject *kxbps_create_mirror_model(QObject *parent);
 
-// Marks every row as `running` with one `dataChanged` over the whole range, so
-// the view keeps its scroll position when a batch starts.
+// Marks every row as `running` with one `dataChanged` over the whole visible
+// range (or a reset when a state filter hides the rows), so the view keeps its
+// scroll position when a batch starts.
 void kxbps_mirror_model_set_all_running(QObject *model);
 
 // Returns the rows a cancelled batch left `running` to `idle`, so a stopped
 // sweep does not leave spinners behind.
 void kxbps_mirror_model_finish_running(QObject *model);
 
-// Writes one row's probe result and emits `dataChanged` for that row only.
+// Writes one row's probe result and emits `dataChanged` for that row only (or a
+// reset when the result moves the row in the visible list).
+// `row` is the source row, i.e. the `MIRRORS` index, not a visible one.
 // `stateKey` is `idle`/`running`/`ok`/`fail`, `latencyMs` is only meaningful
 // for `ok`, and `errorKey` is a core probe key (`plainHttp`, `timeout`,
 // `noResponse`) that is only meaningful for `fail`.
