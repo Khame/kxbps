@@ -28,7 +28,8 @@ use kxbps_core::{
 
 use crate::package_model::{self, InstalledState, RowView};
 use crate::xbps_snapshot::{
-    PackageFacts, SearchSource, SharedInvoke, SnapshotError, read_package, read_search,
+    PackageFacts, RawOutput, SearchSource, SharedInvoke, SnapshotError, read_package, read_raw,
+    read_search,
 };
 
 #[cxx_qt::bridge]
@@ -61,6 +62,11 @@ pub mod qobject {
         #[qproperty(i32, results_revision, READ, NOTIFY)]
         /// Whether the newest query is still being read.
         #[qproperty(bool, searching, READ, NOTIFY)]
+        // A mode that is not a package list prints text, not rows: the text of
+        // the newest `read_raw` answer and the command it came from. Empty
+        // `raw_text` means the newest answer was a list.
+        #[qproperty(QString, raw_text, READ, NOTIFY)]
+        #[qproperty(QString, raw_command, READ, NOTIFY)]
         #[qproperty(QString, facts_error, READ, NOTIFY)]
         #[qproperty(QStringList, facts_error_args, READ, NOTIFY)]
         #[qproperty(QString, facts_pkgver, READ, NOTIFY)]
@@ -143,6 +149,9 @@ pub struct CatalogBackendRust {
     result_count: i32,
     results_revision: i32,
     searching: bool,
+    /// The text a mode that is not a package list printed, and its command.
+    raw_text: QString,
+    raw_command: QString,
     /// The facts of one package per pkgver read.
     facts: HashMap<String, PackageFacts>,
     /// The pkgver whose read is in flight, if any.
@@ -182,6 +191,11 @@ impl SearchSignature {
             query: query.to_owned(),
         }
     }
+
+    /// Whether this signature asks for a package list at all.
+    fn lists_packages(&self) -> bool {
+        self.mode.is_empty()
+    }
 }
 
 /// One answer of a search, tagged with the signature it answers.
@@ -193,6 +207,8 @@ struct SearchAnswer {
     signature: SearchSignature,
     error: Option<SnapshotError>,
     hits: Vec<SearchHit>,
+    /// The text of a mode that is not a package list; `None` for a list.
+    raw: Option<RawOutput>,
 }
 
 impl Default for CatalogBackendRust {
@@ -214,6 +230,8 @@ impl Default for CatalogBackendRust {
             result_count: 0,
             results_revision: 0,
             searching: false,
+            raw_text: QString::from(""),
+            raw_command: QString::from(""),
             facts: HashMap::new(),
             facts_pending: None,
             facts_error: QString::from(""),
@@ -269,15 +287,21 @@ impl qobject::CatalogBackend {
     fn search(mut self: Pin<&mut Self>, query: &cxx_qt_lib::QString, mode: &cxx_qt_lib::QString) {
         let mode = mode.to_string();
         let source = self.rust().source_for_mode(&mode);
+        let list_mode = self.rust().lists_packages(&mode);
         let query = trimmed(query);
-        let signature = SearchSignature::new(source, "", &query);
+        let signature = if list_mode {
+            SearchSignature::new(source, "", &query)
+        } else {
+            SearchSignature::new(source, &CatalogBackendRust::raw_flag(&mode), &query)
+        };
+        let empty = list_mode && query.is_empty();
         {
             let data = Pin::get_mut(self.as_mut().rust_mut());
             // The newest answer already covers this take; nothing to read.
             if data.answer.signature == signature {
                 return;
             }
-            if query.is_empty() {
+            if empty {
                 // A listing mode needs a pattern: an empty field answers
                 // nothing, and any read still in flight is now stale.
                 data.clear_answer();
@@ -287,7 +311,7 @@ impl qobject::CatalogBackend {
             }
         }
         self.as_mut().searching_changed();
-        if query.is_empty() {
+        if empty {
             self.as_mut().result_count_changed();
             self.as_mut().results_revision_changed();
             return;
@@ -393,6 +417,20 @@ impl CatalogBackendRust {
             "l" | "m" | "O" | "H" => SearchSource::Installed,
             _ => SearchSource::Repository,
         }
+    }
+
+    /// Whether the mode answers with package rows. `-Rs`/`-s` search and
+    /// `-l`/`-m`/`-O`/`-H` list a set; every other mode prints something that
+    /// is not a list of packages (`-L` repositories, `-x` dependencies, …),
+    /// and a row built from one of its lines would be invented.
+    fn lists_packages(&self, token: &str) -> bool {
+        matches!(token, "Rs" | "s" | "l" | "m" | "O" | "H")
+    }
+
+    /// The `xbps-query` flag of a QML mode token: `"Rs"` is `-Rs`, `"p"` is
+    /// `-p`, and the rest read the same way.
+    fn raw_flag(token: &str) -> String {
+        format!("-{token}")
     }
 
     /// One hit as a `QVariantMap`, keyed like a model row plus `pkgver`.
@@ -513,6 +551,8 @@ impl CatalogBackendRust {
         self.search_error_args = QStringList::default();
         self.result_count = 0;
         self.searching = false;
+        self.raw_text = QString::from("");
+        self.raw_command = QString::from("");
     }
 
     /// Drops a stale answer with no side effect; a fresh one names its error
@@ -523,6 +563,16 @@ impl CatalogBackendRust {
         }
         self.searching = false;
         self.result_count = i32::try_from(answer.hits.len()).unwrap_or(i32::MAX);
+        match &answer.raw {
+            Some(raw) => {
+                self.raw_text = QString::from(raw.text.as_str());
+                self.raw_command = QString::from(raw.command.as_str());
+            }
+            None => {
+                self.raw_text = QString::from("");
+                self.raw_command = QString::from("");
+            }
+        }
         match &answer.error {
             Some(err) => {
                 self.search_error = QString::from(err.key());
@@ -574,11 +624,26 @@ impl qobject::CatalogBackend {
         let current = self.search_generation.clone();
         let invoke = self.invoke.clone();
         std::thread::spawn(move || {
-            let result = read_search(&*invoke, signature.source, &signature.query);
-            let answer = SearchAnswer {
-                signature,
-                error: result.as_ref().err().cloned(),
-                hits: result.unwrap_or_default(),
+            let answer = if signature.lists_packages() {
+                let result = read_search(&*invoke, signature.source, &signature.query);
+                SearchAnswer {
+                    signature,
+                    error: result.as_ref().err().cloned(),
+                    hits: result.unwrap_or_default(),
+                    raw: None,
+                }
+            } else {
+                let result = read_raw(&*invoke, &signature.mode, &signature.query);
+                let (raw, error) = match result {
+                    Ok(raw) => (Some(raw), None),
+                    Err(err) => (None, Some(err)),
+                };
+                SearchAnswer {
+                    signature,
+                    error,
+                    hits: Vec::new(),
+                    raw,
+                }
             };
             // The closure runs on the GUI thread; `thread.queue` fails only
             // once the backend is gone, and then nobody wants the result.
@@ -745,6 +810,7 @@ mod tests {
             signature: SearchSignature::new(source, "", query),
             error: None,
             hits,
+            raw: None,
         }
     }
 
@@ -866,6 +932,7 @@ mod tests {
                 stderr: "broken index".into(),
             }),
             hits: Vec::new(),
+            raw: None,
         };
         assert!(backend.announce_answer(&landed, &signature));
         backend.finish_answer(landed, &signature);
@@ -880,6 +947,55 @@ mod tests {
                 .collect::<Vec<_>>(),
             ["xbps-query", "2", "broken index"]
         );
+    }
+
+    #[test]
+    fn a_mode_that_is_not_a_list_answers_with_text_and_no_rows() {
+        let mut backend = with_invoke(fake(vec![(
+            "-L",
+            reply(0, "1 https://repo.voidlinux.org/current (RSA signed)\n", ""),
+        )]));
+        // `-L` never reads the installed database and never parses a hit.
+        assert!(!backend.lists_packages("L"));
+        backend.begin_search(SearchSignature::new(SearchSource::Repository, "L", ""));
+        let signature = backend.signature.clone();
+        let raw = read_raw(
+            &*backend.invoke.clone(),
+            &CatalogBackendRust::raw_flag("L"),
+            "",
+        )
+        .expect("a repository list lands");
+        let landed = SearchAnswer {
+            signature: signature.clone(),
+            error: None,
+            hits: Vec::new(),
+            raw: Some(raw),
+        };
+        backend.announce_answer(&landed, &signature);
+        backend.finish_answer(landed, &signature);
+        assert_eq!(backend.result_count, 0, "no row is invented from a line");
+        assert!(backend.answer.hits.is_empty());
+        assert_eq!(backend.raw_command.to_string(), "xbps-query -L");
+        assert!(
+            backend
+                .raw_text
+                .to_string()
+                .starts_with("1 https://repo.voidlinux.org/current"),
+            "the block shows what xbps printed"
+        );
+    }
+
+    #[test]
+    fn only_the_list_modes_are_read_as_packages() {
+        let backend = CatalogBackendRust::default();
+        for token in ["Rs", "s", "l", "m", "O", "H"] {
+            assert!(backend.lists_packages(token), "token {token}");
+        }
+        for token in ["L", "show", "x", "X", "f", "o", "R", "p"] {
+            assert!(!backend.lists_packages(token), "token {token}");
+        }
+        assert_eq!(CatalogBackendRust::raw_flag("show"), "-show");
+        assert_eq!(CatalogBackendRust::raw_flag("Rs"), "-Rs");
     }
 
     #[test]

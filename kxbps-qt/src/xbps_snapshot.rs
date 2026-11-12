@@ -11,11 +11,14 @@
 //! the caller shows why instead of an empty window.
 
 use kxbps_core::{
-    InstalledPackage, UpdateEntry, XbpsError, parse_installed, parse_pkgver_list, parse_updates,
+    InstalledPackage, SearchHit, UpdateEntry, XbpsError, parse_depends, parse_installed,
+    parse_pkgver_list, parse_properties, parse_search, parse_updates, split_pkgver,
 };
 
 use crate::xbps_runner::{
-    READ_TIMEOUT_MS, held_argv, installed_argv, manual_argv, orphans_argv, run, updates_argv,
+    READ_TIMEOUT_MS, XPBS_QUERY, argv, depends_argv, held_argv, installed_argv,
+    installed_search_argv, manual_argv, orphans_argv, property_argv, property_repo_argv,
+    required_by_argv, run, search_argv, updates_argv,
 };
 
 /// The injectable process transport: the encoded argv and the timeout go in,
@@ -156,7 +159,7 @@ impl std::error::Error for SnapshotError {}
 /// [`SnapshotError`] the caller can show. A line the parser rejects also goes
 /// to stderr as a log line: the user sees the translated sentence, and whoever
 /// reads the terminal sees the exact text xbps printed.
-fn run_parsed<T>(
+pub(crate) fn run_parsed<T>(
     argv: &[String],
     parse: fn(&str) -> Result<T, XbpsError>,
     invoke: &Invoke,
@@ -227,6 +230,319 @@ fn sorted_names(mut names: Vec<String>) -> Vec<String> {
     names
 }
 
+/// Which database a query searches.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum SearchSource {
+    /// `xbps-query -Rs <pattern>`: the repository pool.
+    Repository,
+    /// `xbps-query -s <pattern>`: the installed packages only.
+    Installed,
+}
+
+impl SearchSource {
+    fn argv(self, pattern: &str) -> Vec<String> {
+        match self {
+            Self::Repository => search_argv(pattern),
+            Self::Installed => installed_search_argv(pattern),
+        }
+    }
+}
+
+/// Reads the hits of one pattern through `invoke`.
+///
+/// Empty output is a valid empty answer — a pattern that matches nothing — so
+/// the search path answers honestly instead of failing.
+pub fn read_search(
+    invoke: &Invoke,
+    source: SearchSource,
+    pattern: &str,
+) -> Result<Vec<SearchHit>, SnapshotError> {
+    run_parsed(&source.argv(pattern), parse_search, invoke)
+}
+
+/// Runs one `xbps-query` take and answers with its output verbatim.
+///
+/// The modes that are not a package list (`-L`, `-R`, `-x`, `-p`, …) have no
+/// parser here, and inventing rows from their lines would be a lie about what
+/// they print. The caller shows the text next to the command it belongs to; a
+/// failing take is still a translated key, so it reads like every other failure.
+pub fn read_raw(invoke: &Invoke, mode: &str, pattern: &str) -> Result<RawOutput, SnapshotError> {
+    let argv = if pattern.is_empty() {
+        argv(XPBS_QUERY, &[mode])
+    } else {
+        argv(XPBS_QUERY, &[mode, pattern])
+    };
+    let program = argv[0].clone();
+    let output = run(&argv, READ_TIMEOUT_MS, invoke).map_err(|err| SnapshotError::Reply {
+        reason: err.to_string(),
+    })?;
+    if output.timed_out {
+        return Err(SnapshotError::Timeout { program });
+    }
+    if output.exit_code == -1 {
+        return Err(SnapshotError::Start {
+            program,
+            reason: output.stderr.trim().to_owned(),
+        });
+    }
+    if output.exit_code != 0 {
+        return Err(SnapshotError::Exit {
+            program,
+            code: output.exit_code,
+            stderr: output.stderr.trim().to_owned(),
+        });
+    }
+    Ok(RawOutput {
+        command: argv.join(" "),
+        text: output.stdout,
+    })
+}
+
+/// What a take that is not a package list printed, and the command that
+/// printed it.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct RawOutput {
+    /// The argv that produced `text`, for the label above the block.
+    pub command: String,
+    /// Standard output, verbatim.
+    pub text: String,
+}
+
+/// The property list of the plain answer: what the details pane shows for a
+/// package that is installed.
+const FACT_PROPERTIES: &[&str] = &[
+    "pkgver",
+    "short_desc",
+    "homepage",
+    "license",
+    "installed_size",
+    "repository",
+    "state",
+];
+
+/// The property list of the repository-mode answer, which also carries the
+/// download size the plain take cannot, and answers for a package that is not
+/// installed.
+const DOWNLOAD_PROPERTIES: &[&str] = &[
+    "pkgver",
+    "short_desc",
+    "homepage",
+    "license",
+    "filename-size",
+    "repository",
+];
+
+/// What one package reports, from the `-p` takes and the two dependency
+/// lists. Every field is exactly what xbps printed; a take that could not
+/// answer leaves its fields empty rather than inventing them.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct PackageFacts {
+    pub installed: bool,
+    /// The raw `name-version_revision` the property take printed.
+    pub pkgver: String,
+    pub short_desc: String,
+    pub homepage: String,
+    pub license: String,
+    /// The installed size, as xbps prints it; empty when not installed.
+    pub installed_size: String,
+    /// The repository the package comes from.
+    pub repository: String,
+    /// `installed` / `not installed`, derived from which take answered.
+    pub state: String,
+    /// The compressed download size, from the repository-mode take.
+    pub filename_size: String,
+    /// The dependencies, as the `-x` lines.
+    pub depends: Vec<String>,
+    /// The reverse dependencies, as the `-X` lines.
+    pub required_by: Vec<String>,
+}
+
+impl PackageFacts {
+    /// The version part of the pkgver a take printed.
+    pub fn version(&self) -> &str {
+        split_pkgver(&self.pkgver)
+            .map(|(_, version)| version)
+            .unwrap_or(&self.pkgver)
+    }
+}
+
+/// Reads the facts of one package: the plain property take, the repository-mode
+/// take, and the two dependency lists. One package at a time, on selection.
+///
+/// The takes are not all-or-nothing, because xbps 0.60.7 answers differently
+/// depending on whether the package is installed:
+///
+/// - the plain take fails for a package that is not installed, and that is an
+///   answer — the package is not installed — not an error;
+/// - the dependency lists fail for any package the installed database does not
+///   know, and then there are no dependencies to list;
+/// - only when neither property take answers does the package not exist, and
+///   that is the one case that fails.
+///
+/// A property take that *does* answer must parse whole: a short or garbled
+/// answer is a format change and fails loudly.
+pub fn read_package(
+    invoke: &Invoke,
+    name: &str,
+    pkgver: &str,
+) -> Result<PackageFacts, SnapshotError> {
+    let plain_argv = property_argv(&FACT_PROPERTIES.join(","), pkgver);
+    let download_argv = property_repo_argv(&DOWNLOAD_PROPERTIES.join(","), pkgver);
+    let plain = optional_properties(invoke, &plain_argv, FACT_PROPERTIES)?;
+    let download = optional_properties(invoke, &download_argv, DOWNLOAD_PROPERTIES)?;
+    // The plain take failing means "not installed": an answer, as long as the
+    // repository take knows the package. Only when the repository take fails
+    // too does nobody know it.
+    let download = match download {
+        Some(download) => download,
+        // Installed but the index cannot see it (a local package, a removed
+        // repository): the installed record alone is a complete answer.
+        None if plain.is_some() => std::collections::HashMap::new(),
+        // Nobody knows it. Run the repository take once more so the user reads
+        // the error xbps printed, not a sentence this code invented.
+        None => {
+            return run_parsed(&download_argv, parse_repository_properties, invoke).and_then(
+                |_| {
+                    Err(SnapshotError::Empty {
+                        program: XPBS_QUERY.to_owned(),
+                    })
+                },
+            );
+        }
+    };
+    let plain = plain.unwrap_or_default();
+    let installed = plain.get("state").is_some_and(|state| state == "installed");
+    let depends = if installed {
+        read_list(invoke, &depends_argv(name), parse_depends)
+    } else {
+        Vec::new()
+    };
+    let required_by = if installed {
+        read_list(invoke, &required_by_argv(name), parse_pkgver_list)
+    } else {
+        Vec::new()
+    };
+
+    Ok(PackageFacts {
+        installed,
+        pkgver: preferred(&plain, &download, "pkgver"),
+        // The repository take carries the definition of the package; the plain
+        // take is the installed record and wins where it has something to say.
+        short_desc: preferred(&plain, &download, "short_desc"),
+        homepage: preferred(&plain, &download, "homepage"),
+        license: preferred(&plain, &download, "license"),
+        installed_size: value_of(&plain, "installed_size"),
+        repository: preferred(&plain, &download, "repository"),
+        state: if installed {
+            "installed"
+        } else {
+            "not installed"
+        }
+        .to_owned(),
+        filename_size: value_of(&download, "filename-size"),
+        depends,
+        required_by,
+    })
+}
+
+/// One value of a property take, by name; a property that was not reported is
+/// empty rather than invented.
+fn value_of(facts: &std::collections::HashMap<String, String>, key: &str) -> String {
+    facts.get(key).cloned().unwrap_or_default()
+}
+
+/// The plain value when it says something, the repository value otherwise.
+fn preferred(
+    plain: &std::collections::HashMap<String, String>,
+    download: &std::collections::HashMap<String, String>,
+    key: &str,
+) -> String {
+    let plain_value = value_of(plain, key);
+    if plain_value.is_empty() {
+        value_of(download, key)
+    } else {
+        plain_value
+    }
+}
+
+/// A property take that may legitimately fail: `None` when xbps rejected the
+/// package, the parsed map when it answered, and a loud error when the answer
+/// arrived but could not be understood.
+///
+/// A timeout or a program that never started is still an error — those are not
+/// answers about the package.
+fn optional_properties(
+    invoke: &Invoke,
+    argv: &[String],
+    properties: &[&str],
+) -> Result<Option<std::collections::HashMap<String, String>>, SnapshotError> {
+    let program = program_of(argv);
+    let output = run(argv, READ_TIMEOUT_MS, invoke).map_err(|err| SnapshotError::Reply {
+        reason: err.to_string(),
+    })?;
+    if output.timed_out {
+        return Err(SnapshotError::Timeout { program });
+    }
+    if output.exit_code == -1 {
+        return Err(SnapshotError::Start {
+            program,
+            reason: output.stderr.trim().to_owned(),
+        });
+    }
+    if output.exit_code != 0 {
+        // xbps rejected the package: "not installed" or "not found". Neither is
+        // a broken answer; the caller decides what it means.
+        return Ok(None);
+    }
+    parse_properties(&output.stdout, properties)
+        .map(Some)
+        .map_err(|err| output_error(argv, err))
+}
+
+/// A dependency list: empty when xbps rejects the package, because a package
+/// the installed database does not know has nothing to list.
+fn read_list<T>(invoke: &Invoke, argv: &[String], parse: fn(&str) -> Result<T, XbpsError>) -> T
+where
+    T: Default,
+{
+    let Ok(output) = run(argv, READ_TIMEOUT_MS, invoke) else {
+        return T::default();
+    };
+    if output.timed_out || output.exit_code != 0 {
+        return T::default();
+    }
+    parse(&output.stdout).unwrap_or_default()
+}
+
+/// The parse half of the repository take, for the one case that has to report
+/// its error rather than treat it as "not installed".
+fn parse_repository_properties(
+    input: &str,
+) -> Result<std::collections::HashMap<String, String>, XbpsError> {
+    parse_properties(input, DOWNLOAD_PROPERTIES)
+}
+
+/// The program of an argv list; every builder starts with it.
+fn program_of(argv: &[String]) -> String {
+    argv.first().cloned().unwrap_or_default()
+}
+
+/// Turns a rejected parse into the error the user sees, and logs the line.
+fn output_error(argv: &[String], err: XbpsError) -> SnapshotError {
+    let program = program_of(argv);
+    match err {
+        XbpsError::MalformedLine { line, text, .. } => {
+            eprintln!("kxbps: {program} line {line} was not understood: {text}");
+            SnapshotError::Output {
+                program,
+                line,
+                text,
+            }
+        }
+        XbpsError::Empty => SnapshotError::Empty { program },
+    }
+}
+
 /// The transport every started worker thread shares.
 ///
 /// The backend hands one transport to each worker thread it spawns, so the
@@ -251,17 +567,32 @@ mod tests {
     const START_FAILURE: &str =
         r#"{"exitCode":-1,"stdout":"","stderr":"No such file or directory","timedOut":false}"#;
 
-    /// A transport that answers each request by its second argv element (the
-    /// mode flag), so one fake covers the whole five-command snapshot.
+    /// The command an argv selects, as the fake's table spells it: the program
+    /// is dropped and every leading flag kept, because `-R -p` and `-R` are
+    /// different takes of the same program. Arguments (a pattern, a property
+    /// list, a pkgver) never enter the key.
+    fn command_key(argv: &[String]) -> String {
+        let mut key: Vec<&str> = Vec::new();
+        for arg in argv.iter().skip(1) {
+            if !arg.starts_with('-') {
+                break;
+            }
+            key.push(arg);
+        }
+        key.join(" ")
+    }
+
+    /// A transport that answers each request by the command its argv selects,
+    /// so one fake covers a whole read.
     fn transport_by_mode(modes: Vec<(&str, String)>) -> impl Fn(&str, u32) -> String {
         move |request, _| {
             let argv: Vec<String> = serde_json::from_str(request).expect("request decodes");
-            let mode = argv.get(1).map(String::as_str).unwrap_or_default();
+            let key = command_key(&argv);
             modes
                 .iter()
-                .find(|(flag, _)| *flag == mode)
+                .find(|(flag, _)| *flag == key)
                 .map(|(_, reply)| reply.clone())
-                .unwrap_or_else(|| panic!("unexpected command: {argv:?}"))
+                .unwrap_or_else(|| panic!("unexpected command: {argv:?} (key {key:?})"))
         }
     }
 
@@ -466,5 +797,309 @@ mod tests {
         assert_eq!(handle.join().expect("worker ran"), "echo:[1]");
         assert_eq!(shared("[]", 1), "echo:[]");
         assert_eq!(calls.load(std::sync::atomic::Ordering::SeqCst), 2);
+    }
+
+    #[test]
+    fn read_search_returns_the_hits_of_the_pattern() {
+        let hits = read_search(
+            &transport_by_mode(vec![(
+                "-Rs",
+                ok_reply("[*] vim-9.2.1031_1 Editor\n[-] bash-5.3_2 Bourne Again Shell\n"),
+            )]),
+            SearchSource::Repository,
+            "vim",
+        )
+        .expect("a search answer lands");
+        assert_eq!(hits.len(), 2);
+        assert!(hits[0].installed, "the installed tag wins");
+        assert_eq!(hits[0].name, "vim");
+        assert_eq!(hits[0].version, "9.2.1031_1");
+        assert_eq!(hits[1].name, "bash");
+        assert!(!hits[1].installed);
+    }
+
+    #[test]
+    fn read_search_asks_the_installed_database_when_the_source_says_so() {
+        let hits = read_search(
+            &transport_by_mode(vec![(
+                "-s",
+                ok_reply("[*] bash-5.3_2 Bourne Again Shell\n"),
+            )]),
+            SearchSource::Installed,
+            "bash",
+        )
+        .expect("an installed search answer lands");
+        assert_eq!(hits.len(), 1);
+        assert!(hits[0].installed);
+    }
+
+    #[test]
+    fn read_search_accepts_an_empty_answer() {
+        let hits = read_search(
+            &transport_by_mode(vec![("-Rs", ok_reply(""))]),
+            SearchSource::Repository,
+            "vim",
+        )
+        .expect("no hits");
+        assert!(hits.is_empty(), "an unknown pattern has no hits");
+    }
+
+    #[test]
+    fn read_raw_answers_verbatim_and_names_the_command() {
+        let repos = "1 https://repo.voidlinux.org/current (RSA signed)\n\
+                     0 https://repo.voidlinux.org/multilib (RSA signed)\n";
+        let output = read_raw(&transport_by_mode(vec![("-L", ok_reply(repos))]), "-L", "")
+            .expect("a repository list lands");
+        assert_eq!(
+            output.text, repos,
+            "the block shows exactly what xbps printed"
+        );
+        assert_eq!(output.command, "xbps-query -L");
+
+        let depends = "glibc>=2.41_1\nzlib>=1.3\n";
+        let output = read_raw(
+            &transport_by_mode(vec![("-x", ok_reply(depends))]),
+            "-x",
+            "vim",
+        )
+        .expect("a dependency list lands");
+        assert_eq!(output.text, depends);
+        assert_eq!(output.command, "xbps-query -x vim");
+    }
+
+    #[test]
+    fn a_failed_raw_take_is_a_key_not_text() {
+        let modes = vec![(
+            "-p",
+            r#"{"exitCode":2,"stdout":"","stderr":"missing","timedOut":false}"#.to_owned(),
+        )];
+        let error = read_raw(&transport_by_mode(modes), "-p", "state vim").expect_err("no answer");
+        assert_eq!(error.key(), "errorXbpsExit");
+        assert_eq!(error.args(), ["xbps-query", "2", "missing"]);
+    }
+
+    #[test]
+    fn a_failed_search_names_the_program_and_the_key() {
+        let modes = vec![(
+            "-Rs",
+            r#"{"exitCode":2,"stdout":"","stderr":"broken index","timedOut":false}"#.to_owned(),
+        )];
+        let error = read_search(&transport_by_mode(modes), SearchSource::Repository, "vim")
+            .expect_err("a broken index fails the search");
+        assert_eq!(error.key(), "errorXbpsExit");
+        assert_eq!(error.args(), vec!["xbps-query", "2", "broken index"]);
+    }
+
+    #[test]
+    fn read_package_reads_the_facts_of_one_installed_package() {
+        let invoke = transport_by_mode(vec![
+            (
+                "-p",
+                ok_reply(
+                    "vim-9.2.1031_1\nVim editor (vi clone)\nhttps://www.vim.org\nVim\n2125KB\nhttps://repo-de.voidlinux.org/current\ninstalled\n",
+                ),
+            ),
+            (
+                "-R -p",
+                ok_reply(
+                    "vim-9.2.1031_1\nVim editor (vi clone)\nhttps://www.vim.org\nVim\n1735KB\nhttps://repo-de.voidlinux.org/current\n",
+                ),
+            ),
+            ("-x", ok_reply("glibc>=2.41_1\n")),
+            ("-X", ok_reply("base-system-0.114_2\n")),
+        ]);
+        // The same shape production hands a worker thread: a shared transport.
+        let seen = std::sync::Arc::new(std::sync::Mutex::new(Vec::new()));
+        let log = seen.clone();
+        let spy: std::sync::Arc<Invoke> =
+            std::sync::Arc::new(move |request: &str, timeout: u32| {
+                let argv: Vec<String> = serde_json::from_str(request).expect("request decodes");
+                log.lock().expect("spy lock").push(argv);
+                invoke(request, timeout)
+            });
+        {
+            let facts = read_package(&*spy, "vim", "vim-9.2.1031_1").expect("the facts land");
+            assert!(facts.installed);
+            assert_eq!(facts.short_desc, "Vim editor (vi clone)");
+            assert_eq!(facts.pkgver, "vim-9.2.1031_1");
+            assert_eq!(facts.homepage, "https://www.vim.org");
+            assert_eq!(facts.license, "Vim");
+            assert_eq!(facts.installed_size, "2125KB");
+            assert_eq!(facts.repository, "https://repo-de.voidlinux.org/current");
+            assert_eq!(facts.state, "installed");
+            assert_eq!(facts.filename_size, "1735KB");
+            assert_eq!(facts.depends, vec!["glibc>=2.41_1".to_owned()]);
+            assert_eq!(facts.required_by, vec!["base-system".to_owned()]);
+            assert_eq!(facts.version(), "9.2.1031_1");
+        }
+        assert_eq!(
+            *seen.lock().expect("spy lock"),
+            vec![
+                vec![
+                    "xbps-query",
+                    "-p",
+                    "pkgver,short_desc,homepage,license,installed_size,repository,state",
+                    "vim-9.2.1031_1",
+                ],
+                vec![
+                    "xbps-query",
+                    "-R",
+                    "-p",
+                    "pkgver,short_desc,homepage,license,filename-size,repository",
+                    "vim-9.2.1031_1",
+                ],
+                vec!["xbps-query", "-x", "vim"],
+                vec!["xbps-query", "-X", "vim"],
+            ],
+            "the four takes are sent as separate argv elements"
+        );
+    }
+
+    #[test]
+    fn read_package_answers_a_package_that_is_not_installed_from_the_repository_take() {
+        // xbps 0.60.7 exits 2 on `-p` for a package that is not installed,
+        // and on `-x`/`-X`, even when the repository knows it. "Not installed"
+        // is an answer, not an error: the repository take still says what the
+        // package is.
+        let invoke = transport_by_mode(vec![
+            (
+                "-p",
+                r#"{"exitCode":2,"stdout":"","stderr":"Package 'zramen-1.0.1_1' not installed.","timedOut":false}"#
+                    .to_owned(),
+            ),
+            (
+                "-R -p",
+                ok_reply(
+                    "zramen-1.0.1_1\nManage zram swap space\nhttps://github.com/atweiden/zramen\nUnlicense\n5505B\nhttps://repo-de.voidlinux.org/current\n",
+                ),
+            ),
+            (
+                "-x",
+                r#"{"exitCode":2,"stdout":"","stderr":"Package 'zramen' not found.","timedOut":false}"#
+                    .to_owned(),
+            ),
+            (
+                "-X",
+                r#"{"exitCode":2,"stdout":"","stderr":"Package 'zramen' not found.","timedOut":false}"#
+                    .to_owned(),
+            ),
+        ]);
+        let facts =
+            read_package(&invoke, "zramen", "zramen-1.0.1_1").expect("the repository answers");
+        assert!(!facts.installed);
+        assert_eq!(facts.pkgver, "zramen-1.0.1_1");
+        assert_eq!(facts.short_desc, "Manage zram swap space");
+        assert_eq!(facts.license, "Unlicense");
+        assert_eq!(facts.filename_size, "5505B");
+        assert_eq!(facts.state, "not installed");
+        assert!(
+            facts.installed_size.is_empty(),
+            "a package that is not installed reports no installed size"
+        );
+        assert!(
+            facts.depends.is_empty(),
+            "xbps cannot list dependencies of a package that is not installed"
+        );
+        assert!(facts.required_by.is_empty());
+    }
+
+    #[test]
+    fn read_package_keeps_the_installed_record_when_the_repository_is_newer() {
+        // The installed record is what the user has; the repository take only
+        // adds what the installed database cannot say (the download size).
+        let invoke = transport_by_mode(vec![
+            (
+                "-p",
+                ok_reply(
+                    "vim-9.2.1031_1\nVim editor (vi clone)\nhttps://www.vim.org\nVim\n2125KB\nhttps://repo-de.voidlinux.org/current\ninstalled\n",
+                ),
+            ),
+            (
+                "-R -p",
+                ok_reply(
+                    "vim-9.2.2000_1\nVim editor (vi clone)\nhttps://www.vim.org\nVim\n1800KB\nhttps://repo-de.voidlinux.org/current\n",
+                ),
+            ),
+            ("-x", ok_reply("glibc>=2.41_1\n")),
+            ("-X", ok_reply("")),
+        ]);
+        let facts = read_package(&invoke, "vim", "vim-9.2.1031_1").expect("both takes answer");
+        assert!(facts.installed);
+        assert_eq!(
+            facts.pkgver, "vim-9.2.1031_1",
+            "the installed record wins over a newer repository version"
+        );
+        assert_eq!(facts.version(), "9.2.1031_1");
+        assert_eq!(
+            facts.filename_size, "1800KB",
+            "the download size only the repository take reports"
+        );
+        assert_eq!(facts.installed_size, "2125KB");
+    }
+
+    #[test]
+    fn read_package_of_a_missing_package_asks_for_no_dependency_lists() {
+        let seen = std::sync::Arc::new(std::sync::Mutex::new(Vec::new()));
+        let log = seen.clone();
+        let invoke = transport_by_mode(vec![
+            (
+                "-p",
+                r#"{"exitCode":2,"stdout":"","stderr":"Package 'nope-1_1' not installed.","timedOut":false}"#
+                    .to_owned(),
+            ),
+            (
+                "-R -p",
+                ok_reply(
+                    "nope-1_1\nNot here\nhttps://example.org\nMIT\n1234B\nhttps://repo-de.voidlinux.org/current\n",
+                ),
+            ),
+            // `-x`/`-X` are not in the table: a call to them panics the fake.
+        ]);
+        let spy: std::sync::Arc<Invoke> =
+            std::sync::Arc::new(move |request: &str, timeout: u32| {
+                let argv: Vec<String> = serde_json::from_str(request).expect("request decodes");
+                log.lock().expect("spy lock").push(argv);
+                invoke(request, timeout)
+            });
+        let facts = read_package(&*spy, "nope", "nope-1_1").expect("the repository answers");
+        assert!(!facts.installed);
+        assert_eq!(facts.state, "not installed");
+        assert!(facts.installed_size.is_empty());
+        assert!(facts.depends.is_empty());
+        assert!(facts.required_by.is_empty());
+        assert_eq!(
+            seen.lock().expect("spy lock").len(),
+            2,
+            "only the two property takes ran; no -x/-X for a package that is not installed"
+        );
+    }
+
+    #[test]
+    fn read_package_fails_when_neither_take_knows_the_package() {
+        let not_found = r#"{"exitCode":2,"stdout":"","stderr":"Package 'nope-1_1' not found.","timedOut":false}"#;
+        let invoke = transport_by_mode(vec![
+            ("-p", not_found.to_owned()),
+            ("-R -p", not_found.to_owned()),
+            ("-x", not_found.to_owned()),
+            ("-X", not_found.to_owned()),
+        ]);
+        let error = read_package(&invoke, "nope", "nope-1_1").expect_err("nobody knows it");
+        assert_eq!(error.key(), "errorXbpsExit");
+        assert_eq!(
+            error.args(),
+            vec!["xbps-query", "2", "Package 'nope-1_1' not found."]
+        );
+    }
+
+    #[test]
+    fn read_package_fails_loudly_on_a_short_property_answer() {
+        let invoke = transport_by_mode(vec![
+            ("-p", ok_reply("vim-9.2.1031_1\nVim editor (vi clone)\n")),
+            ("-R -p", ok_reply("")),
+            ("-x", ok_reply("")),
+            ("-X", ok_reply("")),
+        ]);
+        let error = read_package(&invoke, "vim", "vim-9.2.1031_1").expect_err("short answer");
+        assert_eq!(error.key(), "errorXbpsOutput");
     }
 }

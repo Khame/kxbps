@@ -6,8 +6,10 @@
 // The answer comes from xbps itself: `catalogBackend.search()` starts one
 // `xbps-query` take on a worker thread and `resultsRevision` says when a new
 // answer can be read. The listing modes (`-Rs`, `-s`, `-l`, `-m`, `-O`, `-H`)
-// answer with package rows; the remaining modes are wired in the commit that
-// follows, and show nothing rather than a row built from one of their lines.
+// answer with package rows. Every other mode prints something that is not a
+// package list (repositories, dependencies, properties), and a row built from
+// one of those lines would be invented, so the raw output is shown verbatim in
+// a monospace block under the command that produced it.
 
 import QtQuick
 import QtQuick.Controls as QQC2
@@ -26,6 +28,13 @@ Item {
     readonly property int resultCount: results.length
     readonly property string errorKey: catalogBackend.searchError
     readonly property var errorArgs: catalogBackend.searchErrorArgs
+    // The text of a mode that answers with output rather than rows.
+    readonly property string rawText: catalogBackend.rawText
+    readonly property string rawCommand: catalogBackend.rawCommand
+
+    // The selection, by pkgver: one package, read on demand.
+    property string selectedPkgver: ""
+
     readonly property real versionWidth: Kirigami.Units.gridUnit * 9.5
 
     // The fourteen modes the core knows. `-Rs` is the default, like the web app.
@@ -41,6 +50,7 @@ Item {
     function run() {
         const mode = modeCombo.currentText
         const query = searchField.text.trim()
+        view.selectedPkgver = ""
         // A listing mode needs a pattern; typing one is the next thing the
         // user does, so an empty field clears instead of reading everything.
         if (view.isListMode(mode) && query.length === 0) {
@@ -66,6 +76,10 @@ Item {
         }
         if (view.isListMode(modeCombo.currentText) && searchField.text.length === 0) {
             return i18nd("kxbps", "Type a query.")
+        }
+        if (!view.isListMode(modeCombo.currentText) && view.rawText.length === 0) {
+            // The take answered nothing: say so, rather than a blank block.
+            return i18nd("kxbps", "xbps printed nothing.")
         }
         if (view.isListMode(modeCombo.currentText)) {
             return i18nd("kxbps", "No matches.")
@@ -153,7 +167,8 @@ Item {
         ListView {
             id: resultsList
             Layout.fillWidth: true
-            Layout.fillHeight: true
+            Layout.fillHeight: view.isListMode(modeCombo.currentText)
+            visible: view.isListMode(modeCombo.currentText)
             clip: true
             model: view.results
             QQC2.ScrollBar.vertical: QQC2.ScrollBar {}
@@ -161,6 +176,11 @@ Item {
             delegate: QueryDelegate {
                 width: resultsList.width
                 versionWidth: view.versionWidth
+                current: view.selectedPkgver === modelData.pkgver
+                onClicked: {
+                    view.selectedPkgver = modelData.pkgver
+                    view.catalogBackend.requestFacts(modelData.pkgver)
+                }
             }
 
             QQC2.Label {
@@ -171,12 +191,63 @@ Item {
             }
         }
 
+        // Every other mode: the output as xbps printed it.
+        ColumnLayout {
+            Layout.fillWidth: true
+            Layout.fillHeight: !view.isListMode(modeCombo.currentText)
+            Layout.leftMargin: Kirigami.Units.largeSpacing
+            Layout.rightMargin: Kirigami.Units.largeSpacing
+            Layout.bottomMargin: Kirigami.Units.smallSpacing
+            visible: !view.isListMode(modeCombo.currentText)
+            spacing: Kirigami.Units.smallSpacing
+
+            QQC2.Label {
+                Layout.fillWidth: true
+                visible: view.rawCommand.length > 0
+                text: i18nd("kxbps", "Output of %1", view.rawCommand)
+                color: Kirigami.Theme.disabledTextColor
+                font: Kirigami.Theme.smallFont
+                elide: Text.ElideRight
+            }
+
+            Item {
+                Layout.fillWidth: true
+                Layout.fillHeight: true
+
+                Flickable {
+                    id: rawView
+                    anchors.fill: parent
+                    clip: true
+                    visible: view.rawText.length > 0
+                    contentWidth: width
+                    contentHeight: rawLabel.implicitHeight
+                    boundsBehavior: Flickable.StopAtBounds
+
+                    QQC2.Label {
+                        id: rawLabel
+                        width: rawView.width
+                        text: view.rawText
+                        font.family: "monospace"
+                        textFormat: Text.PlainText
+                        wrapMode: Text.WrapAnywhere
+                    }
+                }
+
+                QQC2.Label {
+                    anchors.centerIn: parent
+                    visible: view.rawText.length === 0 && text.length > 0
+                    text: view.emptyText()
+                    color: Kirigami.Theme.disabledTextColor
+                }
+            }
+        }
+
         QQC2.Label {
             Layout.fillWidth: true
             Layout.leftMargin: Kirigami.Units.largeSpacing
             Layout.rightMargin: Kirigami.Units.largeSpacing
             Layout.bottomMargin: Kirigami.Units.smallSpacing
-            visible: view.resultCount > 0
+            visible: view.isListMode(modeCombo.currentText) && view.resultCount > 0
             text: i18nd("kxbps", "%1 results", view.resultCount)
             color: Kirigami.Theme.disabledTextColor
             font: Kirigami.Theme.smallFont
