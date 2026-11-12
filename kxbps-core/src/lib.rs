@@ -33,7 +33,7 @@ pub use mirror_config::{
 pub use mirrors::{DEFAULT_MIRROR, MIRRORS, MirrorInfo, Region};
 pub use plan::{
     Breaker, DryRunOutcome, EXIT_NOT_INSTALLED, EXIT_UNRESOLVED, is_already_installed,
-    is_not_installed, items_from, missing_package, parse_breakers, read_dry_run,
+    is_not_installed, items_from, lock_waited_on, missing_package, parse_breakers, read_dry_run,
 };
 pub use probe::{PROBE_TIMEOUT, PROBE_TIMEOUT_MS, ProbeError, check_probe_url, measure};
 pub use request::{DryRun, PlanRequest, install_names, not_installed, remove_names};

@@ -228,6 +228,30 @@ pub fn parse_breakers(stderr: &str) -> Vec<Breaker> {
     out
 }
 
+/// Whether xbps reported a lock held by another process.
+///
+/// Taken from libxbps' own format strings (`strings /usr/lib/libxbps.so`), not
+/// from a guess: a second xbps run prints `package database locked, waiting...`
+/// or `repository locked: <url>: waiting...` and then waits for the holder
+/// instead of failing. So a lock is a slow start, never an error, and the UI
+/// must say so rather than look hung.
+///
+/// The holder can be any process of any user: a root transaction, a terminal
+/// `xbps-install`, or, during the outer loop, an `xbps-remote`. Nothing in the
+/// text says whose process it is, which is why the sentence names the lock and
+/// not the caller.
+pub fn lock_waited_on(stderr: &str) -> bool {
+    stderr.lines().any(|line| {
+        let line = line.trim();
+        if line.contains("package database locked, waiting") {
+            return true;
+        }
+        // `repository locked: <url>: waiting...` — the URL sits between the two
+        // fixed halves, so both are required.
+        line.contains("repository locked: ") && line.contains(": waiting")
+    })
+}
+
 /// Whether stderr is xbps saying the package is not installed at all.
 ///
 /// `xbps-remove -n` exits 2 with ``Package `zramen' is not currently
