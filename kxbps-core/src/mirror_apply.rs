@@ -700,6 +700,21 @@ mod tests {
     }
 
     #[test]
+    fn a_refused_argument_list_ends_on_exit_code_2() {
+        let normal = Cli::parse([OsString::from("xbps-install"), OsString::from("-S")]);
+        assert!(normal.url.is_none(), "two arguments are never guessed");
+        let refused = normal.run();
+        assert_eq!(refused.exit, Exit::UrlRefused);
+        assert_eq!(refused.exit.code(), 2, "the binary exits with this code");
+        assert!(
+            refused.detail.contains("expected exactly one base URL"),
+            "{}",
+            refused.detail
+        );
+        assert_eq!(refused.url, "", "nothing was attempted");
+    }
+
+    #[test]
     fn the_last_line_is_what_the_label_shows() {
         assert_eq!(last_line("a\nb\n\n"), "b");
         assert_eq!(last_line("only"), "only");

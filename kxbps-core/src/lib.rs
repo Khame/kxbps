@@ -39,7 +39,8 @@ pub use probe::{PROBE_TIMEOUT, PROBE_TIMEOUT_MS, ProbeError, check_probe_url, me
 pub use request::{DryRun, PlanRequest, install_names, not_installed, remove_names};
 pub use store::{Store, StoreError, data_dir, installed_map};
 pub use transaction::{
-    Outcome, PKEXEC, Transaction, TransactionPlan, XPBS_INSTALL_PATH, XPBS_REMOVE_PATH, pkgvers,
+    MIRROR_ACTION_ID, MIRROR_APPLY_PATH, Outcome, PKEXEC, Privileged, Transaction, TransactionPlan,
+    XPBS_INSTALL_PATH, XPBS_REMOVE_PATH, mirror_argv, pkgvers,
 };
 pub use types::{
     Blocked, DialogState, Inst, InstalledMap, ListFilter, PlanAction, PlanItem, PlanReason, Prefs,

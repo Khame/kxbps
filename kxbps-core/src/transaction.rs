@@ -27,6 +27,13 @@ pub const XPBS_INSTALL_PATH: &str = "/usr/bin/xbps-install";
 /// The absolute path of `xbps-remove`, as the remove action annotates it.
 pub const XPBS_REMOVE_PATH: &str = "/usr/bin/xbps-remove";
 
+/// Where the privileged mirror helper lives; the `mirror` policy action
+/// annotates this exact path, and it is the one binary that runs as root.
+pub const MIRROR_APPLY_PATH: &str = "/usr/libexec/kxbps-mirror-apply";
+
+/// The polkit action id of the mirror helper.
+pub const MIRROR_ACTION_ID: &str = "io.github.khame.kxbps.mirror";
+
 /// Which of the two privileged tools a transaction runs.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Transaction {
@@ -93,6 +100,73 @@ impl Transaction {
     pub fn command_line(self, pkgvers: &[String]) -> String {
         self.argv(pkgvers).join(" ")
     }
+}
+
+/// What one privileged process may do: run an xbps transaction, or hand one
+/// base URL to the mirror helper.
+///
+/// The two arms share only the shape — an argv with `pkexec` first and a polkit
+/// action id — because they answer to different policy actions and different
+/// exit codes. Every argv element stays its own argument and no shell is
+/// involved, so a URL with a quote or a space can never become a second
+/// command.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum Privileged {
+    /// `pkexec /usr/bin/xbps-install -y …`: one transaction tool.
+    Package(Transaction),
+    /// `pkexec /usr/libexec/kxbps-mirror-apply <base>`: one base URL.
+    Mirror(String),
+}
+
+impl Privileged {
+    /// The argv polkit runs, `pkexec` first.
+    ///
+    /// The package arm names the tool but no packages: a plan's argv is built
+    /// by [`Transaction::argv`] once the items exist, while this value answers
+    /// "which process would this be" before that. A mirror is exactly its one
+    /// argument.
+    pub fn argv(&self) -> Vec<String> {
+        match self {
+            Self::Package(transaction) => {
+                vec![String::from(PKEXEC), String::from(transaction.program())]
+            }
+            Self::Mirror(base) => vec![
+                String::from(PKEXEC),
+                String::from(MIRROR_APPLY_PATH),
+                base.clone(),
+            ],
+        }
+    }
+
+    /// The base URL of a mirror action; `None` for a package transaction.
+    pub fn mirror_base(&self) -> Option<&str> {
+        match self {
+            Self::Package(_) => None,
+            Self::Mirror(base) => Some(base),
+        }
+    }
+
+    /// The polkit action id the policy file declares for this process.
+    pub fn action_id(&self) -> &'static str {
+        match self {
+            Self::Package(transaction) => transaction.action_id(),
+            Self::Mirror(_) => MIRROR_ACTION_ID,
+        }
+    }
+
+    /// The same argv, signed with the stable string the job log shows.
+    pub fn command_line(&self) -> String {
+        self.argv().join(" ")
+    }
+}
+
+/// The argv of the mirror helper: `pkexec /usr/libexec/kxbps-mirror-apply <base>`.
+///
+/// The base URL is one element, exactly as the user's selection spells it; the
+/// helper validates and normalises it, and a refused URL never reaches a
+/// write.
+pub fn mirror_argv(base: &str) -> Vec<String> {
+    Privileged::Mirror(base.to_owned()).argv()
 }
 
 /// The commands a plan runs, in order: `pkexec xbps-install` first, then
@@ -453,6 +527,64 @@ mod tests {
     fn an_empty_plan_has_no_commands() {
         assert_eq!(TransactionPlan::for_items(&[]), None);
         assert!(TransactionPlan::default().commands().is_empty());
+    }
+
+    #[test]
+    fn a_mirror_is_one_base_url_after_pkexec() {
+        let privileged = Privileged::Mirror(String::from("https://repo-default.voidlinux.org/"));
+        assert_eq!(
+            privileged.argv(),
+            [
+                "pkexec",
+                "/usr/libexec/kxbps-mirror-apply",
+                "https://repo-default.voidlinux.org/"
+            ],
+            "the base URL is one element; nothing re-splits it"
+        );
+        assert_eq!(
+            privileged.argv(),
+            mirror_argv("https://repo-default.voidlinux.org/")
+        );
+        assert_eq!(privileged.action_id(), "io.github.khame.kxbps.mirror");
+        assert_eq!(
+            privileged.mirror_base(),
+            Some("https://repo-default.voidlinux.org/")
+        );
+        assert_eq!(
+            privileged.command_line(),
+            "pkexec /usr/libexec/kxbps-mirror-apply https://repo-default.voidlinux.org/"
+        );
+        assert!(
+            !privileged.argv().iter().any(|arg| arg == "sudo"),
+            "escalation is polkit only"
+        );
+    }
+
+    #[test]
+    fn a_mirror_url_with_spaces_or_quotes_stays_one_argument() {
+        let base = "https://mirror.example/with space/?q=\"x\";rm -rf /";
+        let argv = Privileged::Mirror(String::from(base)).argv();
+        assert_eq!(argv.len(), 3, "{argv:?}");
+        assert_eq!(argv[2], base, "no shell ever sees this string");
+    }
+
+    #[test]
+    fn a_package_transaction_keeps_its_own_action_and_argv_shape() {
+        let privileged = Privileged::Package(Transaction::Install);
+        assert_eq!(
+            privileged.argv(),
+            ["pkexec", "/usr/bin/xbps-install"],
+            "the tool first; the packages come from the plan"
+        );
+        assert_eq!(privileged.action_id(), "io.github.khame.kxbps.install");
+        assert_eq!(privileged.mirror_base(), None);
+    }
+
+    #[test]
+    fn the_mirror_path_and_action_are_the_ones_the_policy_authorizes() {
+        assert_eq!(MIRROR_APPLY_PATH, "/usr/libexec/kxbps-mirror-apply");
+        assert_eq!(MIRROR_ACTION_ID, "io.github.khame.kxbps.mirror");
+        assert_eq!(mirror_argv("https://a/")[1], MIRROR_APPLY_PATH);
     }
 
     #[test]
