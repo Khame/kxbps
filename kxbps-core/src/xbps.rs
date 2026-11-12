@@ -374,6 +374,71 @@ pub fn parse_property(input: &str) -> Result<String, XbpsError> {
     Ok(value.to_owned())
 }
 
+/// Parses `xbps-query -p <prop>[,<prop>…] <pkg>`: one raw value per line, in
+/// the requested order, keyed by property name.
+///
+/// The property list is the comma-separated `--property` value, so the caller
+/// asks for exactly the facts it renders (`pkgver,short_desc,homepage,license,
+/// installed_size,repository,state`) and reads the answer back by name. A line
+/// that is not there means the property was not reported, and the field stays
+/// empty rather than being invented; the count must still match the request,
+/// because an xbps answer that drops or repeats a value is a format change.
+///
+/// Empty output is an error: a package that exists has its properties printed,
+/// so an empty answer means the package or the property does not exist.
+pub fn parse_properties(
+    input: &str,
+    properties: &[&str],
+) -> Result<std::collections::HashMap<String, String>, XbpsError> {
+    let values: Vec<String> = body_lines(input)
+        .map(|(line_no, line)| {
+            if line.trim().is_empty() {
+                return Err(XbpsError::MalformedLine {
+                    line: line_no,
+                    text: line.to_owned(),
+                    reason: "expected one value per requested property",
+                });
+            }
+            Ok(line.trim().to_owned())
+        })
+        .collect::<Result<Vec<_>, XbpsError>>()?;
+    if values.is_empty() {
+        return Err(XbpsError::Empty);
+    }
+    if values.len() != properties.len() {
+        let last = values.last().expect("non-empty");
+        return Err(XbpsError::MalformedLine {
+            line: values.len(),
+            text: last.clone(),
+            reason: "expected one value per requested property",
+        });
+    }
+    Ok(properties
+        .iter()
+        .zip(values.iter())
+        .map(|(property, value)| ((*property).to_owned(), value.clone()))
+        .collect())
+}
+
+/// Parses `xbps-query -x <pkg>`: one dependency per line, as
+/// `<name>[<op> <version>]`.
+///
+/// Empty output is a valid empty list: a leaf package has no dependencies and
+/// xbps still exits 0. The version constraint travels with the name, so the
+/// answer is the raw lines — the UI joins them for display and takes the names
+/// for any graph work.
+pub fn parse_depends(input: &str) -> Result<Vec<String>, XbpsError> {
+    let mut depends = Vec::new();
+    for (line_no, line) in body_lines(input) {
+        let dependency = line.trim();
+        if dependency.is_empty() {
+            return Err(malformed(line_no, line, "expected one dependency per line"));
+        }
+        depends.push(dependency.to_owned());
+    }
+    Ok(depends)
+}
+
 /// One-based `(line number, line)` pairs, with trailing blank lines dropped.
 fn body_lines(input: &str) -> impl Iterator<Item = (usize, &str)> {
     input
@@ -661,6 +726,56 @@ mod tests {
     }
 
     #[test]
+    fn properties_map_one_value_per_requested_property_in_order() {
+        let properties = [
+            "pkgver",
+            "short_desc",
+            "homepage",
+            "license",
+            "installed_size",
+            "repository",
+            "state",
+        ];
+        let input = "bash-5.3_2\nGNU Bourne Again Shell\nhttps://www.gnu.org\nGPL-2.0-or-later\n7809KB\nhttps://r/current\ninstalled\n";
+        let map = parse_properties(input, &properties).expect("the answer maps");
+        assert_eq!(map["pkgver"], "bash-5.3_2");
+        assert_eq!(map["short_desc"], "GNU Bourne Again Shell");
+        assert_eq!(map["homepage"], "https://www.gnu.org");
+        assert_eq!(map["license"], "GPL-2.0-or-later");
+        assert_eq!(map["installed_size"], "7809KB");
+        assert_eq!(map["repository"], "https://r/current");
+        assert_eq!(map["state"], "installed");
+    }
+
+    #[test]
+    fn properties_trim_each_value() {
+        let properties = ["pkgver", "short_desc"];
+        let map = parse_properties(" vim-9.2.1031_1 \n Vim editor \n", &properties).expect("trims");
+        assert_eq!(map["pkgver"], "vim-9.2.1031_1");
+        assert_eq!(map["short_desc"], "Vim editor");
+    }
+
+    #[test]
+    fn properties_reject_empty_output() {
+        let properties = ["pkgver", "short_desc"];
+        assert_eq!(parse_properties("", &properties), Err(XbpsError::Empty));
+    }
+
+    #[test]
+    fn properties_reject_a_wrong_value_count() {
+        let properties = ["pkgver", "short_desc", "homepage"];
+        let error = parse_properties("bash-5.3_2\nGNU Bourne Again Shell\n", &properties)
+            .expect_err("three properties need three values");
+        assert!(matches!(error, XbpsError::MalformedLine { .. }), "{error}");
+    }
+
+    #[test]
+    fn properties_reject_an_interior_blank_line() {
+        let properties = ["pkgver", "short_desc"];
+        assert!(parse_properties("bash-5.3_2\n\nGNU Bourne Again Shell\n", &properties).is_err());
+    }
+
+    #[test]
     fn split_pkgver_rejects_a_missing_revision() {
         assert_eq!(split_pkgver("foo-1.0"), None);
         assert_eq!(split_pkgver("1.0_1"), None);
@@ -734,5 +849,23 @@ mod tests {
         assert_eq!(names, vec!["good".to_owned()]);
         let (line, _) = line_error(parse_pkgver_list("good-1.0_1\n\nother-1.0_1\n"));
         assert_eq!(line, 2, "an interior blank line is a format change");
+    }
+
+    #[test]
+    fn depends_reads_one_line_per_dependency() {
+        let depends = parse_depends("glibc>=2.41_1\nbash>=5.0\n").expect("dependencies parse");
+        assert_eq!(depends, vec!["glibc>=2.41_1", "bash>=5.0"]);
+    }
+
+    #[test]
+    fn depends_accepts_empty_output() {
+        assert_eq!(parse_depends(""), Ok(Vec::new()));
+    }
+
+    #[test]
+    fn depends_rejects_an_interior_blank_line() {
+        let (line, text) = line_error(parse_depends("glibc>=2.41_1\n\nbash>=5.0\n"));
+        assert_eq!(line, 2);
+        assert_eq!(text, "");
     }
 }

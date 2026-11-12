@@ -92,6 +92,11 @@ pub fn search_argv(pattern: &str) -> Vec<String> {
     argv(XPBS_QUERY, &["-Rs", pattern])
 }
 
+/// `xbps-query -s <pattern>`: search the installed packages only.
+pub fn installed_search_argv(pattern: &str) -> Vec<String> {
+    argv(XPBS_QUERY, &["-s", pattern])
+}
+
 /// `xbps-query -L`: configured repositories.
 pub fn repos_argv() -> Vec<String> {
     argv(XPBS_QUERY, &["-L"])
@@ -100,6 +105,22 @@ pub fn repos_argv() -> Vec<String> {
 /// `xbps-query -p <property> <package>`: one package property.
 pub fn property_argv(property: &str, package: &str) -> Vec<String> {
     argv(XPBS_QUERY, &["-p", property, package])
+}
+
+/// `xbps-query -R -p <property-list> <package>`: the repository-mode property
+/// take, which also answers for facts the plain take cannot (`filename-size`).
+pub fn property_repo_argv(property: &str, package: &str) -> Vec<String> {
+    argv(XPBS_QUERY, &["-R", "-p", property, package])
+}
+
+/// `xbps-query -x <package>`: the dependencies of one package.
+pub fn depends_argv(package: &str) -> Vec<String> {
+    argv(XPBS_QUERY, &["-x", package])
+}
+
+/// `xbps-query -X <package>`: the reverse dependencies of one package.
+pub fn required_by_argv(package: &str) -> Vec<String> {
+    argv(XPBS_QUERY, &["-X", package])
 }
 
 /// `xbps-query -m`: the packages installed on purpose.
@@ -157,6 +178,19 @@ mod tests {
             property_argv("pkgver", "vim"),
             ["xbps-query", "-p", "pkgver", "vim"]
         );
+        assert_eq!(
+            property_repo_argv("pkgver,short_desc", "vim-9.2.1031_1"),
+            [
+                "xbps-query",
+                "-R",
+                "-p",
+                "pkgver,short_desc",
+                "vim-9.2.1031_1"
+            ]
+        );
+        assert_eq!(installed_search_argv("lib"), ["xbps-query", "-s", "lib"]);
+        assert_eq!(depends_argv("bash"), ["xbps-query", "-x", "bash"]);
+        assert_eq!(required_by_argv("bash"), ["xbps-query", "-X", "bash"]);
         assert_eq!(manual_argv(), ["xbps-query", "-m"]);
         assert_eq!(held_argv(), ["xbps-query", "-H"]);
         assert_eq!(orphans_argv(), ["xbps-query", "-O"]);
