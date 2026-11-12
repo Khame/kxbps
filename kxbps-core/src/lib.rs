@@ -7,6 +7,7 @@ pub mod catalog;
 pub mod engine;
 pub mod format;
 pub mod mirrors;
+pub mod plan;
 pub mod probe;
 pub mod store;
 pub mod types;
@@ -20,6 +21,10 @@ pub use engine::{
 };
 pub use format::{ByteUnit, action_key, byte_decimals, format_bytes, reason_key};
 pub use mirrors::{DEFAULT_MIRROR, MIRRORS, MirrorInfo, Region};
+pub use plan::{
+    Breaker, DryRun, DryRunOutcome, EXIT_NOT_INSTALLED, EXIT_UNRESOLVED, is_already_installed,
+    is_not_installed, items_from, missing_package, parse_breakers, read_dry_run,
+};
 pub use probe::{PROBE_TIMEOUT, PROBE_TIMEOUT_MS, ProbeError, check_probe_url, measure};
 pub use store::{SEED_AT, Store, StoreError, data_dir, fresh_install, installed_map};
 pub use types::{
