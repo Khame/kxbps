@@ -80,6 +80,27 @@ Item {
         return i18nd("kxbps", "No packages.")
     }
 
+    // The one sentence for a failed read, chosen by the key the backend sent.
+    // The arguments are already ordered for the sentence's `%1…%3`.
+    function readErrorText(key, args) {
+        const a = args.length > 0 ? args[0] : ""
+        const b = args.length > 1 ? args[1] : ""
+        const c = args.length > 2 ? args[2] : ""
+        switch (key) {
+        case "errorXbpsStart":
+            return i18nd("kxbps", "Could not run %1: %2", a, b)
+        case "errorXbpsTimeout":
+            return i18nd("kxbps", "%1 did not answer within %2 seconds.", a, b)
+        case "errorXbpsExit":
+            return i18nd("kxbps", "%1 failed with exit code %2: %3", a, b, c)
+        case "errorXbpsOutput":
+            return i18nd("kxbps", "%1 printed a line this version does not understand (line %2): %3", a, b, c)
+        case "errorXbpsEmpty":
+            return i18nd("kxbps", "%1 printed no packages.", a)
+        }
+        return i18nd("kxbps", "Could not read the installed packages: %1", a)
+    }
+
     ColumnLayout {
         anchors.fill: parent
         spacing: 0
@@ -106,6 +127,23 @@ Item {
             visible: installedBackend.error.length > 0
             color: Kirigami.Theme.neutralTextColor
             text: i18nd("kxbps", "Could not save the system state: %1", installedBackend.error)
+            wrapMode: Text.WordWrap
+        }
+
+        // A read of the system that failed (xbps missing, timed out, output
+        // this version cannot parse). The backend sends the key and its
+        // arguments; the sentence belongs here, so the read error never borrows
+        // the save-error wording above.
+        QQC2.Label {
+            id: readError
+            Layout.fillWidth: true
+            Layout.leftMargin: Kirigami.Units.largeSpacing
+            Layout.rightMargin: Kirigami.Units.largeSpacing
+            Layout.topMargin: Kirigami.Units.smallSpacing
+            visible: installedBackend.readError.length > 0
+            color: Kirigami.Theme.negativeTextColor
+            text: view.readErrorText(installedBackend.readError,
+                                     installedBackend.readErrorArgs)
             wrapMode: Text.WordWrap
         }
 

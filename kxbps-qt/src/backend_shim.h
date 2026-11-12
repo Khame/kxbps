@@ -16,12 +16,18 @@
 // not a string). Used to read the plan a dialog was built from.
 QString kxbps_object_string_property(QObject *object, const QString &name);
 
-// Replaces the package model's installed snapshot and queue map. Emits
+// Replaces the package model's installed set and queue map. Emits
 // `dataChanged` for the rows that moved, or a full reset when the visible set
 // changes (for example the `installed` filter gaining a row).
 void kxbps_package_model_set_state(QObject *model,
                                      const QString &installedJson,
                                      const QString &queueJson);
+
+// Replaces the package model's whole state with a `Snapshot`: the installed
+// records, the updates and the explicit/held/orphan names.
+void kxbps_package_model_set_snapshot(QObject *model,
+                                        const QString &snapshotJson,
+                                        const QString &queueJson);
 
 // Queue model: one row per queued `{name, action}`.
 QObject *kxbps_create_queue_model(QObject *parent, const QString &queueJson);
@@ -45,9 +51,12 @@ void kxbps_installed_apply_plan(QObject *owner, const QString &itemsJson);
 
 // Pushes the installed/queue snapshot into the query façade, so `search()` and
 // `get()` answer `installedVersion`/`isUpdate` from the same state as the model.
+// `updatesJson` and `orphansJson` are the lists xbps reported.
 void kxbps_catalog_backend_set_state(QObject *backend,
                                        const QString &installedJson,
-                                       const QString &queueJson);
+                                       const QString &queueJson,
+                                       const QString &updatesJson,
+                                       const QString &orphansJson);
 
 // Schedules `object` for deletion on the next event-loop pass; null-safe.
 // The backend keeps parent ownership of every plan and job it creates, but a

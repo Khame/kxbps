@@ -26,6 +26,13 @@ void kxbps_package_model_set_state(QObject *model,
     static_cast<PackageModel *>(model)->setState(installedJson, queueJson);
 }
 
+void kxbps_package_model_set_snapshot(QObject *model,
+                                        const QString &snapshotJson,
+                                        const QString &queueJson)
+{
+    static_cast<PackageModel *>(model)->setSnapshot(snapshotJson, queueJson);
+}
+
 QObject *kxbps_create_queue_model(QObject *parent, const QString &queueJson)
 {
     return new QueueModel(queueJson, parent);
@@ -68,9 +75,14 @@ void kxbps_installed_apply_plan(QObject *owner, const QString &itemsJson)
 
 void kxbps_catalog_backend_set_state(QObject *backend,
                                        const QString &installedJson,
-                                       const QString &queueJson)
+                                       const QString &queueJson,
+                                       const QString &updatesJson,
+                                       const QString &orphansJson)
 {
-    static_cast<CatalogBackend *>(backend)->setState(installedJson, queueJson);
+    static_cast<CatalogBackend *>(backend)->setState(installedJson,
+                                                       queueJson,
+                                                       updatesJson,
+                                                       orphansJson);
 }
 
 void kxbps_release_object(QObject *object)

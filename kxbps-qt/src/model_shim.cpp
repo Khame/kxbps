@@ -138,9 +138,7 @@ void kxbps_mirror_model_data_changed(QAbstractItemModel &model, int first, int l
     ModelAccess::emitDataChanged(&model, first, last);
 }
 
-QObject *kxbps_create_package_model(QObject *parent,
-                                      const QString &catalogJson,
-                                      const QString &installedJson)
+QObject *kxbps_create_package_model(QObject *parent, const QString &catalogJson)
 {
-    return new PackageModel(catalogJson, installedJson, parent);
+    return new PackageModel(catalogJson, parent);
 }

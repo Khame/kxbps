@@ -237,9 +237,12 @@ Kirigami.ApplicationWindow {
     }
 
     Component.onCompleted: {
-        root.refreshCatalogIndex()
-        // The window opens on the installed set, not on all 115 packages.
+        // The window opens on the installed set, read from the system: the
+        // worker thread fills the list a moment later, and until it answers the
+        // catalog fills the first frame rather than an empty window.
         installedBackend.packages.filter = "installed"
+        installedBackend.reload()
+        root.refreshCatalogIndex()
     }
 
     pageStack.initialPage: Kirigami.Page {

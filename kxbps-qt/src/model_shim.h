@@ -34,11 +34,9 @@ QModelIndex kxbps_model_create_index(const QAbstractItemModel &model, int row, i
 // affected rows re-read their data, while selection and scroll position stay.
 void kxbps_model_data_changed(QAbstractItemModel &model, int first, int last);
 
-// Creates the package model as a child of `parent`, seeding it with the catalog
-// JSON and the installed snapshot (a JSON object of name -> Inst).
-QObject *kxbps_create_package_model(QObject *parent,
-                                      const QString &catalogJson,
-                                      const QString &installedJson);
+// Creates the package model as a child of `parent`, seeding it with the
+// catalog JSON. The installed list is empty until the first snapshot arrives.
+QObject *kxbps_create_package_model(QObject *parent, const QString &catalogJson);
 
 // The queue and log models need the same protected members, but cxx cannot
 // declare one extern function in two bridges, so each model has its own name.

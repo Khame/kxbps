@@ -12,7 +12,7 @@ use std::sync::Arc;
 
 use cxx_qt::CxxQtType;
 use cxx_qt_lib::{QList, QMap, QMapPair_QString_QVariant, QString, QVariant};
-use kxbps_core::{Catalog, InstalledMap, Pkg, QueryMode, QueueAction, QueueItem};
+use kxbps_core::{Catalog, InstalledMap, Pkg, QueryMode, QueueAction, QueueItem, UpdateEntry};
 
 use crate::package_model::{self, InstalledState, RowView};
 
@@ -55,11 +55,15 @@ pub mod qobject {
         fn get(self: &CatalogBackend, name: &QString) -> QMap_QString_QVariant;
 
         // Pushes the installed/queue snapshot; called by the installed backend
-        // through `kxbps_catalog_backend_set_state`.
+        // through `kxbps_catalog_backend_set_state`. `updates_json` and
+        // `orphans_json` are the lists xbps reported, so a query hit answers
+        // `isUpdate` from the same source as a list row.
         fn set_state(
             self: Pin<&mut CatalogBackend>,
             installed_json: &QString,
             queue_json: &QString,
+            updates_json: &QString,
+            orphans_json: &QString,
         );
     }
 
@@ -84,7 +88,7 @@ impl Default for CatalogBackendRust {
             catalog: Arc::default(),
             installed: InstalledMap::new(),
             queue: HashMap::new(),
-            state: InstalledState::new(&Catalog::default(), &InstalledMap::new()),
+            state: InstalledState::new(&[], &[]),
         }
     }
 }
@@ -156,13 +160,19 @@ impl qobject::CatalogBackend {
         mut self: Pin<&mut Self>,
         installed_json: &cxx_qt_lib::QString,
         queue_json: &cxx_qt_lib::QString,
+        updates_json: &cxx_qt_lib::QString,
+        orphans_json: &cxx_qt_lib::QString,
     ) {
         let installed: InstalledMap =
             serde_json::from_str(&installed_json.to_string()).unwrap_or_default();
         let queue: Vec<QueueItem> =
             serde_json::from_str(&queue_json.to_string()).unwrap_or_default();
+        let updates: Vec<UpdateEntry> =
+            serde_json::from_str(&updates_json.to_string()).unwrap_or_default();
+        let orphans: Vec<String> =
+            serde_json::from_str(&orphans_json.to_string()).unwrap_or_default();
         let data = Pin::get_mut(self.as_mut().rust_mut());
-        data.apply_snapshot(installed, queue);
+        data.apply_snapshot(installed, queue, updates, orphans);
     }
 }
 
@@ -170,9 +180,16 @@ impl CatalogBackendRust {
     /// Replaces the installed and queue snapshots with the store's own values.
     ///
     /// `InstalledState::new` is the same call the package model makes, so
-    /// `isUpdate`/`updateVersion` are derived once, in one place.
-    fn apply_snapshot(&mut self, installed: InstalledMap, queue: Vec<QueueItem>) {
-        self.state = InstalledState::new(&self.catalog, &installed);
+    /// `isUpdate`/`updateVersion` and the orphan predicate are derived once, in
+    /// one place, from the lists xbps reported.
+    fn apply_snapshot(
+        &mut self,
+        installed: InstalledMap,
+        queue: Vec<QueueItem>,
+        updates: Vec<UpdateEntry>,
+        orphans: Vec<String>,
+    ) {
+        self.state = InstalledState::new(&updates, &orphans);
         self.installed = installed;
         self.queue = queue
             .into_iter()
@@ -182,12 +199,12 @@ impl CatalogBackendRust {
 
     /// One row of the snapshot, exactly as the model builds it.
     fn row_view<'a>(&'a self, pkg: &'a Pkg) -> RowView<'a> {
-        RowView {
+        RowView::catalog(
             pkg,
-            installed: self.installed.get(&pkg.name),
-            queued: self.queue.get(&pkg.name).copied(),
-            update_to: self.state.update_to(&pkg.name),
-        }
+            self.installed.get(&pkg.name),
+            self.queue.get(&pkg.name).copied(),
+            self.state.update_to(&pkg.name),
+        )
     }
 
     /// One package as a `QVariantMap`, keyed exactly like the model's roles plus
@@ -293,6 +310,19 @@ mod tests {
             load_catalog(&QString::from(include_str!("../resources/catalog.json")));
         assert_eq!(error, "");
         let store = Store::fresh(&catalog);
+        // The seed store holds no reported updates; `linux` is pinned below the
+        // catalog, so it stands in for what `xbps-install -un` would print.
+        let linux = catalog.by_name("linux").unwrap();
+        let updates = vec![UpdateEntry {
+            name: linux.name.clone(),
+            version: linux.version.clone(),
+            pkgver: format!("{}-{}", linux.name, linux.version),
+            action: kxbps_core::XbpsAction::Update,
+            arch: "x86_64".into(),
+            repository: "https://repo.example/current".into(),
+            installed_size: 1,
+            download_size: 1,
+        }];
         let mut backend = CatalogBackendRust {
             catalog: Arc::new(catalog),
             ..CatalogBackendRust::default()
@@ -303,6 +333,8 @@ mod tests {
                 name: "ark".into(),
                 action: QueueAction::Install,
             }],
+            updates,
+            Vec::new(),
         );
 
         let vim = backend.map_for(backend.catalog.by_name("vim").unwrap());

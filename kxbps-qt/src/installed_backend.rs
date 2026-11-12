@@ -10,18 +10,23 @@
 
 use std::pin::Pin;
 use std::sync::Arc;
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use cxx_qt::CxxQtType;
+use cxx_qt::Threading;
 use cxx_qt::casting::Upcast;
-use cxx_qt_lib::{QObjectMutPtr, QString};
+use cxx_qt_lib::{QObjectMutPtr, QString, QStringList};
 use kxbps_core::{
-    Catalog, InstalledMap, Plan, PlanItem, QueueAction, QueueItem, Repos, Store, held_updates,
-    plan_install, plan_queue, plan_remove, plan_system, repos_from_installed, update_signature,
+    Catalog, InstalledMap, Plan, PlanItem, QueueAction, QueueItem, Repos, Store, effective_updates,
+    held_updates_in, plan_install, plan_queue, plan_remove, plan_system, repos_from_installed,
+    update_signature_of,
 };
 
 use crate::job_backend::JobPayload;
 use crate::plan_backend::{PlanPayload, keys as plan_keys};
+use crate::xbps_snapshot::{SharedInvoke, Snapshot, SnapshotError, read_snapshot};
+use kxbps_core::UpdateEntry;
 
 #[cxx_qt::bridge]
 pub mod qobject {
@@ -42,11 +47,7 @@ pub mod qobject {
         include!("backend_shim.h");
 
         #[cxx_name = "kxbps_create_package_model"]
-        fn create_package_model(
-            parent: QObjectMutPtr,
-            catalog_json: &QString,
-            installed_json: &QString,
-        ) -> QObjectMutPtr;
+        fn create_package_model(parent: QObjectMutPtr, catalog_json: &QString) -> QObjectMutPtr;
 
         #[cxx_name = "kxbps_create_queue_model"]
         fn create_queue_model(parent: QObjectMutPtr, queue_json: &QString) -> QObjectMutPtr;
@@ -55,6 +56,13 @@ pub mod qobject {
         fn package_model_set_state(
             model: QObjectMutPtr,
             installed_json: &QString,
+            queue_json: &QString,
+        );
+
+        #[cxx_name = "kxbps_package_model_set_snapshot"]
+        fn package_model_set_snapshot(
+            model: QObjectMutPtr,
+            snapshot_json: &QString,
             queue_json: &QString,
         );
 
@@ -75,6 +83,8 @@ pub mod qobject {
             backend: QObjectMutPtr,
             installed_json: &QString,
             queue_json: &QString,
+            updates_json: &QString,
+            orphans_json: &QString,
         );
 
         #[cxx_name = "kxbps_release_object"]
@@ -96,6 +106,14 @@ pub mod qobject {
         // notify signal of their own (`catalogBackend.get`).
         #[qproperty(i32, state_revision, READ, NOTIFY)]
         #[qproperty(QString, error, READ, NOTIFY)]
+        // A failed read of the system (xbps missing, timed out, unparsable
+        // output) as the i18n key QML wraps in a sentence, plus its `%1…%3`
+        // arguments. Empty key means the last read succeeded.
+        #[qproperty(QString, read_error, READ, NOTIFY)]
+        #[qproperty(QStringList, read_error_args, READ, NOTIFY)]
+        // Whether a snapshot is being read. The list keeps its previous rows
+        // while one is in flight; QML only needs this to explain an empty list.
+        #[qproperty(bool, loading, READ, NOTIFY)]
         type InstalledBackend = super::InstalledBackendRust;
 
         #[qinvokable]
@@ -136,6 +154,12 @@ pub mod qobject {
         #[qinvokable]
         fn apply_plan(self: &InstalledBackend, plan: QObjectMutPtr) -> QObjectMutPtr;
 
+        // Re-reads the installed set, the updates and the orphan list from
+        // xbps on a worker thread. Called once when the window opens and by the
+        // "reload" button; the previous rows stay visible until it answers.
+        #[qinvokable]
+        fn reload(self: Pin<&mut InstalledBackend>);
+
         #[qinvokable]
         fn reset(self: Pin<&mut InstalledBackend>);
 
@@ -168,6 +192,9 @@ pub mod qobject {
     }
 
     impl cxx_qt::Constructor<()> for InstalledBackend {}
+    // A read runs on a worker thread and reports back through
+    // `qt_thread().queue(...)`; that needs the thread handle CXX-Qt generates.
+    impl cxx_qt::Threading for InstalledBackend {}
 }
 
 /// Rust side of [`qobject::InstalledBackend`].
@@ -185,6 +212,18 @@ pub struct InstalledBackendRust {
     updates_count: i32,
     state_revision: i32,
     error: QString,
+    read_error: QString,
+    read_error_args: QStringList,
+    loading: bool,
+    /// The last snapshot xbps answered; its updates and orphans are what the
+    /// model and the query façade show. `None` until the first read.
+    snapshot: Option<Snapshot>,
+    /// How many reads were started; only the newest may write its result, so
+    /// a slow first read cannot overwrite a newer one.
+    generation: Arc<AtomicU64>,
+    /// The process transport. Tests install a fake here, so the suite never
+    /// starts xbps; production installs [`crate::xbps_bridge::production_invoke`].
+    invoke: SharedInvoke,
 }
 
 impl Default for InstalledBackendRust {
@@ -202,6 +241,12 @@ impl Default for InstalledBackendRust {
             updates_count: 0,
             state_revision: 0,
             error: QString::from(""),
+            read_error: QString::from(""),
+            read_error_args: QStringList::default(),
+            loading: false,
+            snapshot: None,
+            generation: Arc::new(AtomicU64::new(0)),
+            invoke: crate::xbps_bridge::production_invoke(),
         }
     }
 }
@@ -211,7 +256,9 @@ impl cxx_qt::Initialize for qobject::InstalledBackend {
     ///
     /// A store that cannot be loaded is not fatal: the seed image stays in
     /// memory and `error` carries a technical reason for QML to wrap in a
-    /// translated sentence.
+    /// translated sentence. The installed set itself is not the store's: the
+    /// window opens with whatever the store last saved, and the first read of
+    /// xbps replaces it a moment later (see [`qobject::InstalledBackend::reload`]).
     fn initialize(mut self: Pin<&mut Self>) {
         let json = crate::qobject::read_resource(&QString::from(crate::CATALOG_RESOURCE_PATH));
         let (catalog, catalog_error, model_json) = crate::catalog_backend::load_catalog(&json);
@@ -226,14 +273,10 @@ impl cxx_qt::Initialize for qobject::InstalledBackend {
                     .cast_mut(),
             )
         };
-        let installed_json = json_of(&store.installed);
         let queue_json = json_of(&store.queue);
-        let packages = qobject::create_package_model(parent, &model_json, &installed_json);
+        let packages = qobject::create_package_model(parent, &model_json);
         let queue_model = qobject::create_queue_model(parent, &queue_json);
 
-        let repos = repos_from_installed(&store.installed);
-        let updates = catalog.updates(&store.installed, &repos).len();
-        let installed_count = store.installed.len();
         let queue_count = store.queue.len();
         let error = if catalog_error.is_empty() {
             store_error
@@ -246,9 +289,9 @@ impl cxx_qt::Initialize for qobject::InstalledBackend {
         data.store = store;
         data.packages = packages;
         data.queue_model = queue_model;
-        data.installed_count = i32::try_from(installed_count).unwrap_or(i32::MAX);
+        data.installed_count = 0;
         data.queue_count = i32::try_from(queue_count).unwrap_or(i32::MAX);
-        data.updates_count = i32::try_from(updates).unwrap_or(i32::MAX);
+        data.updates_count = 0;
         data.error = QString::from(error.as_str());
     }
 }
@@ -300,6 +343,7 @@ impl qobject::InstalledBackend {
             &self.catalog,
             &self.store.installed,
             &repos_from_installed(&self.store.installed),
+            self.store.pending_updates(),
             &self.store.queue,
         );
         self.plan_object(&payload)
@@ -310,6 +354,7 @@ impl qobject::InstalledBackend {
             &self.catalog,
             &self.store.installed,
             &repos_from_installed(&self.store.installed),
+            self.store.pending_updates(),
         );
         self.plan_object(&payload)
     }
@@ -373,6 +418,9 @@ impl qobject::InstalledBackend {
         }
         save_store(self.as_mut());
         refresh(self.as_mut());
+        // The store is back to the seed image, which is not the system: read
+        // it again so the window shows what is installed rather than a demo.
+        self.as_mut().reload();
     }
 
     /// Schedules a plan or job object for deletion.
@@ -461,16 +509,98 @@ impl qobject::InstalledBackend {
 
     /// Wires the query façade and pushes the current snapshot into it.
     fn set_query_backend(mut self: Pin<&mut Self>, value: QObjectMutPtr) {
-        let (installed_json, queue_json) = {
+        let (installed_json, queue_json, updates_json, orphans_json) = {
             let data = &*self;
-            (json_of(&data.store.installed), json_of(&data.store.queue))
+            state_json(&data.store, data.snapshot.as_ref())
         };
         {
             let data = Pin::get_mut(self.as_mut().rust_mut());
             data.query_backend = value;
         }
-        push_query_state(value, &installed_json, &queue_json);
+        push_query_state(
+            value,
+            &installed_json,
+            &queue_json,
+            &updates_json,
+            &orphans_json,
+        );
         self.as_mut().query_backend_changed();
+    }
+
+    /// Reads the installed set, the updates and the orphan list from xbps.
+    ///
+    /// The GUI thread only bumps the generation and starts the thread; the
+    /// process runs on the worker, and its result arrives through
+    /// `qt_thread().queue(...)`, which is the only way a background thread may
+    /// touch this object. The previous rows stay visible until it answers, and
+    /// a read that finishes after a newer one was started is dropped.
+    fn reload(mut self: Pin<&mut Self>) {
+        let generation = self.generation.fetch_add(1, Ordering::SeqCst) + 1;
+        {
+            let data = Pin::get_mut(self.as_mut().rust_mut());
+            data.loading = true;
+        }
+        self.as_mut().loading_changed();
+
+        let thread = self.qt_thread();
+        let current = self.generation.clone();
+        let invoke = self.invoke.clone();
+        std::thread::spawn(move || {
+            let result = read_snapshot(&*invoke);
+            // The closure runs on the GUI thread; `thread.queue` fails only
+            // once the backend is gone, and then nobody wants the result.
+            thread
+                .queue(move |backend| backend.finish_read(generation, &current, result))
+                .ok();
+        });
+    }
+
+    /// Applies a finished read, unless a newer one has started since.
+    fn finish_read(
+        mut self: Pin<&mut Self>,
+        generation: u64,
+        current: &Arc<AtomicU64>,
+        result: Result<Snapshot, SnapshotError>,
+    ) {
+        if current.load(Ordering::SeqCst) != generation {
+            // A newer read owns the window; this answer is stale.
+            return;
+        }
+        let (was_loading, error_key, error_args) = {
+            let data = Pin::get_mut(self.as_mut().rust_mut());
+            let was_loading = data.loading;
+            data.loading = false;
+            match &result {
+                Ok(_) => (was_loading, String::new(), Vec::new()),
+                Err(err) => (was_loading, err.key().to_owned(), err.args()),
+            }
+        };
+        if was_loading {
+            self.as_mut().loading_changed();
+        }
+
+        {
+            let data = Pin::get_mut(self.as_mut().rust_mut());
+            data.read_error = QString::from(error_key.as_str());
+            data.read_error_args = error_args
+                .iter()
+                .map(|arg| QString::from(arg.as_str()))
+                .collect::<QStringList>();
+        }
+        self.as_mut().read_error_changed();
+        self.as_mut().read_error_args_changed();
+
+        let applied = {
+            let data = Pin::get_mut(self.as_mut().rust_mut());
+            apply_read(&mut data.store, &mut data.snapshot, result)
+        };
+        if applied {
+            // The installed set changed, and the next start shows it before a
+            // new read answers. A read that failed before anything was read
+            // leaves the file as it is.
+            save_store(self.as_mut());
+        }
+        refresh(self.as_mut());
     }
 
     fn apply_plan_items(mut self: Pin<&mut Self>, items_json: &cxx_qt_lib::QString) {
@@ -491,14 +621,11 @@ impl qobject::InstalledBackend {
             );
             // `runJob` clears the dismissed-update preference once nothing is
             // left to announce, so a later batch of updates is not swallowed.
-            let repos = repos_from_installed(&data.store.installed);
-            if data
-                .catalog
-                .updates(&data.store.installed, &repos)
-                .is_empty()
-            {
-                let signature =
-                    update_signature(&data.catalog, &data.store.installed, &repos).to_string();
+            // The list is the one the last read reported, minus the packages
+            // the user held since.
+            let pending = effective_updates(data.store.pending_updates(), &data.store.installed);
+            if pending.is_empty() {
+                let signature = update_signature_of(&pending).to_string();
                 data.store.set_pref_dismissed_version(&signature);
             }
         }
@@ -523,10 +650,14 @@ impl qobject::InstalledBackend {
 }
 
 /// Plan payload for the transaction queue.
+///
+/// `updates` is the list the last read reported; it is what the held note
+/// needs, because the catalog no longer decides what an update is.
 pub fn queue_payload(
     catalog: &Catalog,
     installed: &InstalledMap,
     repos: &Repos,
+    updates: &[UpdateEntry],
     queue: &[QueueItem],
 ) -> PlanPayload {
     if queue.is_empty() {
@@ -544,7 +675,7 @@ pub fn queue_payload(
                 .collect();
             let mut payload =
                 PlanPayload::from_plan(plan, plan_keys::PLAN_QUEUE, Vec::new(), names);
-            let held = held_in_queue(catalog, installed, repos, queue);
+            let held = held_in_queue(updates, installed, queue);
             if !held.is_empty() {
                 payload.note_key = plan_keys::NOTE_HELD.to_string();
                 payload.note_args = vec![held.join(", ")];
@@ -556,7 +687,12 @@ pub fn queue_payload(
 }
 
 /// Plan payload for the system upgrade.
-pub fn system_payload(catalog: &Catalog, installed: &InstalledMap, repos: &Repos) -> PlanPayload {
+pub fn system_payload(
+    catalog: &Catalog,
+    installed: &InstalledMap,
+    repos: &Repos,
+    updates: &[UpdateEntry],
+) -> PlanPayload {
     match plan_system(catalog, installed, repos) {
         Ok(items) if items.is_empty() => PlanPayload::notice(plan_keys::NOTICE_EMPTY_SYSTEM),
         Ok(items) => {
@@ -569,7 +705,7 @@ pub fn system_payload(catalog: &Catalog, installed: &InstalledMap, repos: &Repos
                 Vec::new(),
                 Vec::new(),
             );
-            let held = held_updates(catalog, installed, repos);
+            let held = held_updates_in(updates, installed);
             if !held.is_empty() {
                 payload.note_key = plan_keys::NOTE_HELD.to_string();
                 payload.note_args = vec![held.join(", ")];
@@ -635,12 +771,11 @@ pub fn remove_payload(
 
 /// Held packages that the queue actually wants to update.
 ///
-/// [`held_updates`] returns every held package with a pending update; the note
-/// on a queue plan only concerns the ones the user queued.
+/// [`held_updates_in`] returns every held package with a reported update; the
+/// note on a queue plan only concerns the ones the user queued.
 pub fn held_in_queue(
-    catalog: &Catalog,
+    updates: &[UpdateEntry],
     installed: &InstalledMap,
-    repos: &Repos,
     queue: &[QueueItem],
 ) -> Vec<String> {
     let updating: Vec<&str> = queue
@@ -648,16 +783,78 @@ pub fn held_in_queue(
         .filter(|item| item.action == QueueAction::Update)
         .map(|item| item.name.as_str())
         .collect();
-    held_updates(catalog, installed, repos)
+    held_updates_in(updates, installed)
         .into_iter()
         .filter(|name| updating.contains(&name.as_str()))
         .collect()
 }
 
 /// Pushes a snapshot into the query façade; a missing backend is not an error.
-fn push_query_state(query: QObjectMutPtr, installed_json: &QString, queue_json: &QString) {
+fn push_query_state(
+    query: QObjectMutPtr,
+    installed_json: &QString,
+    queue_json: &QString,
+    updates_json: &QString,
+    orphans_json: &QString,
+) {
     if !query.as_ptr().is_null() {
-        qobject::catalog_backend_set_state(query, installed_json, queue_json);
+        qobject::catalog_backend_set_state(
+            query,
+            installed_json,
+            queue_json,
+            updates_json,
+            orphans_json,
+        );
+    }
+}
+
+/// The installed set, queue, updates and orphans as the shims read them.
+fn state_json(store: &Store, snapshot: Option<&Snapshot>) -> (QString, QString, QString, QString) {
+    let updates = snapshot.map_or_else(Vec::new, |snapshot| snapshot.updates.clone());
+    let orphans = snapshot.map_or_else(Vec::new, |snapshot| snapshot.orphans.clone());
+    (
+        json_of(&store.installed),
+        json_of(&store.queue),
+        json_of(&updates),
+        json_of(&orphans),
+    )
+}
+
+/// Puts a finished read into the store and remembers the snapshot itself.
+///
+/// A successful read keeps the install dates the store already knew and the
+/// queue; the snapshot keeps the updates and the orphans, which nothing else
+/// reports. A failed read empties the installed set, because rows from an
+/// earlier read no longer describe the system and a stale list reads as a
+/// healthy one; the caller shows the error key instead.
+///
+/// Returns whether the store holds a new installed set and should be saved: a
+/// successful read always does, a failed one only when it had something to
+/// empty.
+pub fn apply_read(
+    store: &mut Store,
+    snapshot: &mut Option<Snapshot>,
+    result: Result<Snapshot, SnapshotError>,
+) -> bool {
+    match result {
+        Ok(read) => {
+            store.apply_snapshot(
+                &read.installed,
+                &read.explicit,
+                &read.held,
+                read.updates.clone(),
+            );
+            *snapshot = Some(read);
+            true
+        }
+        Err(_) => {
+            if store.installed.is_empty() && snapshot.is_none() {
+                return false;
+            }
+            store.apply_snapshot(&[], &[], &[], Vec::new());
+            *snapshot = None;
+            true
+        }
     }
 }
 
@@ -666,35 +863,56 @@ fn refresh(mut self_: Pin<&mut qobject::InstalledBackend>) {
     let (
         installed_json,
         queue_json,
+        updates_json,
+        orphans_json,
         installed_count,
         queue_count,
         updates_count,
         packages,
         queue_model,
         query,
+        snapshot_json,
     ) = {
         let data = &*self_;
-        let repos = repos_from_installed(&data.store.installed);
+        let (installed_json, queue_json, updates_json, orphans_json) =
+            state_json(&data.store, data.snapshot.as_ref());
         (
-            json_of(&data.store.installed),
-            json_of(&data.store.queue),
+            installed_json,
+            queue_json,
+            updates_json,
+            orphans_json,
             i32::try_from(data.store.installed.len()).unwrap_or(i32::MAX),
             i32::try_from(data.store.queue.len()).unwrap_or(i32::MAX),
-            i32::try_from(data.catalog.updates(&data.store.installed, &repos).len())
-                .unwrap_or(i32::MAX),
+            i32::try_from(data.store.pending_updates().len()).unwrap_or(i32::MAX),
             data.packages,
             data.queue_model,
             data.query_backend,
+            data.snapshot.as_ref().map(json_of),
         )
     };
 
     if !packages.as_ptr().is_null() {
-        qobject::package_model_set_state(packages, &installed_json, &queue_json);
+        match &snapshot_json {
+            // The model derives `explicit`/`held` from the snapshot, so the
+            // list and the counters cannot disagree.
+            Some(snapshot_json) => {
+                qobject::package_model_set_snapshot(packages, snapshot_json, &queue_json)
+            }
+            // No read yet: only the store moved (queue, hold), so the installed
+            // set it holds is all the model needs to update.
+            None => qobject::package_model_set_state(packages, &installed_json, &queue_json),
+        }
     }
     if !queue_model.as_ptr().is_null() {
         qobject::queue_model_set_state(queue_model, &queue_json);
     }
-    push_query_state(query, &installed_json, &queue_json);
+    push_query_state(
+        query,
+        &installed_json,
+        &queue_json,
+        &updates_json,
+        &orphans_json,
+    );
 
     let (installed_changed, queue_changed, updates_changed) = {
         let data = Pin::get_mut(self_.as_mut().rust_mut());
@@ -790,6 +1008,35 @@ mod tests {
         (catalog, store.installed)
     }
 
+    /// The updates the read layer would report for the seed image: every
+    /// installed package whose seed version is below the catalog's, plus the
+    /// dependency pins the plan tests need. The read layer gets this list from
+    /// `xbps-install -un`; the seed only knows the versions.
+    fn seed_updates(catalog: &Catalog, installed: &InstalledMap) -> Vec<UpdateEntry> {
+        let mut updates: Vec<UpdateEntry> = installed
+            .iter()
+            .filter_map(|(name, inst)| {
+                let pkg = catalog.by_name(name)?;
+                (pkg.version != inst.version).then(|| update_entry(name, &pkg.version))
+            })
+            .collect();
+        updates.sort_by(|left, right| left.name.cmp(&right.name));
+        updates
+    }
+
+    fn update_entry(name: &str, version: &str) -> UpdateEntry {
+        UpdateEntry {
+            name: name.to_owned(),
+            version: version.to_owned(),
+            pkgver: format!("{name}-{version}"),
+            action: kxbps_core::XbpsAction::Update,
+            arch: "x86_64".to_owned(),
+            repository: "https://repo.example/current".to_owned(),
+            installed_size: 1,
+            download_size: 1,
+        }
+    }
+
     fn queue(name: &str, action: QueueAction) -> Vec<QueueItem> {
         vec![QueueItem {
             name: name.into(),
@@ -804,10 +1051,12 @@ mod tests {
         // `mesa` — pinned below the catalog by the seed, so the plan is the
         // dependency update followed by the install.
         let (catalog, installed) = seed();
+        let updates = seed_updates(&catalog, &installed);
         let payload = queue_payload(
             &catalog,
             &installed,
             &repos_from_installed(&installed),
+            &updates,
             &queue("ark", QueueAction::Install),
         );
         assert_eq!(payload.title_key, "planQueue");
@@ -827,10 +1076,12 @@ mod tests {
         // The seed pins `git` and `curl` below the catalog, so updating `git`
         // plans the dependency update first.
         let (catalog, installed) = seed();
+        let updates = seed_updates(&catalog, &installed);
         let payload = queue_payload(
             &catalog,
             &installed,
             &repos_from_installed(&installed),
+            &updates,
             &queue("git", QueueAction::Update),
         );
         assert!(payload.error_key.is_empty());
@@ -854,10 +1105,12 @@ mod tests {
     fn applying_the_plan_adds_exactly_one_package() {
         let (catalog, installed) = seed();
         assert_eq!(installed.len(), 56, "seed image size");
+        let updates = seed_updates(&catalog, &installed);
         let payload = queue_payload(
             &catalog,
             &installed,
             &repos_from_installed(&installed),
+            &updates,
             &queue("ark", QueueAction::Install),
         );
         let mut store = Store::fresh(&catalog);
@@ -882,10 +1135,12 @@ mod tests {
         // The brief expected `vim` to be a fresh install; it is part of the seed
         // image, so the queue produces a reinstall and the count stays at 56.
         let (catalog, installed) = seed();
+        let updates = seed_updates(&catalog, &installed);
         let payload = queue_payload(
             &catalog,
             &installed,
             &repos_from_installed(&installed),
+            &updates,
             &queue("vim", QueueAction::Install),
         );
         assert_eq!(payload.items.len(), 1);
@@ -907,11 +1162,21 @@ mod tests {
     fn system_plan_matches_the_core_update_list() {
         let (catalog, installed) = seed();
         let repos = repos_from_installed(&installed);
-        let updates = catalog.updates(&installed, &repos);
-        let payload = system_payload(&catalog, &installed, &repos);
-        assert_eq!(payload.title_key, "planSystem");
-        assert_eq!(payload.items.len(), updates.len());
+        let updates = seed_updates(&catalog, &installed);
         assert!(!updates.is_empty(), "the seed pins outdated versions");
+        let payload = system_payload(&catalog, &installed, &repos, &updates);
+        assert_eq!(payload.title_key, "planSystem");
+        assert!(
+            payload.items.len() >= updates.len(),
+            "every reported update is planned"
+        );
+        for update in &updates {
+            assert!(
+                payload.items.iter().any(|item| item.name == update.name),
+                "{} is planned",
+                update.name
+            );
+        }
     }
 
     #[test]
@@ -1011,7 +1276,7 @@ mod tests {
     #[test]
     fn empty_queue_is_a_notice_not_a_plan() {
         let (catalog, installed) = seed();
-        let payload = queue_payload(&catalog, &installed, &Repos::default(), &[]);
+        let payload = queue_payload(&catalog, &installed, &Repos::default(), &[], &[]);
         assert_eq!(payload.notice_key, "emptyQueue");
         assert!(payload.items.is_empty());
     }
@@ -1019,19 +1284,18 @@ mod tests {
     #[test]
     fn held_note_only_mentions_packages_the_queue_updates() {
         let (catalog, mut installed) = seed();
-        let repos = repos_from_installed(&installed);
-        let updates = catalog.updates(&installed, &repos);
+        let updates = seed_updates(&catalog, &installed);
         assert!(updates.len() >= 2, "the seed has several outdated packages");
         let held_name = updates[0].name.clone();
         installed.get_mut(&held_name).unwrap().held = true;
 
         let queued = queue(&held_name, QueueAction::Update);
         assert_eq!(
-            held_in_queue(&catalog, &installed, &repos, &queued),
+            held_in_queue(&updates, &installed, &queued),
             vec![held_name.clone()]
         );
         assert!(
-            held_in_queue(&catalog, &installed, &repos, &[]).is_empty(),
+            held_in_queue(&updates, &installed, &[]).is_empty(),
             "nothing is queued, so nothing is skipped"
         );
     }
@@ -1049,5 +1313,154 @@ mod tests {
         assert_eq!(parse_action("remove"), QueueAction::Remove);
         assert_eq!(parse_action("update"), QueueAction::Update);
         assert_eq!(parse_action("nonsense"), QueueAction::Install);
+    }
+
+    /// A healthy answer to the five read commands, as the shim would return it.
+    fn reading(
+        installed: &str,
+        updates: &str,
+        manual: &str,
+        held: &str,
+        orphans: &str,
+    ) -> Snapshot {
+        let outputs: Vec<(String, String)> = [
+            ("-l", installed),
+            ("-un", updates),
+            ("-m", manual),
+            ("-H", held),
+            ("-O", orphans),
+        ]
+        .into_iter()
+        .map(|(mode, stdout)| {
+            let reply = format!(
+                r#"{{"exitCode":0,"stdout":{},"stderr":"","timedOut":false}}"#,
+                serde_json::json!(stdout)
+            );
+            (mode.to_owned(), reply)
+        })
+        .collect();
+        let invoke = move |request: &str, _: u32| {
+            let argv: Vec<String> = serde_json::from_str(request).expect("request decodes");
+            let mode = argv.get(1).map(String::as_str).unwrap_or_default();
+            outputs
+                .iter()
+                .find(|(flag, _)| flag == mode)
+                .map(|(_, reply)| reply.clone())
+                .unwrap_or_else(|| panic!("unexpected command: {argv:?}"))
+        };
+        read_snapshot(&invoke).expect("a healthy system reads")
+    }
+
+    /// A store whose installed set and updates came from a read.
+    fn read_store() -> (Store, Option<Snapshot>) {
+        let mut store = Store::fresh(&catalog());
+        let mut snapshot = None;
+        let read = reading(
+            "ii vim-9.2.1031_1 Editor\nii ark-25.08.0_1 Archives\nii zramen-0.2.0_1 Zram\n",
+            "vim-9.2.2000_1 update x86_64 https://r/current 10 20\n",
+            "vim-9.2.1031_1\n",
+            "",
+            "zramen-0.2.0_1\n",
+        );
+        apply_read(&mut store, &mut snapshot, Ok(read));
+        (store, snapshot)
+    }
+
+    #[test]
+    fn a_snapshot_replaces_the_store_and_keeps_the_reported_updates() {
+        let (store, snapshot) = read_store();
+
+        assert_eq!(
+            {
+                let mut names: Vec<&String> = store.installed.keys().collect();
+                names.sort();
+                names
+            },
+            ["ark", "vim", "zramen"],
+            "the seed image is replaced, not merged"
+        );
+        assert!(store.installed["vim"].explicit, "`-m` listed vim");
+        assert!(!store.installed["zramen"].explicit);
+        assert_eq!(store.installed["zramen"].at, 0);
+        assert_eq!(
+            store.pending_updates().len(),
+            1,
+            "the updates come from the dry run"
+        );
+        let snapshot = snapshot.expect("a successful read is remembered");
+        assert_eq!(snapshot.orphans, vec!["zramen"]);
+    }
+
+    #[test]
+    fn a_failed_read_empties_the_list_and_names_the_error() {
+        let mut store = Store::fresh(&catalog());
+        let mut snapshot = None;
+        assert!(!store.installed.is_empty(), "the seed starts the store");
+
+        let reply = |_: &str, _: u32| {
+            String::from(
+                r#"{"exitCode":-1,"stdout":"","stderr":"No such file or directory","timedOut":false}"#,
+            )
+        };
+        let error = read_snapshot(&reply).expect_err("xbps is missing");
+        let applied = apply_read(&mut store, &mut snapshot, Err(error.clone()));
+
+        assert!(applied, "there was something to empty");
+        assert!(store.installed.is_empty(), "no stale row survives");
+        assert!(store.pending_updates().is_empty());
+        assert!(snapshot.is_none());
+        assert_eq!(error.key(), "errorXbpsStart", "QML shows this key");
+        assert_eq!(
+            error.args(),
+            vec!["xbps-query", "No such file or directory"]
+        );
+    }
+
+    #[test]
+    fn a_failed_first_read_does_not_ask_for_a_save() {
+        let mut store = Store::fresh(&catalog());
+        store.apply_snapshot(&[], &[], &[], Vec::new());
+        let mut snapshot = None;
+        let error = read_snapshot(&|_, _| String::from("not json")).expect_err("broken shim");
+        assert!(
+            !apply_read(&mut store, &mut snapshot, Err(error)),
+            "nothing changed, so nothing is written"
+        );
+    }
+
+    #[test]
+    fn a_slow_read_leaves_the_previous_rows_in_place() {
+        // The worker answer has not arrived yet: the store still holds what the
+        // last read produced, so `refresh()` keeps showing those rows. This is
+        // the state a `loading` window renders, with no flash of an empty list.
+        let (store, snapshot) = read_store();
+        assert_eq!(store.installed.len(), 3);
+        assert_eq!(
+            snapshot
+                .as_ref()
+                .map_or(0, |snapshot| snapshot.installed.len()),
+            3,
+            "the rows are the previous answer until a new one arrives"
+        );
+    }
+
+    #[test]
+    fn a_new_read_replaces_the_previous_snapshot_whole() {
+        let (mut store, mut snapshot) = read_store();
+        let next = reading("ii glibc-2.42_1 C library\n", "", "glibc-2.42_1\n", "", "");
+        apply_read(&mut store, &mut snapshot, Ok(next));
+
+        assert_eq!(store.installed.len(), 1, "vim and ark are gone");
+        assert!(store.installed.contains_key("glibc"));
+        assert!(
+            store.pending_updates().is_empty(),
+            "the system is up to date now"
+        );
+        let snapshot = snapshot.expect("the new read is remembered");
+        assert!(snapshot.updates.is_empty());
+        assert!(
+            snapshot.orphans.is_empty(),
+            "the old orphan list is replaced"
+        );
     }
 }
