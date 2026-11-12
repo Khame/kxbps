@@ -42,7 +42,18 @@ QObject *kxbps_create_plan_backend(QObject *parent, const QString &payloadJson);
 
 // Creates the job, starts its worker thread and returns it. `owner` is the
 // installed backend the job reports back to when the transaction finishes.
+// Whether the session has a system tray host. `Qt.labs.platform`'s
+// `SystemTrayIcon` is backed by Qt Widgets' `QSystemTrayIcon`; creating it on a
+// platform without a tray prints two Qt warnings, so QML asks first.
+bool kxbps_tray_available();
+
+// The one entry point a job is created through; `owner` parents it and QML
+// releases it when the dialog closes.
 QObject *kxbps_start_job(QObject *owner, const QString &payloadJson);
+
+// The mirror view's entry point; forwards to `kxbps_start_job` under a name of
+// its own, because two Rust bridges cannot declare one C++ function.
+QObject *kxbps_start_mirror_job(QObject *owner, const QString &payloadJson);
 
 // Called on the GUI thread when a job finishes: applies the plan to the store,
 // saves it and refreshes the models.
@@ -56,6 +67,29 @@ bool kxbps_job_begin(QObject *job);
 
 // The process exists: the job is no longer cancellable.
 void kxbps_job_spawned(QObject *job);
+
+// Records the mirror backend waiting for the next job to end. Called on the GUI
+// thread right after `kxbps_start_job` created a mirror job; the owner keeps it
+// by address and forwards the end through `kxbps_mirror_apply_landed`.
+void kxbps_installed_watch_mirror_job(QObject *owner, QObject *backend);
+
+// Forgets the waiting mirror backend because that object is being destroyed:
+// the owner holds it by raw address only, so a backend whose page is torn down
+// while its job still runs must clear the slot or the end would call a freed
+// object. Null-safe; a no-op when nothing is waiting.
+void kxbps_installed_unwatch_mirror_job(QObject *owner);
+
+// One apply job ended: the mirror backend that started it clears its busy flag
+// and re-reads the system state. Called on the GUI thread by the store owner,
+// which is the only object a job is created with.
+void kxbps_mirror_apply_landed(QObject *backend);
+
+// One mirror apply ended, whatever its outcome: the store owner forwards it to
+// the mirror backend that started the job, which clears its busy flag and
+// re-reads `/etc/xbps.d` and `xbps-query -L`. A package transaction never calls
+// this.
+void kxbps_installed_mirror_job_landed(QObject *owner);
+
 
 // Pushes the installed/queue snapshot into the query façade, so `search()` and
 // `get()` answer `installedVersion`/`isUpdate` from the same state as the model.

@@ -50,6 +50,11 @@ pub mod qobject {
 
         include!("backend_shim.h");
 
+        // A mirror job reports its end through this owner; the forwarder is
+        // only data (`QObject*`) plus one call on the generated class.
+        #[cxx_name = "kxbps_mirror_apply_landed"]
+        fn mirror_apply_landed(backend: QObjectMutPtr);
+
         #[cxx_name = "kxbps_create_package_model"]
         fn create_package_model(parent: QObjectMutPtr) -> QObjectMutPtr;
 
@@ -120,6 +125,11 @@ pub mod qobject {
         #[qproperty(bool, loading, READ, NOTIFY)]
         // Whether a plan is being read from xbps right now.
         #[qproperty(bool, plan_loading, READ, NOTIFY)]
+        // A stable fingerprint of the updates the window would announce: the
+        // FNV of the effective update set, exactly what `apply_plan` compares
+        // against the dismissed marker. Empty until the first read answers.
+        // `refresh()` is the only writer and only emits when it moves.
+        #[qproperty(QString, pending_signature, READ, NOTIFY)]
         type InstalledBackend = super::InstalledBackendRust;
 
         #[qinvokable]
@@ -230,6 +240,19 @@ pub mod qobject {
         // Called by `kxbps_installed_apply_plan` on the GUI thread when a job
         // finishes; not invokable so QML cannot bypass the job.
         fn apply_plan_items(self: Pin<&mut InstalledBackend>, items_json: &QString);
+
+        // The mirror backend's apply job reports through this owner, because the
+        // job is only created with the owner it was handed. `watch` records the
+        // mirror backend as the one waiting for the next job to end; `landed`
+        // tells it the job is over; `unwatch` forgets it when that backend is
+        // torn down, so its address is never called after free. None is
+        // invokable: QML starts the apply through
+        // `MirrorBackend.applySystemMirror`, which owns the pairing.
+        fn watch_mirror_job(self: Pin<&mut InstalledBackend>, backend: QObjectMutPtr);
+
+        fn mirror_job_landed(self: Pin<&mut InstalledBackend>);
+
+        fn unwatch_mirror_job(self: Pin<&mut InstalledBackend>);
     }
 
     impl cxx_qt::Constructor<()> for InstalledBackend {}
@@ -256,6 +279,7 @@ pub struct InstalledBackendRust {
     read_error_args: QStringList,
     loading: bool,
     plan_loading: bool,
+    pending_signature: QString,
     /// The last snapshot xbps answered; its updates and orphans are what the
     /// model and the query façade show. `None` until the first read.
     snapshot: Option<Snapshot>,
@@ -268,6 +292,9 @@ pub struct InstalledBackendRust {
     /// The process transport. Tests install a fake here, so the suite never
     /// starts xbps; production installs [`crate::xbps_bridge::production_invoke`].
     invoke: SharedInvoke,
+    /// The mirror backend waiting for the next job to end, as an address: a job
+    /// is created with this owner and has no other way back to its caller.
+    mirror_waiter: usize,
 }
 
 impl Default for InstalledBackendRust {
@@ -288,10 +315,12 @@ impl Default for InstalledBackendRust {
             read_error_args: QStringList::default(),
             loading: false,
             plan_loading: false,
+            pending_signature: QString::from(""),
             snapshot: None,
             generation: Arc::new(AtomicU64::new(0)),
             plan_generation: Arc::new(AtomicU64::new(0)),
             invoke: crate::xbps_bridge::production_invoke(),
+            mirror_waiter: 0,
         }
     }
 }
@@ -493,7 +522,10 @@ impl qobject::InstalledBackend {
         if items.is_empty() {
             return unsafe { QObjectMutPtr::from_raw(std::ptr::null_mut()) };
         }
-        let payload = JobPayload { items };
+        let payload = JobPayload {
+            items,
+            ..JobPayload::default()
+        };
         let json = serde_json::to_string(&payload).unwrap_or_else(|_| String::from("{}"));
         qobject::start_job(self.parent_ptr(), &QString::from(json.as_str()))
     }
@@ -537,6 +569,41 @@ impl qobject::InstalledBackend {
     /// The selected mirror, as `mirror.json` holds it.
     fn mirror_value(&self) -> cxx_qt_lib::QString {
         QString::from(self.store.mirror.as_str())
+    }
+
+    /// Records which mirror backend is waiting for the next job to end.
+    fn watch_mirror_job(mut self: Pin<&mut Self>, backend: QObjectMutPtr) {
+        let data = Pin::get_mut(self.as_mut().rust_mut());
+        data.mirror_waiter = backend.as_ptr() as usize;
+    }
+
+    /// Forgets the waiting mirror backend, because it is being torn down.
+    ///
+    /// The slot is a raw address of a `MirrorBackend` the owner does not own, so
+    /// the owner must be told when that object goes away; the mirror backend
+    /// calls this from `set_owner(nullptr)` with the owner it is detaching from.
+    /// After this the slot is `0`, and [`Self::mirror_job_landed`] has nothing
+    /// to call, so the address is only ever read while its object is alive.
+    fn unwatch_mirror_job(mut self: Pin<&mut Self>) {
+        let data = Pin::get_mut(self.as_mut().rust_mut());
+        data.mirror_waiter = 0;
+    }
+
+    /// Tells the waiting mirror backend that its apply job is over.
+    ///
+    /// A mirror apply is the only job this forwarding names, and it is a single
+    /// job: the slot is cleared *before* the call, so a landing that re-enters
+    /// this forwarder (or a second one) sees `0` and cannot call twice.
+    fn mirror_job_landed(mut self: Pin<&mut Self>) {
+        let waiter = {
+            let data = Pin::get_mut(self.as_mut().rust_mut());
+            std::mem::replace(&mut data.mirror_waiter, 0)
+        };
+        if waiter == 0 {
+            return;
+        }
+        let backend = unsafe { QObjectMutPtr::from_raw(waiter as *mut cxx_qt::QObject) };
+        qobject::mirror_apply_landed(backend);
     }
 
     /// Persists a mirror picked in the Mirrors view.
@@ -955,6 +1022,23 @@ pub fn apply_read(
     }
 }
 
+/// The pending-update fingerprint the notification decision compares against
+/// the dismissed marker.
+///
+/// The same expression `apply_plan` writes into `prefs.dismissed` when nothing
+/// is left, so the two can never disagree about which set the user saw: the
+/// effective updates (xbps' list minus the packages held in this window) hashed
+/// with FNV-1a. An empty set hashes to the same non-empty string every time;
+/// "nothing read yet" is an empty *store*, which this function reports as the
+/// empty string, so QML can tell "no signature" from "a signature of nothing".
+fn pending_signature_of(store: &Store) -> String {
+    let pending = effective_updates(store.pending_updates(), &store.installed);
+    if pending.is_empty() && store.installed.is_empty() {
+        return String::new();
+    }
+    update_signature_of(&pending).to_string()
+}
+
 /// Applies a finished plan and refreshes the model and the counters.
 fn refresh(mut self_: Pin<&mut qobject::InstalledBackend>) {
     let (
@@ -965,6 +1049,7 @@ fn refresh(mut self_: Pin<&mut qobject::InstalledBackend>) {
         installed_count,
         queue_count,
         updates_count,
+        pending_signature,
         packages,
         queue_model,
         query,
@@ -981,6 +1066,7 @@ fn refresh(mut self_: Pin<&mut qobject::InstalledBackend>) {
             i32::try_from(data.store.installed.len()).unwrap_or(i32::MAX),
             i32::try_from(data.store.queue.len()).unwrap_or(i32::MAX),
             i32::try_from(data.store.pending_updates().len()).unwrap_or(i32::MAX),
+            pending_signature_of(&data.store),
             data.packages,
             data.queue_model,
             data.query_backend,
@@ -1011,16 +1097,18 @@ fn refresh(mut self_: Pin<&mut qobject::InstalledBackend>) {
         &orphans_json,
     );
 
-    let (installed_changed, queue_changed, updates_changed) = {
+    let (installed_changed, queue_changed, updates_changed, signature_changed) = {
         let data = Pin::get_mut(self_.as_mut().rust_mut());
         let changed = (
             data.installed_count != installed_count,
             data.queue_count != queue_count,
             data.updates_count != updates_count,
+            data.pending_signature.to_string() != pending_signature,
         );
         data.installed_count = installed_count;
         data.queue_count = queue_count;
         data.updates_count = updates_count;
+        data.pending_signature = QString::from(pending_signature.as_str());
         changed
     };
     if installed_changed {
@@ -1031,6 +1119,11 @@ fn refresh(mut self_: Pin<&mut qobject::InstalledBackend>) {
     }
     if updates_changed {
         self_.as_mut().updates_count_changed();
+    }
+    // Before the revision: QML's start-only hook listens to this one, and the
+    // dialog-facing revision must not see a half-updated object.
+    if signature_changed {
+        self_.as_mut().pending_signature_changed();
     }
 
     // Unconditional: a hold toggle changes neither counter, but it does change
@@ -1483,6 +1576,72 @@ mod tests {
         assert_eq!(
             seen.lock().map(|seen| seen[0].clone()).unwrap(),
             ["xbps-install", "-n", "ark", "vim"]
+        );
+    }
+
+    #[test]
+    fn the_signature_of_a_store_with_nothing_read_yet_is_empty() {
+        // The notifier must not announce before xbps answered: an empty
+        // signature is how QML tells that apart from "a set of zero".
+        assert_eq!(pending_signature_of(&Store::fresh()), "");
+    }
+
+    #[test]
+    fn the_signature_moves_with_the_update_set() {
+        let (store, _) = read_store();
+        let before = pending_signature_of(&store);
+        assert!(!before.is_empty(), "one update was reported");
+
+        let mut next = Store::fresh();
+        next.apply_snapshot(
+            &[kxbps_core::InstalledPackage {
+                name: "vim".to_owned(),
+                version: "9.2.1031_1".to_owned(),
+                pkgver: "vim-9.2.1031_1".to_owned(),
+                state: kxbps_core::InstallState::Installed,
+                description: String::new(),
+            }],
+            &["vim".to_owned()],
+            &[],
+            vec![update_entry("vim", "9.2.3000_1")],
+        );
+        assert_ne!(
+            pending_signature_of(&next),
+            before,
+            "a new version is a new set"
+        );
+    }
+
+    #[test]
+    fn a_held_update_leaves_the_signature() {
+        // The user held the only updatable package; the window offers nothing
+        // for update, so nothing may be announced. The held set still has its
+        // own fingerprint, which is what `apply_plan` compares the marker to.
+        let (mut store, _) = read_store();
+        let before = pending_signature_of(&store);
+        store.toggle_hold("vim");
+        let after = pending_signature_of(&store);
+        assert_ne!(after, before, "the effective set changed");
+        assert!(
+            effective_updates(store.pending_updates(), &store.installed).is_empty(),
+            "nothing is offered for update"
+        );
+        assert_eq!(
+            after,
+            kxbps_core::update_signature_of(&[]).to_string(),
+            "an empty effective set hashes to the marker `apply_plan` writes"
+        );
+    }
+
+    #[test]
+    fn the_signature_matches_the_marker_apply_plan_writes() {
+        // The announced set and the dismissed marker must be the same function
+        // of the same store, or the popup returns after the user dismissed it.
+        let (store, _) = read_store();
+        let effective = effective_updates(store.pending_updates(), &store.installed);
+        assert_eq!(
+            pending_signature_of(&store),
+            kxbps_core::update_signature_of(&effective).to_string()
         );
     }
 

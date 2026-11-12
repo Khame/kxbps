@@ -69,6 +69,16 @@ pub mod qobject {
             WRITE = set_dismissed_version,
             NOTIFY
         )]
+        // Whether the Qt layer keeps an autostart entry for this app. The file
+        // is written by `crate::autostart`, not by the store: this property is
+        // the persisted decision, and `Main.qml` syncs the file to it.
+        #[qproperty(
+            bool,
+            start_with_session,
+            READ,
+            WRITE = set_start_with_session,
+            NOTIFY
+        )]
         type PrefsBackend = super::PrefsBackendRust;
 
         fn set_owner(self: Pin<&mut PrefsBackend>, value: QObjectMutPtr);
@@ -78,6 +88,14 @@ pub mod qobject {
         fn set_desktop_notifications(self: Pin<&mut PrefsBackend>, value: bool);
 
         fn set_dismissed_version(self: Pin<&mut PrefsBackend>, value: QString);
+
+        fn set_start_with_session(self: Pin<&mut PrefsBackend>, value: bool);
+
+        // Writes or removes the autostart entry so the file matches the
+        // preference. Called by QML on every start and after every toggle; the
+        // entry is the user's own file, so this needs no privilege.
+        #[qinvokable]
+        fn sync_autostart(self: &PrefsBackend);
     }
 
     impl cxx_qt::Constructor<()> for PrefsBackend {}
@@ -101,14 +119,17 @@ pub mod keys {
     pub const DESKTOP: &str = "desktop";
     /// The update signature the user dismissed.
     pub const DISMISSED: &str = "dismissed";
+    /// Start with the session (the autostart entry).
+    pub const START_WITH_SESSION: &str = "startWithSession";
 }
 
-/// One of the three persisted preferences, i.e. one `prefs.json` key.
+/// One of the persisted preferences, i.e. one `prefs.json` key.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Field {
     NotifyOnStart,
     Desktop,
     Dismissed,
+    StartWithSession,
 }
 
 impl Field {
@@ -118,6 +139,7 @@ impl Field {
             Self::NotifyOnStart => keys::NOTIFY_ON_START,
             Self::Desktop => keys::DESKTOP,
             Self::Dismissed => keys::DISMISSED,
+            Self::StartWithSession => keys::START_WITH_SESSION,
         }
     }
 
@@ -127,6 +149,7 @@ impl Field {
             Self::NotifyOnStart => PrefWrite::NotifyOnStart(prefs.notify_on_start),
             Self::Desktop => PrefWrite::Desktop(prefs.desktop),
             Self::Dismissed => PrefWrite::Dismissed(prefs.dismissed.clone()),
+            Self::StartWithSession => PrefWrite::StartWithSession(prefs.start_with_session),
         }
     }
 }
@@ -134,13 +157,14 @@ impl Field {
 /// One preference write, decoded from the key QML sent.
 ///
 /// QML reaches the store with a key and a value rather than a whole [`Prefs`]
-/// block, so a stale copy of the other two fields can never overwrite a change
-/// made elsewhere in the meantime.
+/// block, so a stale copy of the other fields can never overwrite a change made
+/// elsewhere in the meantime.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum PrefWrite {
     NotifyOnStart(bool),
     Desktop(bool),
     Dismissed(String),
+    StartWithSession(bool),
 }
 
 impl PrefWrite {
@@ -150,6 +174,7 @@ impl PrefWrite {
             Self::NotifyOnStart(_) => Field::NotifyOnStart,
             Self::Desktop(_) => Field::Desktop,
             Self::Dismissed(_) => Field::Dismissed,
+            Self::StartWithSession(_) => Field::StartWithSession,
         }
     }
 
@@ -169,6 +194,7 @@ impl PrefWrite {
             Self::NotifyOnStart(value) => prefs.notify_on_start = *value,
             Self::Desktop(value) => prefs.desktop = *value,
             Self::Dismissed(value) => prefs.dismissed.clone_from(value),
+            Self::StartWithSession(value) => prefs.start_with_session = *value,
         }
     }
 
@@ -178,6 +204,7 @@ impl PrefWrite {
             Self::NotifyOnStart(value) => store.set_pref_notify_on_start(*value),
             Self::Desktop(value) => store.set_pref_desktop_notifications(*value),
             Self::Dismissed(value) => store.set_pref_dismissed_version(value),
+            Self::StartWithSession(value) => store.set_pref_start_with_session(*value),
         }
     }
 
@@ -188,7 +215,7 @@ impl PrefWrite {
         }
         let key = QString::from(self.key());
         match self {
-            Self::NotifyOnStart(value) | Self::Desktop(value) => {
+            Self::NotifyOnStart(value) | Self::Desktop(value) | Self::StartWithSession(value) => {
                 qobject::installed_set_pref_bool(owner, &key, *value);
             }
             Self::Dismissed(value) => {
@@ -232,6 +259,7 @@ pub fn bool_write(key: &str, value: bool) -> Option<PrefWrite> {
     match key {
         keys::NOTIFY_ON_START => Some(PrefWrite::NotifyOnStart(value)),
         keys::DESKTOP => Some(PrefWrite::Desktop(value)),
+        keys::START_WITH_SESSION => Some(PrefWrite::StartWithSession(value)),
         _ => None,
     }
 }
@@ -274,6 +302,7 @@ pub struct PrefsBackendRust {
     notify_on_start: bool,
     desktop_notifications: bool,
     dismissed_version: QString,
+    start_with_session: bool,
 }
 
 impl Default for PrefsBackendRust {
@@ -286,27 +315,30 @@ impl Default for PrefsBackendRust {
             notify_on_start: true,
             desktop_notifications: false,
             dismissed_version: QString::from(""),
+            start_with_session: true,
         }
     }
 }
 
 impl PrefsBackendRust {
-    /// The three fields as the block the store persists.
+    /// The persisted fields as the block the store persists.
     fn to_prefs(&self) -> Prefs {
         Prefs {
             notify_on_start: self.notify_on_start,
             desktop: self.desktop_notifications,
             dismissed: self.dismissed_version.to_string(),
+            start_with_session: self.start_with_session,
         }
     }
 
     /// Adopts a block read from the store, returning which fields moved.
-    fn adopt(&mut self, prefs: Prefs) -> (bool, bool, bool) {
-        let changed = (
-            self.notify_on_start != prefs.notify_on_start,
-            self.desktop_notifications != prefs.desktop,
-            self.dismissed_version.to_string() != prefs.dismissed,
-        );
+    fn adopt(&mut self, prefs: Prefs) -> Moved {
+        let changed = Moved {
+            notify_on_start: self.notify_on_start != prefs.notify_on_start,
+            desktop: self.desktop_notifications != prefs.desktop,
+            dismissed: self.dismissed_version.to_string() != prefs.dismissed,
+            start_with_session: self.start_with_session != prefs.start_with_session,
+        };
         self.set_from_prefs(prefs);
         changed
     }
@@ -316,7 +348,18 @@ impl PrefsBackendRust {
         self.notify_on_start = prefs.notify_on_start;
         self.desktop_notifications = prefs.desktop;
         self.dismissed_version = QString::from(prefs.dismissed.as_str());
+        self.start_with_session = prefs.start_with_session;
     }
+}
+
+/// Which preference properties moved in one call, so each signal fires at most
+/// once and only for a value that changed.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct Moved {
+    notify_on_start: bool,
+    desktop: bool,
+    dismissed: bool,
+    start_with_session: bool,
 }
 
 impl qobject::PrefsBackend {
@@ -337,7 +380,7 @@ impl qobject::PrefsBackend {
             data.owner = value;
             match loaded {
                 Some(prefs) => data.adopt(prefs),
-                None => (false, false, false),
+                None => Moved::default(),
             }
         };
         self.as_mut().owner_changed();
@@ -357,6 +400,25 @@ impl qobject::PrefsBackend {
     /// The update signature the user dismissed.
     fn set_dismissed_version(self: Pin<&mut Self>, value: QString) {
         self.write(PrefWrite::Dismissed(value.to_string()));
+    }
+
+    /// Whether the Qt layer keeps an autostart entry for this app.
+    fn set_start_with_session(self: Pin<&mut Self>, value: bool) {
+        self.write(PrefWrite::StartWithSession(value));
+    }
+
+    /// Makes `~/.config/autostart` match the `startWithSession` preference.
+    ///
+    /// A failure is not fatal: the app still runs, and the next start retries.
+    /// It goes to stderr rather than a dialog, because a session without a
+    /// writable config home has bigger problems than a missing entry.
+    fn sync_autostart(&self) {
+        let Some(path) = crate::autostart::entry_path() else {
+            return;
+        };
+        if let Err(err) = crate::autostart::sync(self.start_with_session, &path) {
+            eprintln!("kxbps: autostart entry: {err}");
+        }
     }
 
     /// Persists one write, then notifies the property that owns it.
@@ -406,6 +468,7 @@ impl qobject::PrefsBackend {
             Field::NotifyOnStart => self.as_mut().notify_on_start_changed(),
             Field::Desktop => self.as_mut().desktop_notifications_changed(),
             Field::Dismissed => self.as_mut().dismissed_version_changed(),
+            Field::StartWithSession => self.as_mut().start_with_session_changed(),
         }
     }
 
@@ -419,15 +482,18 @@ impl qobject::PrefsBackend {
     }
 
     /// Emits the property signals for the fields that moved.
-    fn notify_changed(mut self: Pin<&mut Self>, changed: (bool, bool, bool)) {
-        if changed.0 {
+    fn notify_changed(mut self: Pin<&mut Self>, changed: Moved) {
+        if changed.notify_on_start {
             self.as_mut().notify_on_start_changed();
         }
-        if changed.1 {
+        if changed.desktop {
             self.as_mut().desktop_notifications_changed();
         }
-        if changed.2 {
+        if changed.dismissed {
             self.as_mut().dismissed_version_changed();
+        }
+        if changed.start_with_session {
+            self.as_mut().start_with_session_changed();
         }
     }
 }
@@ -483,22 +549,25 @@ mod tests {
     }
 
     #[test]
-    fn the_store_json_maps_onto_the_three_properties() {
+    fn the_store_json_maps_onto_the_four_properties() {
         let prefs = Prefs {
             notify_on_start: false,
             desktop: true,
             dismissed: "sig-42".to_string(),
+            start_with_session: false,
         };
         let json = serde_json::to_string(&prefs).expect("serialise");
         assert!(json.contains("\"notifyOnStart\""));
         assert!(json.contains("\"desktop\""));
         assert!(json.contains("\"dismissed\""));
+        assert!(json.contains("\"startWithSession\""));
 
         let mut backend = PrefsBackendRust::default();
         backend.set_from_prefs(decode_prefs(&json).expect("decode"));
         assert!(!backend.notify_on_start);
         assert!(backend.desktop_notifications);
         assert_eq!(backend.dismissed_version.to_string(), "sig-42");
+        assert!(!backend.start_with_session);
         assert_eq!(backend.to_prefs(), prefs);
     }
 
@@ -508,6 +577,7 @@ mod tests {
             notify_on_start: true,
             desktop: false,
             dismissed: String::new(),
+            start_with_session: true,
         };
         let write = bool_write(keys::NOTIFY_ON_START, false).expect("known key");
         assert_eq!(write.key(), keys::NOTIFY_ON_START);
@@ -529,6 +599,7 @@ mod tests {
             notify_on_start: true,
             desktop: false,
             dismissed: String::new(),
+            start_with_session: true,
         };
         let write = string_write(keys::DISMISSED, "sig-7").expect("known key");
         assert_eq!(write.key(), keys::DISMISSED);
@@ -556,6 +627,7 @@ mod tests {
             notify_on_start: true,
             desktop: false,
             dismissed: String::new(),
+            start_with_session: true,
         };
         assert!(
             bool_write(keys::NOTIFY_ON_START, true)
@@ -583,6 +655,7 @@ mod tests {
             notify_on_start,
             desktop,
             dismissed: dismissed.to_string(),
+            start_with_session: true,
         }
     }
 
@@ -594,14 +667,17 @@ mod tests {
             PrefWrite::NotifyOnStart(false),
             PrefWrite::Desktop(true),
             PrefWrite::Dismissed("sig".to_string()),
+            PrefWrite::StartWithSession(false),
         ];
         assert_eq!(writes[0].key(), "notifyOnStart");
         assert_eq!(writes[1].key(), "desktop");
         assert_eq!(writes[2].key(), "dismissed");
+        assert_eq!(writes[3].key(), "startWithSession");
 
         assert_eq!(writes[0].field(), Field::NotifyOnStart);
         assert_eq!(writes[1].field(), Field::Desktop);
         assert_eq!(writes[2].field(), Field::Dismissed);
+        assert_eq!(writes[3].field(), Field::StartWithSession);
 
         assert_eq!(bool_write(writes[0].key(), false), Some(writes[0].clone()));
         assert_eq!(bool_write(writes[1].key(), true), Some(writes[1].clone()));
@@ -609,6 +685,7 @@ mod tests {
             string_write(writes[2].key(), "sig"),
             Some(writes[2].clone())
         );
+        assert_eq!(bool_write(writes[3].key(), false), Some(writes[3].clone()));
     }
 
     #[test]
@@ -658,7 +735,7 @@ mod tests {
     }
 
     #[test]
-    fn three_writes_survive_a_store_round_trip() {
+    fn four_writes_survive_a_store_round_trip() {
         let dir = TempDir::new("roundtrip");
         let mut store = Store::fresh();
 
@@ -666,6 +743,7 @@ mod tests {
             bool_write(keys::NOTIFY_ON_START, false).expect("known key"),
             bool_write(keys::DESKTOP, true).expect("known key"),
             string_write(keys::DISMISSED, "sig-42").expect("known key"),
+            bool_write(keys::START_WITH_SESSION, false).expect("known key"),
         ] {
             assert!(
                 !write.is_noop(&store.prefs),
@@ -682,12 +760,13 @@ mod tests {
         assert!(!prefs.notify_on_start);
         assert!(prefs.desktop);
         assert_eq!(prefs.dismissed, "sig-42");
+        assert!(!prefs.start_with_session);
     }
 
     #[test]
     fn a_broken_payload_is_not_a_preference_block() {
         assert_eq!(decode_prefs("not json"), None);
-        assert_eq!(decode_prefs("{}"), None, "all three fields are required");
+        assert_eq!(decode_prefs("{}"), None, "the stored fields are required");
         assert_eq!(decode_prefs("[]"), None);
     }
 }

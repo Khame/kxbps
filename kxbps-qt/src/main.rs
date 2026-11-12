@@ -1,9 +1,14 @@
-use cxx_qt_lib::{QGuiApplication, QQmlApplicationEngine, QQuickStyle, QString, QUrl};
+use cxx_qt_lib::{QQmlApplicationEngine, QQuickStyle, QString, QUrl};
+use cxx_qt_lib_extras::QApplication;
 use std::env;
 
 fn main() {
-    let mut app = QGuiApplication::new();
-    QGuiApplication::set_desktop_file_name(&QString::from("io.github.khame.kxbps"));
+    // `QApplication`, not `QGuiApplication`: `Qt.labs.platform`'s
+    // `SystemTrayIcon` is backed by `QSystemTrayIcon` from Qt Widgets, and
+    // without a `QApplication` it aborts the process with
+    // "QWidget: Cannot create a QWidget without QApplication".
+    let mut app = QApplication::new();
+    cxx_qt_lib::QGuiApplication::set_desktop_file_name(&QString::from("io.github.khame.kxbps"));
     if env::var("QT_QUICK_CONTROLS_STYLE").is_err() {
         QQuickStyle::set_style(&QString::from("org.kde.desktop"));
     }

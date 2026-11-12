@@ -25,10 +25,18 @@ use std::time::Instant;
 
 use cxx_qt::casting::Upcast;
 use cxx_qt::{CxxQtType, Threading};
-use cxx_qt_lib::{QObjectMutPtr, QString};
+use cxx_qt_lib::{QObjectMutPtr, QString, QStringList};
+use kxbps_core::mirror_config::{SYSTEM_CONFIG_PATH, check_base_url};
 use kxbps_core::{DEFAULT_MIRROR, MIRRORS, PROBE_TIMEOUT_MS, ProbeError, check_probe_url, measure};
 
 use crate::mirror_model::{STATE_FAIL, STATE_OK, STATE_RUNNING};
+use crate::mirror_system::{SystemState, production_invoke, read_system_state};
+
+/// The one config file xbps' `current` repository comes from.
+///
+/// `mirror_config` owns the parser; this constant only names the file the
+/// backend reads so a test can point it at a temporary one.
+pub const SYSTEM_CONFIG: &str = SYSTEM_CONFIG_PATH;
 
 #[cxx_qt::bridge]
 pub mod qobject {
@@ -38,6 +46,9 @@ pub mod qobject {
 
         include!("cxx-qt-lib/qstring.h");
         type QString = cxx_qt_lib::QString;
+
+        include!("cxx-qt-lib/qstringlist.h");
+        type QStringList = cxx_qt_lib::QStringList;
 
         // Model factory, per-row updates and the `HEAD` transport.
         include!("mirror_shim.h");
@@ -83,6 +94,25 @@ pub mod qobject {
 
         #[cxx_name = "kxbps_installed_set_mirror"]
         fn installed_set_mirror(owner: QObjectMutPtr, url: &QString);
+
+        // The one entry point a mirror job is created through; `parent` owns it
+        // until QML releases it. A distinct shim name, not `kxbps_start_job`:
+        // two bridges declaring the same C++ function would emit the same
+        // `cxxbridge1$…` thunk twice and the linker refuses the second.
+        #[cxx_name = "kxbps_start_mirror_job"]
+        fn start_mirror_job(owner: QObjectMutPtr, payload_json: &QString) -> QObjectMutPtr;
+
+        // Tells the store owner which mirror backend is waiting for the next
+        // apply job to end; the owner forwards the end back through
+        // `kxbps_mirror_apply_landed`.
+        #[cxx_name = "kxbps_installed_watch_mirror_job"]
+        fn installed_watch_mirror_job(owner: QObjectMutPtr, backend: QObjectMutPtr);
+
+        // Detaching from an owner also forgets this backend as the owner's
+        // waiting mirror job, so a job that lands after the page is gone has no
+        // address to call. Null-safe on the C++ side.
+        #[cxx_name = "kxbps_installed_unwatch_mirror_job"]
+        fn installed_unwatch_mirror_job(owner: QObjectMutPtr);
     }
 
     #[auto_cxx_name]
@@ -94,6 +124,22 @@ pub mod qobject {
         #[qproperty(QString, current_mirror, READ, WRITE = set_current_mirror, NOTIFY)]
         #[qproperty(bool, probing, READ, NOTIFY)]
         #[qproperty(i32, finished_count, READ, NOTIFY)]
+        /// The key of the last refused selection; empty when the last one was
+        /// accepted. QML maps it with `i18nd()` and shows it next to the list.
+        #[qproperty(QString, current_mirror_error, READ, NOTIFY)]
+        /// The base URL `00-repository-main.conf` names; empty when unreadable.
+        #[qproperty(QString, system_mirror, READ, NOTIFY)]
+        /// `errorMirrorConfig*` key when the file is unreadable; empty otherwise.
+        #[qproperty(QString, system_mirror_error, READ, NOTIFY)]
+        /// The arguments of `systemMirrorError`, in `%1…` order.
+        #[qproperty(QStringList, system_mirror_error_args, READ, NOTIFY)]
+        /// `xbps-query -L` plus the `.conf` files, as a JSON array of
+        /// `{url, count, signed, file}`.
+        #[qproperty(QString, system_repos, READ, NOTIFY)]
+        /// The selected mirror is not the system one.
+        #[qproperty(bool, pending, READ, NOTIFY)]
+        /// A system read is in flight.
+        #[qproperty(bool, system_loading, READ, NOTIFY)]
         type MirrorBackend = super::MirrorBackendRust;
 
         #[qinvokable]
@@ -101,6 +147,25 @@ pub mod qobject {
 
         #[qinvokable]
         fn probe_one(self: Pin<&mut MirrorBackend>, url: &QString);
+
+        /// Re-reads `00-repository-main.conf` and `xbps-query -L` without root.
+        #[qinvokable]
+        fn refresh_system(self: Pin<&mut MirrorBackend>);
+
+        /// Starts the privileged apply of the selected mirror and returns the
+        /// job; the caller (QML) shows it and `release()`s it when done.
+        ///
+        /// Returns a null pointer when there is nothing to apply, when the URL
+        /// is one the helper would refuse, or when an apply is already running.
+        #[qinvokable]
+        fn apply_system_mirror(self: Pin<&mut MirrorBackend>) -> QObjectMutPtr;
+
+        /// The apply this backend started has ended, whatever its outcome.
+        ///
+        /// Called by the store owner on the GUI thread; not invokable, so QML
+        /// cannot claim a job is over while it runs. Re-reads the system half,
+        /// so `systemMirror` and `pending` show what the helper left behind.
+        fn finish_apply(self: Pin<&mut MirrorBackend>);
 
         /// Emitted once per batch, after the last row has its result.
         #[qsignal]
@@ -206,6 +271,24 @@ pub struct MirrorBackendRust {
     /// owner, i.e. when the page that owns it is being torn down. A separate
     /// flag from the application-wide shutdown, which other probes share.
     cancel: Arc<AtomicBool>,
+    /// The system half: what `/etc/xbps.d` and `xbps-query -L` say.
+    system: SystemState,
+    /// QML copies of [`SystemState`], because a `#[qproperty]` reads a struct
+    /// field: `system` stays the single source, these are refreshed from it.
+    system_mirror: QString,
+    system_mirror_error: QString,
+    system_mirror_error_args: QStringList,
+    system_repos: QString,
+    /// The saved selection is not what xbps uses; see [`SystemState::pending`].
+    pending: bool,
+    current_mirror_error: QString,
+    system_loading: bool,
+    /// How many system reads were started; only the newest may write.
+    system_generation: Arc<AtomicU64>,
+    /// The transport the system read uses; tests install a fake.
+    invoke: crate::xbps_snapshot::SharedInvoke,
+    /// The config file the system read parses; tests point it elsewhere.
+    config_path: std::path::PathBuf,
 }
 
 impl Default for MirrorBackendRust {
@@ -219,8 +302,38 @@ impl Default for MirrorBackendRust {
             finished_count: 0,
             batch: Arc::new(AtomicU64::new(0)),
             cancel: Arc::new(AtomicBool::new(false)),
+            system: SystemState::default(),
+            system_mirror: QString::from(""),
+            system_mirror_error: QString::from(""),
+            system_mirror_error_args: QStringList::default(),
+            system_repos: QString::from("[]"),
+            pending: false,
+            current_mirror_error: QString::from(""),
+            system_loading: false,
+            system_generation: Arc::new(AtomicU64::new(0)),
+            invoke: production_invoke(),
+            config_path: std::path::PathBuf::from(SYSTEM_CONFIG),
         }
     }
+}
+
+/// Copies the system state and the selection into the QML-visible fields.
+///
+/// [`MirrorBackendRust::system`] and `current_mirror` stay the single source of
+/// truth; these fields exist only because a `#[qproperty]` reads a struct
+/// field. Every writer of either input calls this before it emits the change
+/// signals, so QML never sees a value the store does not have.
+fn adopt_system(data: &mut MirrorBackendRust) {
+    data.system_mirror = QString::from(data.system.system_mirror.as_str());
+    data.system_mirror_error = QString::from(data.system.error_key);
+    data.system_mirror_error_args = data
+        .system
+        .error_args
+        .iter()
+        .map(|arg| QString::from(arg.as_str()))
+        .collect::<QStringList>();
+    data.system_repos = QString::from(data.system.repos_json.as_str());
+    data.pending = data.system.pending(&data.current_mirror.to_string());
 }
 
 impl cxx_qt::Initialize for qobject::MirrorBackend {
@@ -369,13 +482,22 @@ impl qobject::MirrorBackend {
     ///
     /// Detaching (a null owner) is the teardown path of the page that owns this
     /// backend: the running sweep stops instead of holding a socket open for a
-    /// view that is going away, and the last selection is kept for whoever binds
-    /// next.
+    /// view that is going away, the old owner forgets this backend as its
+    /// waiting mirror job (it holds the address, so the landing must not call a
+    /// backend that no longer exists), and the last selection is kept for
+    /// whoever binds next.
     fn set_owner(mut self: Pin<&mut Self>, value: QObjectMutPtr) {
         if value.as_ptr().is_null() {
-            let data = Pin::get_mut(self.as_mut().rust_mut());
-            data.cancel.store(true, Ordering::Relaxed);
-            data.owner = value;
+            let old_owner = {
+                let data = Pin::get_mut(self.as_mut().rust_mut());
+                data.cancel.store(true, Ordering::Relaxed);
+                std::mem::replace(&mut data.owner, value)
+            };
+            // The *old* owner is the one that recorded this backend; tell it to
+            // forget, before anything else can queue a landing on it.
+            if !old_owner.as_ptr().is_null() {
+                qobject::installed_unwatch_mirror_job(old_owner);
+            }
             self.as_mut().owner_changed();
             return;
         }
@@ -394,15 +516,27 @@ impl qobject::MirrorBackend {
             data.owner = value;
             data.current_mirror = current;
             data.cancel.store(false, Ordering::Relaxed);
+            adopt_system(data);
         }
         self.as_mut().owner_changed();
         self.as_mut().current_mirror_changed();
+        self.as_mut().pending_changed();
     }
 
     /// Selects a mirror and persists it through the store.
     fn set_current_mirror(mut self: Pin<&mut Self>, value: QString) {
         let url = value.to_string();
         if url.is_empty() || self.current_mirror.to_string() == url {
+            return;
+        }
+        if !is_selectable_mirror(&url) {
+            // The helper answers a URL like this with code 2, and the store must
+            // not remember a selection xbps could never use.
+            {
+                let data = Pin::get_mut(self.as_mut().rust_mut());
+                data.current_mirror_error = QString::from("errorMirrorUrlRefused");
+            }
+            self.as_mut().current_mirror_error_changed();
             return;
         }
         let owner = self.owner;
@@ -412,8 +546,112 @@ impl qobject::MirrorBackend {
         {
             let data = Pin::get_mut(self.as_mut().rust_mut());
             data.current_mirror = value;
+            data.current_mirror_error = QString::from("");
+            adopt_system(data);
         }
         self.as_mut().current_mirror_changed();
+        self.as_mut().current_mirror_error_changed();
+        self.as_mut().pending_changed();
+    }
+
+    /// Re-reads the system half on a worker thread.
+    ///
+    /// No root: `/etc/xbps.d` is world-readable and `xbps-query -L` only reads
+    /// the local database, so one read costs nothing and can run every time the
+    /// page opens or a job ends. Only the newest read may write, so a slow one
+    /// cannot overwrite a fresher answer.
+    fn refresh_system(mut self: Pin<&mut Self>) {
+        let generation = self.system_generation.fetch_add(1, Ordering::SeqCst) + 1;
+        {
+            let data = Pin::get_mut(self.as_mut().rust_mut());
+            data.system_loading = true;
+        }
+        self.as_mut().system_loading_changed();
+
+        let thread = self.qt_thread();
+        let current = Arc::clone(&self.system_generation);
+        let invoke = Arc::clone(&self.invoke);
+        let config_path = self.config_path.clone();
+        std::thread::spawn(move || {
+            let state = read_system_state(&config_path, &*invoke);
+            thread
+                .queue(move |backend| backend.finish_system(generation, &current, state))
+                .ok();
+        });
+    }
+
+    /// Writes one system read, unless a newer one owns the state.
+    fn finish_system(
+        mut self: Pin<&mut Self>,
+        generation: u64,
+        current: &Arc<AtomicU64>,
+        state: SystemState,
+    ) {
+        if current.load(Ordering::SeqCst) != generation {
+            return;
+        }
+        {
+            let data = Pin::get_mut(self.as_mut().rust_mut());
+            data.system = state;
+            data.system_loading = false;
+            adopt_system(data);
+        }
+        self.as_mut().system_mirror_changed();
+        self.as_mut().system_mirror_error_changed();
+        self.as_mut().system_mirror_error_args_changed();
+        self.as_mut().system_repos_changed();
+        self.as_mut().system_loading_changed();
+        self.as_mut().pending_changed();
+    }
+
+    /// Starts the privileged apply of the selected mirror.
+    ///
+    /// The JobBackend it returns is a child of the store owner and QML owns the
+    /// dialog: the caller shows it with `JobDialog.showJob` and `release()`s it
+    /// when the dialog closes. A null pointer means there was nothing to apply
+    /// or the URL is one the helper would refuse with code 2.
+    ///
+    /// The single-transaction slot is the busy guard: a second Apply during a
+    /// job comes back as `jobBusy` from the slot, and the mirror backend tells
+    /// the store owner about the job it started so `finishApply` can clear its
+    /// state and re-read the system half when the job ends.
+    fn apply_system_mirror(self: Pin<&mut Self>) -> QObjectMutPtr {
+        let selected = self.current_mirror.to_string();
+        if selected.is_empty()
+            || !is_selectable_mirror(&selected)
+            || !self.system.pending(&selected)
+        {
+            return unsafe { QObjectMutPtr::from_raw(std::ptr::null_mut()) };
+        }
+        let owner = self.owner;
+        if owner.as_ptr().is_null() {
+            return unsafe { QObjectMutPtr::from_raw(std::ptr::null_mut()) };
+        }
+        let payload = crate::job_backend::mirror_payload_json(&selected);
+        let job = qobject::start_mirror_job(owner, &QString::from(payload.as_str()));
+        if job.as_ptr().is_null() {
+            return job;
+        }
+        // A job is created with its owner and has no other way back to this
+        // backend: the owner forwards the end to `finishApply`. The pointer is
+        // the QObject CXX-Qt generated for this Rust struct.
+        let backend = unsafe {
+            QObjectMutPtr::from_raw(
+                <qobject::MirrorBackend as Upcast<cxx_qt::QObject>>::upcast_ptr(&*self).cast_mut(),
+            )
+        };
+        qobject::installed_watch_mirror_job(owner, backend);
+        job
+    }
+
+    /// Clears the apply state and re-reads the system half.
+    ///
+    /// Called on the GUI thread when the job this backend started has ended, by
+    /// the store owner's forwarder, whatever the outcome. Whatever the helper
+    /// left in `/etc/xbps.d` is what `systemMirror` and `pending` must show, so
+    /// the read runs here rather than in QML.
+    fn finish_apply(mut self: Pin<&mut Self>) {
+        self.as_mut().refresh_system();
     }
 
     /// Applies one result of the current batch, then advances the counter.
@@ -505,6 +743,17 @@ fn row_of(url: &str) -> Option<i32> {
         .iter()
         .position(|mirror| mirror.url == url)
         .and_then(|row| i32::try_from(row).ok())
+}
+
+/// Whether `url` may be selected, and later applied, as the system mirror.
+///
+/// Two shapes are accepted: one of the catalog entries in [`MIRRORS`], or any
+/// base URL the helper would accept — absolute `https://`, a host, one trailing
+/// `/`, no `/current` in it. Plain HTTP, a missing scheme and a URL without a
+/// trailing slash are refused here too, because the helper answers them with
+/// code 2 and the UI must not offer what the helper refuses.
+pub fn is_selectable_mirror(url: &str) -> bool {
+    MIRRORS.iter().any(|mirror| mirror.url == url) || check_base_url(url).is_ok()
 }
 
 /// Every row with the URL it probes; row `i` is `MIRRORS[i]` by construction.

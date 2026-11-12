@@ -99,9 +99,110 @@ Kirigami.ApplicationWindow {
         owner: installedBackend
     }
 
+    // The user's preferences. `owner` comes first and nothing else is set in
+    // this literal: a write before the owner is attached would be overwritten
+    // by the block the store hands over on attach (module docs, attach order).
+    PrefsBackend {
+        id: prefsBackend
+        owner: installedBackend
+        // Once, after the owner's block is adopted: the file on disk is made to
+        // match the saved switch, so a fresh profile gets its entry and a user
+        // who turned it off does not. Toggles below keep the two in step.
+        Component.onCompleted: syncAutostart()
+    }
+
+    Connections {
+        target: prefsBackend
+        function onStartWithSessionChanged() {
+            prefsBackend.syncAutostart()
+        }
+    }
+
+    // The tray icon, if the session has a tray host. A missing
+    // `Qt.labs.platform` leaves `item` null and every use below guards for it.
+    Loader {
+        id: trayLoader
+        // Qt Widgets backs the tray; on a platform without one (offscreen, a
+        // plain WM) creating the icon only prints Qt warnings.
+        active: appBackend.trayAvailable
+        source: "components/TrayIcon.qml"
+        onLoaded: item.installedBackend = installedBackend
+    }
+
+    // The desktop notification, if `org.kde.notification` is installed. The
+    // notifier itself never fails to load; its inner popup does, silently.
+    Loader {
+        id: notifierLoader
+        source: "components/Notifier.qml"
+        asynchronous: true
+        onLoaded: {
+            item.installedBackend = installedBackend
+            item.prefsBackend = prefsBackend
+            root.updateStartNotified()
+        }
+    }
+
+    // `--tray` starts with the window hidden: that is what the autostart entry
+    // runs, and the argv is read here so the Rust side needs no argument parser.
+    Component.onCompleted: {
+        if (Qt.application.arguments.indexOf("--tray") >= 0) {
+            visible = false
+        }
+        // The window opens on the installed set, read from the system: the
+        // worker thread fills the list a moment later, and until it answers the
+        // catalog fills the first frame rather than an empty window.
+        installedBackend.packages.filter = "installed"
+        installedBackend.reload()
+    }
+
+    // Whether closing the window should hand it to the tray. Bound, not copied:
+    // the tray Loader fills (or fails) after this object is complete.
+    readonly property bool trayAvailable: trayLoader.item !== null
+
+    // The window's `visible` has to describe the real state, or a close that the
+    // tray intercepted still counts as a close. `quitting` is set by the tray's
+    // Quit, so the closing handler knows which is which.
+    property bool quitting: false
+
+    // One entry point for the tray icon and the notification: bring the window
+    // back, raise it, switch to what the user was told about. The filter
+    // switches before activation so focus lands on the list.
+    function showUpdates() {
+        visible = true
+        selectFilter("updates")
+        raise()
+        requestActivate()
+    }
+
+    // The announcement was delivered, seen or ignored: the signature goes into
+    // the marker so the next start stays quiet. The signature is the one
+    // `apply_plan` writes when nothing is left, so both describe one set.
+    function markDelivered(signature) {
+        if (signature.length > 0) {
+            prefsBackend.dismissedVersion = signature
+        }
+    }
+
+    onClosing: function(close) {
+        if (!root.quitting && root.trayAvailable) {
+            close.accepted = false
+            root.visible = false
+        }
+    }
+
     function selectFilter(token) {
         section = "packages"
         installedBackend.packages.filter = token
+    }
+
+    // A re-check while the app sits in the tray: a long-running instance must
+    // still notice new updates. Six hours is the interval the plan asked for,
+    // and only a changed signature notifies, so a quiet timer stays quiet.
+    Timer {
+        interval: 6 * 60 * 60 * 1000
+        running: !root.visible
+        repeat: true
+        onTriggered: installedBackend.reload()
     }
 
     // The header follows the filter, not the sidebar entry: clicking "Orphans"
@@ -210,6 +311,67 @@ Kirigami.ApplicationWindow {
         }
     }
 
+    // The notification tries exactly once per start, when the first read has
+    // answered. `stateRevision` is not the hook: a hold toggle moves it too,
+    // and the popup is a start-time event.
+    //
+    // A Loader's `onLoaded` alone is not enough either: a notifier that
+    // finishes loading after the read answered never sees another
+    // `loadingChanged`. Both places call `updateStartNotified`, which runs the
+    // check at most once.
+    property bool startNotified: false
+
+    function updateStartNotified() {
+        if (root.startNotified || installedBackend.loading || notifierLoader.item === null) {
+            return
+        }
+        root.startNotified = true
+        notifierLoader.item.consider()
+    }
+
+    Connections {
+        target: installedBackend
+        function onLoadingChanged() {
+            // The answer arrives before `loading` turns false, so the counters
+            // and the signature are already current here.
+            if (!installedBackend.loading) {
+                root.updateStartNotified()
+            }
+        }
+        // A reload while the window sits in the tray: only a set the user has
+        // not dismissed yet produces a popup, because the signature moved.
+        function onPendingSignatureChanged() {
+            root.updateStartNotified()
+            if (!root.startNotified || notifierLoader.item === null) {
+                return
+            }
+            notifierLoader.item.consider()
+        }
+    }
+
+    Connections {
+        target: notifierLoader.item
+        function onOpenUpdatesRequested() {
+            root.showUpdates()
+        }
+        function onDelivered(signature) {
+            root.markDelivered(signature)
+        }
+    }
+
+    Connections {
+        target: trayLoader.item
+        function onShowRequested() {
+            root.showUpdates()
+        }
+        function onQuitRequested() {
+            // The flag first: `onClosing` would otherwise hide the window and
+            // leave the process running with no tray to bring it back.
+            root.quitting = true
+            Qt.quit()
+        }
+    }
+
     // The request id waiting for its plan; 0 means nothing is pending.
     property real planPending: 0
 
@@ -283,14 +445,6 @@ Kirigami.ApplicationWindow {
     AboutDialog {
         id: aboutDialog
         version: appBackend.version()
-    }
-
-    Component.onCompleted: {
-        // The window opens on the installed set, read from the system: the
-        // worker thread fills the list a moment later, and until it answers the
-        // catalog fills the first frame rather than an empty window.
-        installedBackend.packages.filter = "installed"
-        installedBackend.reload()
     }
 
     pageStack.initialPage: Kirigami.Page {
@@ -495,6 +649,19 @@ Kirigami.ApplicationWindow {
                                 QQC2.MenuItem {
                                     text: i18nd("kxbps", "Restore base image")
                                     onTriggered: resetDialog.open()
+                                }
+
+                                QQC2.MenuSeparator {}
+
+                                // The one setting this build has. A checkable
+                                // menu item is the compact form; the label says
+                                // what the switch does, not what it is.
+                                QQC2.MenuItem {
+                                    id: autostartItem
+                                    text: i18nd("kxbps", "Start with session")
+                                    checkable: true
+                                    checked: prefsBackend.startWithSession
+                                    onToggled: prefsBackend.startWithSession = checked
                                 }
                             }
                         }

@@ -22,7 +22,13 @@ fn main() {
             .qml_file("qml/components/JobDialog.qml")
             .qml_file("qml/components/BlockedDialog.qml")
             .qml_file("qml/components/ResetDialog.qml")
-            .qml_file("qml/components/AboutDialog.qml"),
+            .qml_file("qml/components/AboutDialog.qml")
+            // Each of these two is the only place one optional module is
+            // imported; `Main.qml` loads them through `Loader`s so a missing
+            // module costs the feature, not the window.
+            .qml_file("qml/components/TrayIcon.qml")
+            .qml_file("qml/components/Notifier.qml")
+            .qml_file("qml/components/NotifierPopup.qml"),
     )
     .qt_module("Network")
     // The application icon, kept in `packaging/` as the single source. The

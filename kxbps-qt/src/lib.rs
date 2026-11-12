@@ -11,11 +11,14 @@ use cxx_qt_lib_extras as _;
 
 use std::pin::Pin;
 
+pub mod autostart;
 pub mod installed_backend;
 pub mod job_backend;
 pub mod log_model;
 pub mod mirror_backend;
 pub mod mirror_model;
+pub mod mirror_system;
+pub mod notification;
 pub mod package_model;
 pub mod plan_backend;
 pub mod prefs_backend;
@@ -44,6 +47,13 @@ pub mod qobject {
 
         #[cxx_name = "kxbps_setup_i18n"]
         fn setup_i18n(engine: Pin<&mut QQmlEngine>);
+
+        // Implemented in `src/backend_shim.cpp`; Qt Widgets owns the native
+        // tray, so QML asks before it creates a `SystemTrayIcon`.
+        include!("backend_shim.h");
+
+        #[cxx_name = "kxbps_tray_available"]
+        fn tray_available() -> bool;
     }
 
     // `auto_cxx_name` turns `update_count` into the QML-facing `updateCount`;
@@ -53,6 +63,8 @@ pub mod qobject {
         #[qobject]
         #[qml_element]
         #[qproperty(i32, update_count)]
+        /// Whether this session has a tray host; constant for the run.
+        #[qproperty(bool, tray_available, READ, CONSTANT)]
         type AppBackend = super::AppBackendRust;
 
         #[qinvokable]
@@ -61,9 +73,20 @@ pub mod qobject {
 }
 
 /// Rust side of [`qobject::AppBackend`].
-#[derive(Default)]
 pub struct AppBackendRust {
     update_count: i32,
+    tray_available: bool,
+}
+
+impl Default for AppBackendRust {
+    /// The tray answer is fixed for the run, so it is read once, when QML
+    /// instantiates the backend (the application already exists by then).
+    fn default() -> Self {
+        Self {
+            update_count: 0,
+            tray_available: qobject::tray_available(),
+        }
+    }
 }
 
 impl qobject::AppBackend {

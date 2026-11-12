@@ -39,8 +39,13 @@ use cxx_qt::casting::Upcast;
 use cxx_qt::{CxxQtType, QObject, Threading};
 use cxx_qt_lib::{QList, QObjectMutPtr, QString};
 use kxbps_core::transaction::Outcome;
-use kxbps_core::{PlanItem, TransactionPlan};
+use kxbps_core::{Exit, PlanItem, TransactionPlan};
 use serde::{Deserialize, Serialize};
+
+/// The argv of the mirror helper, from the one place that defines it.
+fn mirror_argv(base: &str) -> Vec<String> {
+    kxbps_core::mirror_argv(base)
+}
 
 /// The list type the job's `pendingLines` property carries; the name is the one
 /// cxx-qt-lib gives the C++ alias, so the generated property matches it.
@@ -179,6 +184,11 @@ pub mod qobject {
 
         #[cxx_name = "kxbps_installed_apply_plan"]
         fn installed_apply_plan(owner: QObjectMutPtr, items_json: &QString);
+
+        /// Tells the store owner that this mirror job ended, so the page that
+        /// started it clears its busy flag and re-reads the system state.
+        #[cxx_name = "kxbps_installed_mirror_job_landed"]
+        fn installed_mirror_job_landed(owner: QObjectMutPtr);
     }
 
     #[auto_cxx_name]
@@ -277,12 +287,61 @@ pub mod keys {
     pub const XPBS_FAILED: &str = "jobXbpsFailed";
     /// Another transaction is running.
     pub const BUSY: &str = "jobBusy";
+    /// The mirror helper wrote, synced and verified (`%1` = the URL).
+    pub const MIRROR_APPLY_DONE: &str = "mirrorApplyDone";
+    /// The mirror helper exited with a code it does not document for itself.
+    pub const MIRROR_APPLY_FAILED: &str = "errorMirrorHelper";
 }
 
-/// What the job thread needs: the plan the dialog was built from.
+/// What the job thread needs: the plan the dialog was built from, or the one
+/// mirror to apply.
+///
+/// The payload is the binary interface between QML, the installed backend and
+/// the worker: every field is optional, so the plan shape this file has always
+/// accepted still decodes. `items` non-empty is a package transaction
+/// ([`TransactionPlan`]); `mirror` names the base URL of the mirror helper.
+/// Both at once is not a thing the UI produces, and a package transaction wins
+/// so an old payload can never turn into a mirror write.
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct JobPayload {
+    #[serde(default)]
     pub items: Vec<PlanItem>,
+    /// The base URL of `kxbps-mirror-apply`; `None` for a package transaction.
+    #[serde(default)]
+    pub mirror: Option<String>,
+}
+
+impl JobPayload {
+    /// The commands the worker runs for this payload, in order.
+    ///
+    /// A package plan keeps [`TransactionPlan::commands`] — installs first,
+    /// removals after. A mirror payload is one command:
+    /// `pkexec /usr/libexec/kxbps-mirror-apply <base>`, with the URL as a
+    /// single argv element. A payload with neither runs nothing.
+    pub fn commands(&self) -> Vec<Vec<String>> {
+        if let Some(plan) = TransactionPlan::for_items(&self.items) {
+            return plan.commands();
+        }
+        match &self.mirror {
+            Some(base) if !base.is_empty() => vec![mirror_argv(base)],
+            _ => Vec::new(),
+        }
+    }
+
+    /// Whether this payload is a mirror apply, i.e. not a package transaction.
+    pub fn is_mirror(&self) -> bool {
+        TransactionPlan::for_items(&self.items).is_none()
+            && self.mirror.as_deref().is_some_and(|base| !base.is_empty())
+    }
+}
+
+/// The payload JSON of one mirror apply, as `kxbps_start_job` takes it.
+pub fn mirror_payload_json(base: &str) -> String {
+    serde_json::to_string(&JobPayload {
+        items: Vec::new(),
+        mirror: Some(base.to_owned()),
+    })
+    .unwrap_or_else(|_| String::from("{}"))
 }
 
 /// The job's final state.
@@ -311,6 +370,148 @@ impl End {
             Self::Exit { code } => Some(Outcome::from_exit_code(code)),
         }
     }
+}
+
+/// What one exit code means for one kind of job.
+///
+/// A package transaction keeps Task 19's mapping: `0` success, `126`/`127`/`-1`
+/// pkexec's own answers, anything else an xbps failure with its code as the
+/// argument.
+///
+/// The mirror helper answers with codes of its own (see
+/// [`kxbps_core::mirror_apply::Exit`]) that overlap pkexec's alphabet: `2`, `3`,
+/// `4` and `5` are the helper's refusals and failures, and 126/127 still mean
+/// pkexec never got that far. The mapping goes through
+/// [`kxbps_core::transaction::Outcome`] first so the pkexec codes stay one
+/// definition.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum JobKind {
+    /// `pkexec xbps-install` / `pkexec xbps-remove`.
+    Plan,
+    /// `pkexec /usr/libexec/kxbps-mirror-apply <base>`.
+    MirrorApply,
+}
+
+impl JobKind {
+    /// The kind a payload describes; a package plan wins when both are present.
+    pub fn of(payload: &JobPayload) -> Self {
+        if payload.is_mirror() {
+            Self::MirrorApply
+        } else {
+            Self::Plan
+        }
+    }
+
+    /// The verdict of one exit code for this kind of job.
+    ///
+    /// `detail` is the helper's own last stderr line; `url` is the base the job
+    /// asked the helper to apply. A mirror verdict passes both to the keys that
+    /// take them; a package plan ignores `url`.
+    pub fn verdict(self, code: i32, detail: &str, url: &str) -> Verdict {
+        match self {
+            Self::Plan => Verdict::of(End::of(code)),
+            Self::MirrorApply => mirror_verdict(code, detail, url),
+        }
+    }
+}
+
+/// The mirror helper's verdict for one exit code.
+///
+/// `0` is the helper's own "written, synced and verified". The documented
+/// helper codes map to their keys, 126/127/-1 stay pkexec's, and anything else
+/// is a helper failure the user reads with its code and stderr tail — the
+/// helper never returns those for its own reasons, so it means something went
+/// wrong before the helper could decide.
+fn mirror_verdict(code: i32, detail: &str, url: &str) -> Verdict {
+    let outcome = Outcome::from_exit_code(code);
+    match outcome {
+        Outcome::Success => Verdict {
+            done: true,
+            failed: false,
+            cancelled: false,
+            exit_code: 0,
+            key: keys::MIRROR_APPLY_DONE,
+            args: Vec::new(),
+        },
+        Outcome::DialogDismissed | Outcome::Denied | Outcome::PkexecMissing => Verdict {
+            done: true,
+            failed: true,
+            cancelled: false,
+            exit_code: code,
+            key: outcome.key(),
+            args: outcome.args(),
+        },
+        Outcome::XbpsFailed(code) => match Exit::from_code(code) {
+            Some(exit) => mirror_failed(exit, code, detail, url),
+            None => Verdict {
+                done: true,
+                failed: true,
+                cancelled: false,
+                exit_code: code,
+                key: keys::MIRROR_APPLY_FAILED,
+                args: vec![code.to_string(), detail.to_owned()],
+            },
+        },
+    }
+}
+
+/// The verdict of one documented helper failure.
+///
+/// Arguments follow the brief's table (`task-20-brief.md` §3):
+/// - `errorMirrorUrlRefused` takes `%1` = the URL the helper refused, from
+///   [`Exit::args`] — the job's own base, so a refusal names what was asked for.
+/// - `errorMirrorSync` takes `%1` = the `xbps-install -S` exit code and
+///   `%2` = its last stderr line. The helper's `detail` carries both glued
+///   together (`"xbps-install -S exited 19: <line>"`), so only the trailing
+///   line is peeled off; the code is the number, not a prefix of a sentence.
+/// - `errorMirrorWrite` and `errorMirrorRevert` take `%1` = the path the helper
+///   names. Divergence from the brief, documented here: the stderr detail
+///   *is* an English sentence that already contains the path, and the job has
+///   no other source for it. Passing the sentence as `%1` keeps the message
+///   readable instead of printing the same text twice; inventing a path by
+///   parsing the sentence would guess. The keys' `%1` intent ("path") is kept
+///   for a helper that eventually emits a bare path.
+fn mirror_failed(exit: Exit, code: i32, detail: &str, url: &str) -> Verdict {
+    let args = match exit {
+        Exit::UrlRefused => exit.args(url),
+        // `errorMirrorSync` wants the code and the line on their own.
+        Exit::SyncFailed | Exit::SyncAndRevertFailed => vec![
+            sync_exit_code(detail).unwrap_or_else(|| code.to_string()),
+            sync_stderr_tail(detail).to_owned(),
+        ],
+        Exit::Ok | Exit::WriteFailed => vec![detail.to_owned()],
+    };
+    Verdict {
+        done: true,
+        failed: true,
+        cancelled: false,
+        exit_code: code,
+        key: exit.key(),
+        args,
+    }
+}
+
+/// The `xbps-install -S` exit code the helper's detail starts with.
+///
+/// `snapshot_previous`/`finish` in `kxbps_core::mirror_apply` format the line as
+/// `xbps-install -S exited <code>: <stderr>`; a detail that does not start that
+/// way is not a sync failure and answers `None`, so the caller falls back to the
+/// helper's own exit code.
+fn sync_exit_code(detail: &str) -> Option<String> {
+    let rest = detail.strip_prefix("xbps-install -S exited ")?;
+    let (code, _) = rest.split_once(':')?;
+    let code = code.trim();
+    (!code.is_empty() && code.chars().all(|c| c.is_ascii_digit() || c == '-'))
+        .then(|| code.to_owned())
+}
+
+/// Everything after the first `": "` of the helper's `-S` line, or the whole
+/// detail when it has no separator: the last stderr line `xbps-install` printed.
+fn sync_stderr_tail(detail: &str) -> &str {
+    detail
+        .split_once(": ")
+        .map(|(_, tail)| tail)
+        .unwrap_or(detail)
 }
 
 /// Everything a finished job shows.
@@ -398,7 +599,7 @@ impl LineRegistry {
         Self::default()
     }
 
-    /// Appends one line for the next pass.
+    /// Appends one line for the next pass, and remembers it as the tail.
     fn push(&self, line: &str) {
         let mut lines = match self.lines.lock() {
             Ok(lines) => lines,
@@ -650,6 +851,10 @@ impl cxx_qt::Constructor<(QString, QObjectMutPtr)> for qobject::JobBackend {
 pub struct JobBackendRust {
     /// The commands, in order; empty for an empty plan.
     commands: Vec<Vec<String>>,
+    /// Plan or mirror apply; decides what an exit code means.
+    kind: JobKind,
+    /// The base URL of a mirror apply, `None` for a package transaction.
+    mirror: Option<String>,
     /// Whether the job finished: `cancel`, `pump` and `finish` are no-ops then.
     done: bool,
     /// This job's claim on the single-transaction slot; shared with the worker.
@@ -672,6 +877,14 @@ pub struct JobBackendRust {
     owner_addr: usize,
     /// The plan `finish` applies on success.
     items_json: String,
+    /// The last line the helper printed, drained or not; a mirror verdict shows
+    /// it. A mirror apply's whole output is a handful of lines, so one string
+    /// is the whole buffer.
+    last_line: String,
+    /// Whether this job was told to ask the owner for a fresh system read after
+    /// a successful mirror apply. A package transaction leaves it `false`: its
+    /// success goes through `installed_apply_plan` instead.
+    notify_owner: bool,
     /// The slot holding the cancel flag, so `cancel` can set it.
     cancel: Arc<AtomicBool>,
 }
@@ -679,11 +892,15 @@ pub struct JobBackendRust {
 impl JobBackendRust {
     /// Builds the job from its payload; an empty plan has nothing to run.
     fn new(payload: &JobPayload) -> Self {
-        let commands = TransactionPlan::for_items(&payload.items)
-            .map(|plan| plan.commands())
-            .unwrap_or_default();
+        let kind = JobKind::of(payload);
+        let mirror = payload
+            .mirror
+            .clone()
+            .filter(|base| kind == JobKind::MirrorApply && !base.is_empty());
         Self {
-            commands,
+            commands: payload.commands(),
+            kind,
+            mirror,
             done: false,
             slot: Arc::new(JobSlotState::default()),
             progress: 0,
@@ -698,6 +915,8 @@ impl JobBackendRust {
             lines: unsafe { QObjectMutPtr::from_raw(std::ptr::null_mut()) },
             owner_addr: 0,
             items_json: String::new(),
+            last_line: String::new(),
+            notify_owner: false,
             cancel: Arc::new(AtomicBool::new(false)),
         }
     }
@@ -705,6 +924,16 @@ impl JobBackendRust {
     /// The commands the worker runs, in order; empty for an empty literal plan.
     pub fn commands(&self) -> &[Vec<String>] {
         &self.commands
+    }
+
+    /// What kind of job this is, which decides the verdict of its exit code.
+    pub fn kind(&self) -> JobKind {
+        self.kind
+    }
+
+    /// The base URL of a mirror apply; `None` for a package transaction.
+    pub fn mirror(&self) -> Option<&str> {
+        self.mirror.as_deref()
     }
 
     /// Whether this job holds the single-transaction slot.
@@ -799,6 +1028,10 @@ impl qobject::JobBackend {
     fn publish_lines(mut self: Pin<&mut Self>, lines: &LineRegistry) {
         let mut shown = QList_QString::default();
         while let Some(line) = lines.take_first() {
+            {
+                let data = Pin::get_mut(self.as_mut().rust_mut());
+                data.last_line = line.clone();
+            }
             shown.append(QString::from(line.as_str()));
         }
         if shown.is_empty() {
@@ -856,7 +1089,17 @@ impl qobject::JobBackend {
         self.as_mut().flush_pending();
         // A cancel that raced the spawn shows as a cancel, never as failure.
         let end = if self.cancelled { End::Cancelled } else { end };
-        let verdict = Verdict::of(end);
+        // The worker only ever queues onto the GUI thread, so this call lands
+        // where the store and the models live.
+        let owner = unsafe { QObjectMutPtr::from_raw(self.owner_addr as *mut QObject) };
+        let detail = self.last_line.to_string();
+        let verdict = match end {
+            End::Exit { code } => {
+                let url = self.mirror.as_deref().unwrap_or("");
+                self.kind.verdict(code, &detail, url)
+            }
+            other => Verdict::of(other),
+        };
         let progress = if verdict.applied() {
             100
         } else {
@@ -869,18 +1112,30 @@ impl qobject::JobBackend {
         self.as_mut().progress_changed();
         if verdict.applied() {
             append_line(self.as_ref(), "");
-            append_line(
-                self.as_ref(),
-                &format!("{} packages processed.", self.item_count()),
-            );
+            match &self.mirror {
+                Some(url) => append_line(self.as_ref(), &format!("mirror {url} applied.")),
+                None => append_line(
+                    self.as_ref(),
+                    &format!("{} packages processed.", self.item_count()),
+                ),
+            }
         }
         settle(self.as_mut(), &verdict);
         if verdict.applied() {
-            // The worker only ever queues onto the GUI thread, so this call
-            // lands where the store and the models live.
-            let owner = unsafe { QObjectMutPtr::from_raw(self.owner_addr as *mut QObject) };
-            let items = QString::from(self.items_json.as_str());
-            qobject::installed_apply_plan(owner, &items);
+            match &self.mirror {
+                // A mirror apply changes `/etc/xbps.d`, not the installed set:
+                // the store must not be touched, and the mirror view re-reads
+                // its system state through the notification below.
+                Some(_) => {
+                    if self.notify_owner && !owner.as_ptr().is_null() {
+                        qobject::installed_mirror_job_landed(owner);
+                    }
+                }
+                None => {
+                    let items = QString::from(self.items_json.as_str());
+                    qobject::installed_apply_plan(owner, &items);
+                }
+            }
         }
     }
 
@@ -906,7 +1161,8 @@ impl qobject::JobBackend {
             let data = Pin::get_mut(self.as_mut().rust_mut());
             data.lines = lines;
             data.owner_addr = owner.as_mut_ptr() as usize;
-            data.items_json = items_json.clone();
+            data.items_json = items_json;
+            data.notify_owner = data.mirror.is_some();
             Arc::clone(&data.registry)
         };
 
@@ -990,9 +1246,12 @@ mod tests {
     }
 
     fn jobs_commands(items: Vec<PlanItem>) -> Vec<Vec<String>> {
-        JobBackendRust::new(&JobPayload { items })
-            .commands()
-            .to_vec()
+        JobBackendRust::new(&JobPayload {
+            items,
+            mirror: None,
+        })
+        .commands()
+        .to_vec()
     }
 
     #[test]
@@ -1044,6 +1303,197 @@ mod tests {
         assert_eq!(
             TransactionPlan::for_items(&JobPayload::default().items),
             None
+        );
+    }
+
+    #[test]
+    fn a_mirror_payload_is_one_pkexec_helper_command() {
+        let payload = JobPayload {
+            items: Vec::new(),
+            mirror: Some(String::from("https://repo-default.voidlinux.org/")),
+        };
+        let job = JobBackendRust::new(&payload);
+        assert_eq!(job.kind(), JobKind::MirrorApply);
+        assert_eq!(job.mirror(), Some("https://repo-default.voidlinux.org/"));
+        assert_eq!(
+            job.commands(),
+            [vec![
+                String::from("pkexec"),
+                String::from("/usr/libexec/kxbps-mirror-apply"),
+                String::from("https://repo-default.voidlinux.org/"),
+            ]]
+        );
+        assert!(
+            job.commands()
+                .iter()
+                .flatten()
+                .all(|arg| !arg.contains("sudo")),
+            "escalation is polkit only"
+        );
+    }
+
+    #[test]
+    fn the_mirror_payload_serialises_so_a_package_plan_still_decodes() {
+        let json = mirror_payload_json("https://repo-default.voidlinux.org/");
+        let payload: JobPayload = serde_json::from_str(&json).expect("the payload decodes");
+        assert!(payload.items.is_empty());
+        assert_eq!(
+            payload.mirror.as_deref(),
+            Some("https://repo-default.voidlinux.org/")
+        );
+        // A payload written before the mirror field existed still lands as a
+        // plan, not as a mirror apply.
+        let old: JobPayload = serde_json::from_str(r#"{"items":[]}"#).expect("the old shape");
+        assert_eq!(old.mirror, None);
+        assert_eq!(JobKind::of(&old), JobKind::Plan);
+    }
+
+    #[test]
+    fn neither_items_nor_a_mirror_means_no_command() {
+        let payload = JobPayload {
+            items: Vec::new(),
+            mirror: Some(String::new()),
+        };
+        assert!(JobBackendRust::new(&payload).commands().is_empty());
+        assert_eq!(
+            JobKind::of(&payload),
+            JobKind::Plan,
+            "an empty URL is not a job"
+        );
+        let both = JobPayload {
+            items: vec![item("vim", PlanAction::Install, None, Some("1_1"))],
+            mirror: Some(String::from("https://a/")),
+        };
+        let job = JobBackendRust::new(&both);
+        assert_eq!(job.kind(), JobKind::Plan, "a plan wins over a stray mirror");
+        assert_eq!(job.mirror(), None);
+        assert_eq!(job.commands()[0][1], "/usr/bin/xbps-install");
+    }
+
+    #[test]
+    fn the_job_does_not_validate_the_mirror_url() {
+        // The helper refuses a bad URL with code 2 and a message naming it; the
+        // job's only duty is to pass the value through untouched.
+        for base in ["http://repo-default.voidlinux.org/", "not a url"] {
+            let payload = JobPayload {
+                items: Vec::new(),
+                mirror: Some(String::from(base)),
+            };
+            let job = JobBackendRust::new(&payload);
+            assert_eq!(job.commands()[0].len(), 3, "{base}");
+            assert_eq!(job.commands()[0][2], base, "{base} stays one argument");
+        }
+    }
+
+    #[test]
+    fn a_mirror_exit_code_maps_to_its_own_keys() {
+        let url = "https://repo-de.voidlinux.org/";
+        let done = JobKind::MirrorApply.verdict(0, "", url);
+        assert!(done.applied());
+        assert_eq!(done.key, keys::MIRROR_APPLY_DONE);
+        assert!(done.args.is_empty(), "success names nothing");
+        assert_eq!(
+            JobKind::MirrorApply
+                .verdict(2, "plain HTTP is not allowed", url)
+                .key,
+            "errorMirrorUrlRefused"
+        );
+        assert_eq!(
+            JobKind::MirrorApply.verdict(3, "denied", url).key,
+            "errorMirrorWrite"
+        );
+        assert_eq!(
+            JobKind::MirrorApply
+                .verdict(4, "xbps-install -S exited 19", url)
+                .key,
+            "errorMirrorSync"
+        );
+        assert_eq!(
+            JobKind::MirrorApply.verdict(5, "both", url).key,
+            "errorMirrorRevert"
+        );
+        // pkexec keeps its own codes on both kinds of job.
+        for code in [126, 127, -1] {
+            assert_eq!(
+                JobKind::MirrorApply.verdict(code, "", url).key,
+                JobKind::Plan.verdict(code, "", "").key,
+                "{code}"
+            );
+        }
+        let unknown = JobKind::MirrorApply.verdict(19, "something else", url);
+        assert_eq!(unknown.key, keys::MIRROR_APPLY_FAILED);
+        assert_eq!(unknown.args, ["19", "something else"]);
+        assert!(!unknown.applied());
+    }
+
+    #[test]
+    fn a_mirror_failure_key_carries_the_arguments_the_brief_names() {
+        let eval_url = "https://repo-de.voidlinux.org/";
+        // `errorMirrorUrlRefused` %1 = the URL the job asked for, never the
+        // helper's sentence: the sentence would say it twice.
+        let refused = JobKind::MirrorApply.verdict(
+            2,
+            "plain HTTP is not allowed",
+            "http://repo-default.voidlinux.org/",
+        );
+        assert_eq!(refused.args, ["http://repo-default.voidlinux.org/"]);
+        assert!(
+            !refused
+                .args
+                .iter()
+                .any(|arg| arg == "plain HTTP is not allowed")
+        );
+
+        // `errorMirrorSync` %1 = the `-S` exit code, %2 = its stderr tail.
+        let sync = JobKind::MirrorApply.verdict(
+            4,
+            "xbps-install -S exited 19: failed to fetch repodata",
+            eval_url,
+        );
+        assert_eq!(sync.args, ["19", "failed to fetch repodata"]);
+
+        // `errorMirrorRevert` %1 = the helper's sentence, which names the path.
+        let revert = JobKind::MirrorApply.verdict(
+            5,
+            "xbps-install -S exited 19: EOF; revert failed: /etc/xbps.d denied",
+            eval_url,
+        );
+        assert_eq!(
+            revert.args,
+            ["19", "EOF; revert failed: /etc/xbps.d denied"]
+        );
+
+        // `errorMirrorWrite` %1 = the helper's sentence; it names the path.
+        let write = JobKind::MirrorApply.verdict(
+            3,
+            "/etc/xbps.d/00-repository-main.conf is a symlink",
+            eval_url,
+        );
+        assert_eq!(
+            write.args,
+            ["/etc/xbps.d/00-repository-main.conf is a symlink"]
+        );
+    }
+
+    #[test]
+    fn a_sync_failure_without_the_expected_prefix_falls_back_to_the_exit_code() {
+        // The helper's own detail never looks like this; the fallback exists so
+        // a wording change shows the code rather than an empty `%1`.
+        let sync = JobKind::MirrorApply.verdict(4, "sync broke", "https://a.example/");
+        assert_eq!(sync.args, ["4", "sync broke"]);
+    }
+
+    #[test]
+    fn a_package_plan_keeps_the_plan_mapping() {
+        assert_eq!(JobKind::Plan.verdict(0, "", "").key, keys::DONE);
+        assert_eq!(JobKind::Plan.verdict(19, "", "").key, keys::XPBS_FAILED);
+        assert_eq!(JobKind::Plan.verdict(19, "", "").args, ["19"]);
+        assert_eq!(
+            JobKind::Plan
+                .verdict(19, "ignored", "https://a.example/")
+                .args,
+            ["19"],
+            "a plan ignores the mirror URL"
         );
     }
 

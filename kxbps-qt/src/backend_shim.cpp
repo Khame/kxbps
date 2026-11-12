@@ -2,11 +2,13 @@
 
 #include <QtCore/QMetaObject>
 #include <QtCore/QVariant>
+#include <QtWidgets/QSystemTrayIcon>
 
 #include "kxbps-qt/src/query_backend.cxxqt.h"
 #include "kxbps-qt/src/installed_backend.cxxqt.h"
 #include "kxbps-qt/src/job_backend.cxxqt.h"
 #include "kxbps-qt/src/log_model.cxxqt.h"
+#include "kxbps-qt/src/mirror_backend.cxxqt.h"
 #include "kxbps-qt/src/package_model.cxxqt.h"
 #include "kxbps-qt/src/plan_backend.cxxqt.h"
 #include "kxbps-qt/src/queue_model.cxxqt.h"
@@ -67,6 +69,18 @@ QObject *kxbps_start_job(QObject *owner, const QString &payloadJson)
     return new JobBackend(payloadJson, owner);
 }
 
+QObject *kxbps_start_mirror_job(QObject *owner, const QString &payloadJson)
+{
+    // A distinct name for the mirror view: two Rust bridges cannot both declare
+    // `kxbps_start_job` without emitting the same CXX thunk twice.
+    return kxbps_start_job(owner, payloadJson);
+}
+
+bool kxbps_tray_available()
+{
+    return QSystemTrayIcon::isSystemTrayAvailable();
+}
+
 void kxbps_installed_apply_plan(QObject *owner, const QString &itemsJson)
 {
     static_cast<InstalledBackend *>(owner)->applyPlanItems(itemsJson);
@@ -81,6 +95,39 @@ void kxbps_job_spawned(QObject *job)
 {
     static_cast<JobBackend *>(job)->markSpawned();
 }
+
+void kxbps_installed_watch_mirror_job(QObject *owner, QObject *backend)
+{
+    if (!owner) {
+        return;
+    }
+    static_cast<InstalledBackend *>(owner)->watchMirrorJob(backend);
+}
+
+void kxbps_installed_unwatch_mirror_job(QObject *owner)
+{
+    if (!owner) {
+        return;
+    }
+    static_cast<InstalledBackend *>(owner)->unwatchMirrorJob();
+}
+
+void kxbps_installed_mirror_job_landed(QObject *owner)
+{
+    if (!owner) {
+        return;
+    }
+    static_cast<InstalledBackend *>(owner)->mirrorJobLanded();
+}
+
+void kxbps_mirror_apply_landed(QObject *backend)
+{
+    if (!backend) {
+        return;
+    }
+    static_cast<MirrorBackend *>(backend)->finishApply();
+}
+
 
 void kxbps_query_backend_set_state(QObject *backend,
                                    const QString &installedJson,
