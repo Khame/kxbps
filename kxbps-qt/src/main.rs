@@ -3,7 +3,7 @@ use std::env;
 
 fn main() {
     let mut app = QGuiApplication::new();
-    QGuiApplication::set_desktop_file_name(&QString::from("org.kde.khaxbps"));
+    QGuiApplication::set_desktop_file_name(&QString::from("pl.sp1w.kxbps"));
     if env::var("QT_QUICK_CONTROLS_STYLE").is_err() {
         QQuickStyle::set_style(&QString::from("org.kde.desktop"));
     }

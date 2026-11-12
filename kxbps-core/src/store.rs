@@ -3,7 +3,7 @@
 //!
 //! The web app keeps all of it in one `localStorage` snapshot under
 //! `qxbps-v1`; this port keeps the same four concerns in four JSON files under
-//! `$XDG_DATA_HOME/khaxbps/` (fallback `$HOME/.local/share/khaxbps/`), so a
+//! `$XDG_DATA_HOME/kxbps/` (fallback `$HOME/.local/share/kxbps/`), so a
 //! damaged file can only cost one concern and the files stay diffable:
 //!
 //! | File | Payload |
@@ -18,6 +18,10 @@
 //! file or the new one — never a truncated one. A missing or unparsable file
 //! falls back to that concern's default and nothing else is touched; a broken
 //! `prefs.json` must not cost the installed database.
+//!
+//! Versions before the rename kept the same files under a `khaxbps` directory
+//! next to this one; [`Store::load`] moves them out of it on the first start
+//! (see [`migrate_legacy`]).
 //!
 //! `synced_at` is deliberately not persisted: the web app keeps it in memory
 //! only, so a restart forgets when the index was last refreshed.
@@ -46,11 +50,17 @@ pub use crate::mirrors::DEFAULT_MIRROR;
 pub const SEED_AT: i64 = 1_790_928_000_000;
 
 /// Directory created below the XDG data home.
-const DATA_DIR: &str = "khaxbps";
+const DATA_DIR: &str = "kxbps";
+/// Directory used by versions before the `kxbps` rename; [`migrate_legacy`]
+/// moves the state files out of it on the first start afterwards.
+const LEGACY_DATA_DIR: &str = "khaxbps";
 const INSTALLED_FILE: &str = "installed.json";
 const QUEUE_FILE: &str = "queue.json";
 const PREFS_FILE: &str = "prefs.json";
 const MIRROR_FILE: &str = "mirror.json";
+/// The four state files this module owns; migration moves exactly these and
+/// never touches anything else a user may have left in the old directory.
+const STATE_FILES: [&str; 4] = [INSTALLED_FILE, QUEUE_FILE, PREFS_FILE, MIRROR_FILE];
 
 /// Packages installed on purpose in the seed image (`EXPLICIT` in `catalog.ts`).
 const EXPLICIT: [&str; 20] = [
@@ -241,22 +251,32 @@ fn seed_version(name: &str, catalog_version: &str) -> String {
         )
 }
 
-/// `$XDG_DATA_HOME/khaxbps`, or `$HOME/.local/share/khaxbps` when the variable
+/// `$XDG_DATA_HOME/kxbps`, or `$HOME/.local/share/kxbps` when the variable
 /// is unset, empty or relative (the XDG spec says to ignore relative paths).
 pub fn data_dir() -> Result<PathBuf, StoreError> {
+    Ok(xdg_data_home()?.join(DATA_DIR))
+}
+
+/// The XDG data home itself, resolved once for both the current and the
+/// legacy directory so the two can never disagree about where to look.
+fn xdg_data_home() -> Result<PathBuf, StoreError> {
     if let Some(dir) = std::env::var_os("XDG_DATA_HOME") {
         let dir = PathBuf::from(dir);
         if dir.is_absolute() {
-            return Ok(dir.join(DATA_DIR));
+            return Ok(dir);
         }
     }
     let home = std::env::var_os("HOME")
         .filter(|home| !home.is_empty())
         .ok_or(StoreError::NoDataDir)?;
-    Ok(PathBuf::from(home)
-        .join(".local")
-        .join("share")
-        .join(DATA_DIR))
+    Ok(PathBuf::from(home).join(".local").join("share"))
+}
+
+/// The pre-rename `khaxbps` data directory, resolved through the same XDG
+/// rules as [`data_dir`] so the migration finds the old files wherever they
+/// are; `None` when there is no data home at all.
+fn legacy_data_dir() -> Option<PathBuf> {
+    xdg_data_home().ok().map(|dir| dir.join(LEGACY_DATA_DIR))
 }
 
 impl Store {
@@ -276,7 +296,11 @@ impl Store {
 
     /// Loads the store from the XDG data directory.
     pub fn load(catalog: &Catalog) -> Result<Self, StoreError> {
-        Self::load_at(&data_dir()?, catalog)
+        let dir = data_dir()?;
+        // Before `load_at`, which creates `dir` — after it, the "new directory
+        // does not exist yet" check inside would always be false.
+        migrate_legacy(&dir);
+        Self::load_at(&dir, catalog)
     }
 
     /// Loads the store from `dir`, creating it if needed.
@@ -447,13 +471,54 @@ impl Store {
     }
 }
 
+/// Moves the pre-rename state files into the current data directory.
+///
+/// Versions before the rename kept `installed.json` and friends under a
+/// `khaxbps` sibling of the current directory. On the first start afterwards —
+/// when the new directory does not exist yet — this moves the four state files
+/// over, so packages, queue, mirror and preferences survive the rename. Best
+/// effort by design: every error is swallowed and the store falls back to its
+/// seed image, exactly as on a machine that never had the old directory.
+fn migrate_legacy(new_dir: &Path) {
+    let Some(old_dir) = legacy_data_dir() else {
+        return;
+    };
+    migrate_legacy_at(new_dir, &old_dir);
+}
+
+/// [`migrate_legacy`] against an explicit pair of directories, so the tests
+/// can drive it with temp paths.
+///
+/// Copies each state file before removing it from `old_dir`: a directory rename
+/// could not cross a filesystem boundary, and a half-moved state must never
+/// lose the only complete copy. The legacy directory itself is left in place —
+/// it may hold files this store does not own.
+fn migrate_legacy_at(new_dir: &Path, old_dir: &Path) {
+    // A new directory that already exists wins: a second start, or a fresh
+    // store someone created next to the old one, must not be overwritten.
+    if !old_dir.is_dir() || new_dir.exists() {
+        return;
+    }
+    if ensure_dir(new_dir).is_err() {
+        return;
+    }
+    for file in STATE_FILES {
+        let from = old_dir.join(file);
+        let to = new_dir.join(file);
+        if from.is_file() && fs::copy(&from, &to).is_ok() {
+            let _ = fs::remove_file(&from);
+        }
+    }
+}
+
 /// Creates `dir` if it does not exist yet and makes sure it is private (0700).
 ///
 /// The mode is enforced on every load and save, not only when the directory is
-/// created: a `~/.local/share/khaxbps` left behind by an older run, restored
-/// from a backup or created by hand can be 0755, and the state files written
-/// into it would then be world-readable. `create_dir_all` is subject to the
-/// umask as well, so the explicit `set_permissions` covers both paths.
+/// created: a `~/.local/share/kxbps` restored from a backup, migrated from
+/// the legacy `khaxbps` directory or created by hand can be 0755, and the
+/// state files written into it would then be world-readable. `create_dir_all`
+/// is subject to the umask as well, so the explicit `set_permissions` covers
+/// both paths.
 fn ensure_dir(dir: &Path) -> Result<(), StoreError> {
     if !dir.is_dir() {
         fs::create_dir_all(dir).map_err(|source| StoreError::Io {
@@ -536,7 +601,7 @@ mod tests {
         fn new(tag: &str) -> Self {
             let mut path = std::env::temp_dir();
             path.push(format!(
-                "khaxbps-store-{tag}-{}-{}",
+                "kxbps-store-{tag}-{}-{}",
                 std::process::id(),
                 SEQ.fetch_add(1, Ordering::Relaxed)
             ));
@@ -793,7 +858,7 @@ mod tests {
     #[test]
     fn save_creates_a_private_data_directory() {
         let dir = TempDir::new("mkdir");
-        let target = dir.path().join("nested").join("khaxbps");
+        let target = dir.path().join("nested").join("kxbps");
         let mut store = Store::fresh(&catalog());
         store.save_at(&target).expect("save");
         assert!(target.is_dir());
@@ -809,7 +874,7 @@ mod tests {
     #[test]
     fn pre_existing_permissive_directory_is_tightened_to_0700() {
         let dir = TempDir::new("tighten");
-        let target = dir.path().join("khaxbps");
+        let target = dir.path().join("kxbps");
         fs::create_dir(&target).expect("pre-create dir");
         fs::set_permissions(&target, fs::Permissions::from_mode(0o755)).expect("loosen");
         let mode = |path: &Path| fs::metadata(path).expect("metadata").permissions().mode() & 0o777;
@@ -823,6 +888,87 @@ mod tests {
         fs::set_permissions(&target, fs::Permissions::from_mode(0o750)).expect("loosen again");
         store.save_at(&target).expect("save");
         assert_eq!(mode(&target), 0o700, "save_at tightens an existing dir");
+    }
+
+    #[test]
+    fn migrate_legacy_moves_the_state_files_into_a_private_new_directory() {
+        let root = TempDir::new("migrate");
+        let old_dir = root.path().join("khaxbps");
+        fs::create_dir_all(&old_dir).expect("legacy dir");
+        let contents: Vec<(&str, String)> = STATE_FILES
+            .iter()
+            .map(|name| (*name, format!("legacy content of {name}")))
+            .collect();
+        for (name, bytes) in &contents {
+            fs::write(old_dir.join(name), bytes).expect("write state file");
+        }
+        let new_dir = root.path().join("kxbps");
+        assert!(!new_dir.exists(), "precondition: no new directory yet");
+
+        migrate_legacy_at(&new_dir, &old_dir);
+
+        for (name, bytes) in &contents {
+            assert_eq!(
+                fs::read_to_string(new_dir.join(name)).expect("migrated file"),
+                *bytes,
+                "{name} moved across"
+            );
+            assert!(!old_dir.join(name).exists(), "{name} was moved, not copied");
+        }
+        let mode = fs::metadata(&new_dir)
+            .expect("metadata")
+            .permissions()
+            .mode()
+            & 0o777;
+        assert_eq!(mode, 0o700, "the migrated directory is private");
+        assert!(
+            old_dir.is_dir(),
+            "the legacy directory itself is left in place"
+        );
+
+        // Idempotent: with the new directory in place, a second run is a no-op.
+        migrate_legacy_at(&new_dir, &old_dir);
+        for (name, bytes) in &contents {
+            assert_eq!(
+                fs::read_to_string(new_dir.join(name)).expect("file survives the second run"),
+                *bytes,
+                "{name} untouched by the second run"
+            );
+        }
+    }
+
+    #[test]
+    fn migrate_legacy_leaves_an_existing_new_directory_alone() {
+        let root = TempDir::new("migrate-skip");
+        let old_dir = root.path().join("khaxbps");
+        fs::create_dir_all(&old_dir).expect("legacy dir");
+        fs::write(old_dir.join(INSTALLED_FILE), "legacy").expect("write legacy file");
+        let new_dir = root.path().join("kxbps");
+        fs::create_dir_all(&new_dir).expect("new dir");
+        fs::write(new_dir.join(INSTALLED_FILE), "current").expect("write current file");
+
+        migrate_legacy_at(&new_dir, &old_dir);
+
+        assert_eq!(
+            fs::read_to_string(new_dir.join(INSTALLED_FILE)).expect("current file"),
+            "current",
+            "an existing new directory is never overwritten"
+        );
+        assert!(
+            old_dir.join(INSTALLED_FILE).is_file(),
+            "the legacy file is not consumed"
+        );
+    }
+
+    #[test]
+    fn migrate_legacy_without_a_legacy_directory_creates_nothing() {
+        let root = TempDir::new("migrate-none");
+        let old_dir = root.path().join("khaxbps");
+        let new_dir = root.path().join("kxbps");
+
+        migrate_legacy_at(&new_dir, &old_dir);
+
+        assert!(!new_dir.exists(), "no legacy state, no new directory");
     }
 
     #[test]

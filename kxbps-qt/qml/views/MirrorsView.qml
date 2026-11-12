@@ -170,7 +170,7 @@ Item {
                 Layout.fillWidth: true
                 Layout.leftMargin: Kirigami.Units.largeSpacing
                 Layout.rightMargin: Kirigami.Units.largeSpacing
-                text: i18nd("khaxbps", "Saved in %1", "~/.local/share/khaxbps/mirror.json")
+                text: i18nd("khaxbps", "Saved in %1", "~/.local/share/kxbps/mirror.json")
                 font: Kirigami.Theme.smallFont
                 color: Kirigami.Theme.disabledTextColor
                 elide: Text.ElideRight
