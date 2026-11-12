@@ -1,20 +1,35 @@
-//! Catalog façade for QML: the query helpers over the embedded catalog.
+//! Query façade for QML: the repository search and the facts of one package,
+//! both read from xbps through the runner.
 //!
 //! The package *model* is owned by [`crate::installed_backend::InstalledBackend`],
 //! because it needs the store's installed and queue snapshots. This object
-//! answers `search()` / `get()` and reports a catalog that failed to load — and
-//! it receives the *same* snapshot from that backend (`queryBackend` in QML), so
-//! a query result and a model row never disagree about what is installed.
+//! answers `search()` / `results()` and `get()` — and it receives the *same*
+//! snapshot from that backend (`queryBackend` in QML), so a search hit answers
+//! `isUpdate`/`held` from the same source as a list row.
+//!
+//! Neither answer comes from the embedded catalog: a search runs
+//! `xbps-query -Rs <pattern>` (or `-s` for a mode that lists the installed
+//! set) and the facts of one package run the two property takes and the two
+//! dependency lists, both on a worker thread through the same injected
+//! transport as the snapshot reads. The catalog is still loaded for the first
+//! frame of the package list; 17b3 retires it.
 
 use std::collections::HashMap;
 use std::pin::Pin;
 use std::sync::Arc;
+use std::sync::atomic::{AtomicU64, Ordering};
 
 use cxx_qt::CxxQtType;
-use cxx_qt_lib::{QList, QMap, QMapPair_QString_QVariant, QString, QVariant};
-use kxbps_core::{Catalog, InstalledMap, Pkg, QueryMode, QueueAction, QueueItem, UpdateEntry};
+use cxx_qt::Threading;
+use cxx_qt_lib::{QList, QMap, QMapPair_QString_QVariant, QString, QStringList, QVariant};
+use kxbps_core::{
+    Catalog, InstalledMap, QueueAction, QueueItem, SearchHit, UpdateEntry, split_pkgver,
+};
 
 use crate::package_model::{self, InstalledState, RowView};
+use crate::xbps_snapshot::{
+    PackageFacts, SearchSource, SharedInvoke, SnapshotError, read_package, read_search,
+};
 
 #[cxx_qt::bridge]
 pub mod qobject {
@@ -28,9 +43,11 @@ pub mod qobject {
         include!("cxx-qt-lib/qstring.h");
         type QString = cxx_qt_lib::QString;
 
+        include!("cxx-qt-lib/qstringlist.h");
+        type QStringList = cxx_qt_lib::QStringList;
+
         include!("cxx-qt-lib/qvariant.h");
         type QVariant = cxx_qt_lib::QVariant;
-
     }
 
     #[auto_cxx_name]
@@ -38,21 +55,42 @@ pub mod qobject {
         #[qobject]
         #[qml_element]
         #[qproperty(QString, error, READ, CONSTANT)]
+        #[qproperty(QString, search_error, READ, NOTIFY)]
+        #[qproperty(QStringList, search_error_args, READ, NOTIFY)]
+        #[qproperty(i32, result_count, READ, NOTIFY)]
+        #[qproperty(i32, results_revision, READ, NOTIFY)]
+        /// Whether the newest query is still being read.
+        #[qproperty(bool, searching, READ, NOTIFY)]
+        #[qproperty(QString, facts_error, READ, NOTIFY)]
+        #[qproperty(QStringList, facts_error_args, READ, NOTIFY)]
+        #[qproperty(QString, facts_pkgver, READ, NOTIFY)]
+        #[qproperty(i32, facts_revision, READ, NOTIFY)]
         type CatalogBackend = super::CatalogBackendRust;
 
         #[qinvokable]
         fn version(self: &CatalogBackend) -> QString;
 
+        /// Runs a search on a worker thread. The hits of the previous answer
+        /// stay until it lands; QML re-reads through `resultsRevision`.
         #[qinvokable]
-        fn search(
-            self: &CatalogBackend,
-            query: &QString,
-            mode: &QString,
-            prop: &QString,
-        ) -> QList_QVariant;
+        fn search(self: Pin<&mut CatalogBackend>, query: &QString, mode: &QString);
 
+        /// The hits of the newest answer, as role-keyed maps.
         #[qinvokable]
-        fn get(self: &CatalogBackend, name: &QString) -> QMap_QString_QVariant;
+        fn results(self: &CatalogBackend) -> QList_QVariant;
+
+        /// The facts of one pkgver, as a role-keyed map. An empty map while the
+        /// first read is in flight; QML re-reads through `factsRevision`.
+        #[qinvokable]
+        fn get(self: &CatalogBackend, pkgver: &QString) -> QMap_QString_QVariant;
+
+        /// Reads a package's facts when nothing has asked for it yet.
+        #[qinvokable]
+        fn request_facts(self: Pin<&mut CatalogBackend>, pkgver: &QString);
+
+        /// The version a read reported, or the one the pkgver carries.
+        #[qinvokable]
+        fn version_of(self: &CatalogBackend, pkgver: &QString) -> QString;
 
         // Pushes the installed/queue snapshot; called by the installed backend
         // through `kxbps_catalog_backend_set_state`. `updates_json` and
@@ -68,9 +106,16 @@ pub mod qobject {
     }
 
     impl cxx_qt::Constructor<()> for CatalogBackend {}
+    // A search and a facts read run on worker threads and report back through
+    // `qt_thread().queue(...)`; that needs the thread handle CXX-Qt generates.
+    impl cxx_qt::Threading for CatalogBackend {}
 }
 
 /// Rust side of [`qobject::CatalogBackend`].
+///
+/// The read state lives here and every mutation takes `&mut self`: the bridge
+/// methods wrap it in `Pin<&mut Self>`, which only unwraps inside `unsafe`, so
+/// the tweaks and the guards sit together on the plain struct.
 pub struct CatalogBackendRust {
     error: QString,
     catalog: Arc<Catalog>,
@@ -79,6 +124,75 @@ pub struct CatalogBackendRust {
     queue: HashMap<String, QueueAction>,
     /// Derived from `installed`, shared with the model.
     state: InstalledState,
+    /// The newest read owns the window: one counter for search and one for
+    /// the facts, so a slow answer in one never cancels the other.
+    search_generation: Arc<AtomicU64>,
+    facts_generation: Arc<AtomicU64>,
+    /// The process transport. Tests install a fake here, so the suite never
+    /// starts xbps; production installs the closure
+    /// [`crate::xbps_bridge::production_invoke`] returns.
+    invoke: SharedInvoke,
+    /// The newest search answer, tagged with the signature it answers.
+    answer: SearchAnswer,
+    /// The signature of the newest search, pending or answered.
+    signature: SearchSignature,
+    /// Which database the newest search reads.
+    search_source: SearchSource,
+    search_error: QString,
+    search_error_args: QStringList,
+    result_count: i32,
+    results_revision: i32,
+    searching: bool,
+    /// The facts of one package per pkgver read.
+    facts: HashMap<String, PackageFacts>,
+    /// The pkgver whose read is in flight, if any.
+    facts_pending: Option<String>,
+    facts_error: QString,
+    facts_error_args: QStringList,
+    facts_pkgver: QString,
+    facts_revision: i32,
+}
+
+/// What a search is asked for: a moved signature makes an answer stale.
+#[derive(Clone, Debug, PartialEq, Eq)]
+struct SearchSignature {
+    source: SearchSource,
+    /// The `-Rs`/`-s` token or, for a mode that is not a package list, the
+    /// `-L`/`-x`/… token. Empty for the default repository search.
+    mode: String,
+    query: String,
+}
+
+impl Default for SearchSignature {
+    /// The signature of no query at all.
+    fn default() -> Self {
+        Self {
+            source: SearchSource::Repository,
+            mode: String::new(),
+            query: String::new(),
+        }
+    }
+}
+
+impl SearchSignature {
+    fn new(source: SearchSource, mode: &str, query: &str) -> Self {
+        Self {
+            source,
+            mode: mode.to_owned(),
+            query: query.to_owned(),
+        }
+    }
+}
+
+/// One answer of a search, tagged with the signature it answers.
+///
+/// A failed search keeps the error next to no hits: the window shows the key
+/// and never a row it invented.
+#[derive(Default)]
+struct SearchAnswer {
+    signature: SearchSignature,
+    error: Option<SnapshotError>,
+    hits: Vec<SearchHit>,
 }
 
 impl Default for CatalogBackendRust {
@@ -89,6 +203,23 @@ impl Default for CatalogBackendRust {
             installed: InstalledMap::new(),
             queue: HashMap::new(),
             state: InstalledState::new(&[], &[]),
+            search_generation: Arc::new(AtomicU64::new(0)),
+            facts_generation: Arc::new(AtomicU64::new(0)),
+            invoke: crate::xbps_bridge::production_invoke(),
+            answer: SearchAnswer::default(),
+            signature: SearchSignature::default(),
+            search_source: SearchSource::Repository,
+            search_error: QString::from(""),
+            search_error_args: QStringList::default(),
+            result_count: 0,
+            results_revision: 0,
+            searching: false,
+            facts: HashMap::new(),
+            facts_pending: None,
+            facts_error: QString::from(""),
+            facts_error_args: QStringList::default(),
+            facts_pkgver: QString::from(""),
+            facts_revision: 0,
         }
     }
 }
@@ -133,27 +264,84 @@ impl qobject::CatalogBackend {
         QString::from(env!("CARGO_PKG_VERSION"))
     }
 
-    fn search(
-        &self,
-        query: &cxx_qt_lib::QString,
-        mode: &cxx_qt_lib::QString,
-        prop: &cxx_qt_lib::QString,
-    ) -> QList<QVariant> {
-        let mode = parse_mode(&mode.to_string());
-        let hits = self
-            .catalog
-            .search(&query.to_string(), mode, &prop.to_string());
+    /// One `xbps-query` search, on a worker thread; `resultsRevision` re-reads
+    /// the hits.
+    fn search(mut self: Pin<&mut Self>, query: &cxx_qt_lib::QString, mode: &cxx_qt_lib::QString) {
+        let mode = mode.to_string();
+        let source = self.rust().source_for_mode(&mode);
+        let query = trimmed(query);
+        let signature = SearchSignature::new(source, "", &query);
+        {
+            let data = Pin::get_mut(self.as_mut().rust_mut());
+            // The newest answer already covers this take; nothing to read.
+            if data.answer.signature == signature {
+                return;
+            }
+            if query.is_empty() {
+                // A listing mode needs a pattern: an empty field answers
+                // nothing, and any read still in flight is now stale.
+                data.clear_answer();
+                data.results_revision = data.results_revision.wrapping_add(1);
+            } else {
+                data.begin_search(signature.clone());
+            }
+        }
+        self.as_mut().searching_changed();
+        if query.is_empty() {
+            self.as_mut().result_count_changed();
+            self.as_mut().results_revision_changed();
+            return;
+        }
+        self.as_mut().run_search(signature);
+    }
+
+    /// The hits of the newest answer, as role-keyed maps.
+    fn results(&self) -> QList<QVariant> {
         QList::from(
-            hits.iter()
-                .map(|pkg| QVariant::from(&self.map_for(pkg)))
+            self.rust()
+                .answer
+                .hits
+                .iter()
+                .map(|hit| QVariant::from(&self.hit_map(hit)))
                 .collect::<Vec<_>>(),
         )
     }
 
-    fn get(&self, name: &cxx_qt_lib::QString) -> QMap<QMapPair_QString_QVariant> {
-        self.catalog
-            .by_name(&name.to_string())
-            .map_or_else(QMap::default, |pkg| self.map_for(pkg))
+    /// The facts of one pkgver: the cached answer, or an empty map while a read
+    /// of the same pkgver is in flight.
+    fn get(&self, pkgver: &cxx_qt_lib::QString) -> QMap<QMapPair_QString_QVariant> {
+        let pkgver = pkgver.to_string();
+        let name = split_pkgver(&pkgver)
+            .map(|(name, _)| name.to_owned())
+            .unwrap_or_else(|| pkgver.clone());
+        self.rust()
+            .facts_of(&pkgver)
+            .map_or_else(QMap::default, |facts| self.facts_map(&name, facts))
+    }
+
+    /// Starts a read for a pkgver whose facts are neither cached nor in flight.
+    fn request_facts(mut self: Pin<&mut Self>, pkgver: &cxx_qt_lib::QString) {
+        let pkgver = pkgver.to_string();
+        if pkgver.is_empty() {
+            return;
+        }
+        let started = Pin::get_mut(self.as_mut().rust_mut())
+            .begin_facts(&pkgver)
+            .is_some();
+        if started {
+            self.as_mut().run_facts(pkgver);
+        }
+    }
+
+    /// The version a take reported, or the version part of the pkgver.
+    fn version_of(&self, pkgver: &cxx_qt_lib::QString) -> QString {
+        let pkgver = pkgver.to_string();
+        QString::from(match self.rust().facts_of(&pkgver) {
+            Some(facts) => facts.version().to_owned(),
+            None => split_pkgver(&pkgver)
+                .map(|(_, version)| version.to_owned())
+                .unwrap_or_default(),
+        })
     }
 
     fn set_state(
@@ -197,52 +385,293 @@ impl CatalogBackendRust {
             .collect();
     }
 
-    /// One row of the snapshot, exactly as the model builds it.
-    fn row_view<'a>(&'a self, pkg: &'a Pkg) -> RowView<'a> {
-        RowView::catalog(
-            pkg,
-            self.installed.get(&pkg.name),
-            self.queue.get(&pkg.name).copied(),
-            self.state.update_to(&pkg.name),
-        )
+    /// Which database a mode searches. Modes that list a set read the
+    /// installed database; every other mode is a repository search, which is
+    /// all `xbps-query` offers for a pattern.
+    fn source_for_mode(&self, token: &str) -> SearchSource {
+        match token {
+            "l" | "m" | "O" | "H" => SearchSource::Installed,
+            _ => SearchSource::Repository,
+        }
     }
 
-    /// One package as a `QVariantMap`, keyed exactly like the model's roles plus
-    /// `files`.
-    fn map_for(&self, pkg: &kxbps_core::Pkg) -> QMap<QMapPair_QString_QVariant> {
-        let row = self.row_view(pkg);
+    /// One hit as a `QVariantMap`, keyed like a model row plus `pkgver`.
+    ///
+    /// Only what the search printed is filled in: the tag decides `installed`,
+    /// the version is the one the hit carries, and the installed record fills
+    /// the rest when the snapshot knows the package. Size, category and
+    /// repository stay empty, because a `-Rs` line names none of them.
+    fn hit_map(&self, hit: &SearchHit) -> QMap<QMapPair_QString_QVariant> {
+        let installed = self.installed.get(&hit.name);
+        let queued = self.queue.get(&hit.name).copied();
+        let update_to = self.state.update_to(&hit.name);
+        let row = RowView {
+            name: &hit.name,
+            version: &hit.version,
+            pkg: None,
+            installed,
+            queued,
+            update_to,
+            description: Some(&hit.description),
+        };
         let mut map = QMap::default();
         for (_, name) in package_model::ROLES {
             if let Some(value) = package_model::field_value(name, &row) {
                 map.insert_clone(&QString::from(name), &value);
             }
         }
-        if let Some(files) = package_model::field_value("files", &row) {
-            map.insert_clone(&QString::from("files"), &files);
-        }
+        map.insert_clone(
+            &QString::from("pkgver"),
+            &QVariant::from(&QString::from(hit.pkgver.clone())),
+        );
         map
+    }
+
+    /// The facts of one package as a `QVariantMap`, keyed as the details pane
+    /// reads them. An xbps field that came back empty stays empty.
+    fn facts_map(&self, name: &str, facts: &PackageFacts) -> QMap<QMapPair_QString_QVariant> {
+        let text =
+            |key: &str, value: &str| (QString::from(key), QVariant::from(&QString::from(value)));
+        let flag = |key: &str, value: bool| (QString::from(key), QVariant::from(&value));
+        let mut map = QMap::default();
+        for (key, value) in [
+            text("name", name),
+            text("pkgver", &facts.pkgver),
+            text("version", facts.version()),
+            text(
+                "installedVersion",
+                if facts.installed { facts.version() } else { "" },
+            ),
+            text("short", &facts.short_desc),
+            text("homepage", &facts.homepage),
+            text("license", &facts.license),
+            text("size", &facts.installed_size),
+            text("download", &facts.filename_size),
+            text("repo", &facts.repository),
+            text("depends", &facts.depends.join(", ")),
+            text("requiredBy", &facts.required_by.join(", ")),
+        ] {
+            map.insert_clone(&key, &value);
+        }
+        let installed = self.installed.get(name);
+        for (key, value) in [
+            flag("installed", facts.installed),
+            flag("isUpdate", self.state.update_to(name).is_some()),
+            flag("held", installed.is_some_and(|inst| inst.held)),
+            flag("explicit", installed.is_some_and(|inst| inst.explicit)),
+        ] {
+            map.insert_clone(&key, &value);
+        }
+        let queued = self
+            .queue
+            .get(name)
+            .map_or_else(String::new, |action| match action {
+                QueueAction::Install => String::from("install"),
+                QueueAction::Remove => String::from("remove"),
+                QueueAction::Update => String::from("update"),
+            });
+        map.insert_clone(
+            &QString::from("queuedAction"),
+            &QVariant::from(&QString::from(queued)),
+        );
+        map
+    }
+
+    /// The cached facts of one pkgver, if a read answered for it.
+    fn facts_of(&self, pkgver: &str) -> Option<&PackageFacts> {
+        self.facts.get(pkgver)
+    }
+
+    /// Starts a read for `pkgver` unless its facts are cached or in flight.
+    fn begin_facts(&mut self, pkgver: &str) -> Option<u64> {
+        if self.facts.contains_key(pkgver) || self.facts_pending.as_deref() == Some(pkgver) {
+            return None;
+        }
+        self.facts_pending = Some(pkgver.to_owned());
+        self.facts_pkgver = QString::from(pkgver);
+        Some(self.facts_generation.fetch_add(1, Ordering::SeqCst) + 1)
+    }
+
+    /// Moves the window to a new query; the previous answer stays until it
+    /// lands.
+    fn begin_search(&mut self, signature: SearchSignature) {
+        self.search_source = signature.source;
+        self.signature = signature;
+        self.search_error = QString::from("");
+        self.search_error_args = QStringList::default();
+        self.searching = true;
+        self.search_generation.fetch_add(1, Ordering::SeqCst);
+    }
+
+    /// Drops the answer of an emptied field and invalidates any read in
+    /// flight.
+    fn clear_answer(&mut self) {
+        self.signature = SearchSignature::default();
+        self.search_generation.fetch_add(1, Ordering::SeqCst);
+        self.answer = SearchAnswer::default();
+        self.search_error = QString::from("");
+        self.search_error_args = QStringList::default();
+        self.result_count = 0;
+        self.searching = false;
+    }
+
+    /// Drops a stale answer with no side effect; a fresh one names its error
+    /// and counts its hits.
+    fn announce_answer(&mut self, answer: &SearchAnswer, current: &SearchSignature) -> bool {
+        if answer.signature != *current {
+            return false;
+        }
+        self.searching = false;
+        self.result_count = i32::try_from(answer.hits.len()).unwrap_or(i32::MAX);
+        match &answer.error {
+            Some(err) => {
+                self.search_error = QString::from(err.key());
+                self.search_error_args = args_of(err);
+            }
+            None => {
+                self.search_error = QString::from("");
+                self.search_error_args = QStringList::default();
+            }
+        }
+        true
+    }
+
+    /// Applies a fresh answer, unless the newest one already has those hits.
+    fn finish_answer(&mut self, answer: SearchAnswer, current: &SearchSignature) -> bool {
+        if answer.signature != *current {
+            return false;
+        }
+        let same = self.answer.signature == answer.signature && self.answer.hits == answer.hits;
+        self.answer = answer;
+        !same
+    }
+
+    /// Applies a finished facts read unless a newer one owns the window.
+    fn finish_facts(&mut self, pkgver: String, result: Result<PackageFacts, SnapshotError>) {
+        if self.facts_pending.as_deref() != Some(pkgver.as_str()) {
+            return;
+        }
+        self.facts_pending = None;
+        match result {
+            Ok(facts) => {
+                self.facts.insert(pkgver, facts);
+                self.facts_error = QString::from("");
+                self.facts_error_args = QStringList::default();
+            }
+            Err(err) => {
+                self.facts_error = QString::from(err.key());
+                self.facts_error_args = args_of(&err);
+            }
+        }
     }
 }
 
-/// The `xbps-query` mode token QML sends (`"Rs"`, `"show"`, …); anything
-/// unknown falls back to `-Rs`, like the web app's `MODES[0]`.
-fn parse_mode(token: &str) -> QueryMode {
-    match token {
-        "s" => QueryMode::S,
-        "l" => QueryMode::L,
-        "R" => QueryMode::R,
-        "show" => QueryMode::Show,
-        "x" => QueryMode::X,
-        "X" => QueryMode::RevX,
-        "f" => QueryMode::F,
-        "o" => QueryMode::O,
-        "m" => QueryMode::M,
-        "O" => QueryMode::Orphans,
-        "H" => QueryMode::H,
-        "L" => QueryMode::RepoL,
-        "p" => QueryMode::P,
-        _ => QueryMode::Rs,
+impl qobject::CatalogBackend {
+    /// Reads the hits on a worker thread and hands them back on the GUI thread.
+    fn run_search(self: Pin<&mut Self>, signature: SearchSignature) {
+        let generation = self.rust().search_generation.load(Ordering::SeqCst);
+        let thread = self.qt_thread();
+        let current = self.search_generation.clone();
+        let invoke = self.invoke.clone();
+        std::thread::spawn(move || {
+            let result = read_search(&*invoke, signature.source, &signature.query);
+            let answer = SearchAnswer {
+                signature,
+                error: result.as_ref().err().cloned(),
+                hits: result.unwrap_or_default(),
+            };
+            // The closure runs on the GUI thread; `thread.queue` fails only
+            // once the backend is gone, and then nobody wants the result.
+            thread
+                .queue(move |backend| backend.deliver_search(generation, &current, answer))
+                .ok();
+        });
     }
+
+    /// Applies a landed search unless a newer query has started since.
+    fn deliver_search(
+        mut self: Pin<&mut Self>,
+        generation: u64,
+        current: &Arc<AtomicU64>,
+        answer: SearchAnswer,
+    ) {
+        if current.load(Ordering::SeqCst) != generation {
+            return;
+        }
+        let signature = self.rust().signature.clone();
+        let fresh = {
+            let data = Pin::get_mut(self.as_mut().rust_mut());
+            data.announce_answer(&answer, &signature)
+        };
+        if !fresh {
+            return;
+        }
+        let changed = {
+            let data = Pin::get_mut(self.as_mut().rust_mut());
+            data.finish_answer(answer, &signature)
+        };
+        self.as_mut().searching_changed();
+        self.as_mut().result_count_changed();
+        self.as_mut().search_error_changed();
+        self.as_mut().search_error_args_changed();
+        if changed {
+            let data = Pin::get_mut(self.as_mut().rust_mut());
+            data.results_revision = data.results_revision.wrapping_add(1);
+            self.as_mut().results_revision_changed();
+        }
+    }
+
+    /// Reads one package's facts on a worker thread.
+    fn run_facts(self: Pin<&mut Self>, pkgver: String) {
+        let generation = self.rust().facts_generation.load(Ordering::SeqCst);
+        let thread = self.qt_thread();
+        let current = self.facts_generation.clone();
+        let invoke = self.invoke.clone();
+        std::thread::spawn(move || {
+            let name = split_pkgver(&pkgver)
+                .map(|(name, _)| name.to_owned())
+                .unwrap_or_else(|| pkgver.clone());
+            let result = read_package(&*invoke, &name, &pkgver);
+            thread
+                .queue(move |backend| backend.deliver_facts(generation, &current, pkgver, result))
+                .ok();
+        });
+    }
+
+    /// Applies a landed facts read unless a newer one has started since.
+    fn deliver_facts(
+        mut self: Pin<&mut Self>,
+        generation: u64,
+        current: &Arc<AtomicU64>,
+        pkgver: String,
+        result: Result<PackageFacts, SnapshotError>,
+    ) {
+        if current.load(Ordering::SeqCst) != generation {
+            return;
+        }
+        {
+            let data = Pin::get_mut(self.as_mut().rust_mut());
+            data.finish_facts(pkgver, result);
+            data.facts_revision = data.facts_revision.wrapping_add(1);
+        }
+        self.as_mut().facts_error_changed();
+        self.as_mut().facts_error_args_changed();
+        self.as_mut().facts_pkgver_changed();
+        self.as_mut().facts_revision_changed();
+    }
+}
+
+/// The arguments of a translated error sentence, in `%1…` order.
+fn args_of(err: &SnapshotError) -> QStringList {
+    err.args()
+        .iter()
+        .map(|arg| QString::from(arg.as_str()))
+        .collect::<QStringList>()
+}
+
+/// A trimmed query; a field of blanks searches for nothing.
+fn trimmed(query: &cxx_qt_lib::QString) -> String {
+    query.to_string().trim().to_owned()
 }
 
 #[cfg(test)]
@@ -263,29 +692,106 @@ mod tests {
             .unwrap_or(false)
     }
 
-    #[test]
-    fn every_mode_token_round_trips() {
-        for mode in [
-            QueryMode::Rs,
-            QueryMode::S,
-            QueryMode::L,
-            QueryMode::R,
-            QueryMode::Show,
-            QueryMode::X,
-            QueryMode::RevX,
-            QueryMode::F,
-            QueryMode::O,
-            QueryMode::M,
-            QueryMode::Orphans,
-            QueryMode::H,
-            QueryMode::RepoL,
-            QueryMode::P,
-        ] {
-            let token = serde_json::to_string(&mode).unwrap();
-            let token = token.trim_matches('"');
-            assert_eq!(parse_mode(token), mode, "token {token}");
+    fn hit(name: &str, version: &str, installed: bool) -> SearchHit {
+        SearchHit {
+            installed,
+            name: name.to_owned(),
+            version: version.to_owned(),
+            pkgver: format!("{name}-{version}"),
+            description: format!("{name} description"),
         }
-        assert_eq!(parse_mode("nonsense"), QueryMode::Rs);
+    }
+
+    fn reply(exit_code: i32, stdout: &str, stderr: &str) -> String {
+        serde_json::json!({
+            "exitCode": exit_code,
+            "stdout": stdout,
+            "stderr": stderr,
+            "timedOut": false
+        })
+        .to_string()
+    }
+
+    /// A transport that answers each take by every flag its argv carries.
+    fn fake(calls: Vec<(&'static str, String)>) -> SharedInvoke {
+        Arc::new(move |request: &str, _| {
+            let argv: Vec<String> = serde_json::from_str(request).expect("request decodes");
+            let mut key: Vec<&str> = Vec::new();
+            for arg in argv.iter().skip(1) {
+                if !arg.starts_with('-') {
+                    break;
+                }
+                key.push(arg);
+            }
+            let key = key.join(" ");
+            calls
+                .iter()
+                .find(|(flag, _)| *flag == key)
+                .map(|(_, reply)| reply.clone())
+                .unwrap_or_else(|| panic!("unexpected command: {argv:?}"))
+        })
+    }
+
+    fn with_invoke(invoke: SharedInvoke) -> CatalogBackendRust {
+        CatalogBackendRust {
+            invoke,
+            ..CatalogBackendRust::default()
+        }
+    }
+
+    /// A finished answer for `query`, as a worker would hand it back.
+    fn answer(source: SearchSource, query: &str, hits: Vec<SearchHit>) -> SearchAnswer {
+        SearchAnswer {
+            signature: SearchSignature::new(source, "", query),
+            error: None,
+            hits,
+        }
+    }
+
+    fn facts(pkgver: &str, installed: bool) -> PackageFacts {
+        PackageFacts {
+            installed,
+            pkgver: pkgver.to_owned(),
+            short_desc: format!("{pkgver} description"),
+            homepage: "https://example.org".to_owned(),
+            license: "MIT".to_owned(),
+            installed_size: if installed {
+                "2125KB".to_owned()
+            } else {
+                String::new()
+            },
+            repository: "https://repo.example/current".to_owned(),
+            state: if installed {
+                "installed"
+            } else {
+                "not installed"
+            }
+            .to_owned(),
+            filename_size: "1735KB".to_owned(),
+            depends: vec!["glibc>=2.41_1".to_owned()],
+            required_by: vec!["base-system-0.114_2".to_owned()],
+        }
+    }
+
+    #[test]
+    fn every_mode_token_selects_the_database_it_names() {
+        let backend = CatalogBackendRust::default();
+        for token in ["l", "m", "O", "H"] {
+            assert_eq!(
+                backend.source_for_mode(token),
+                SearchSource::Installed,
+                "token {token}"
+            );
+        }
+        for token in [
+            "Rs", "s", "R", "show", "x", "X", "f", "o", "L", "p", "nonsense",
+        ] {
+            assert_eq!(
+                backend.source_for_mode(token),
+                SearchSource::Repository,
+                "token {token}"
+            );
+        }
     }
 
     #[test]
@@ -305,56 +811,232 @@ mod tests {
     }
 
     #[test]
-    fn query_maps_carry_the_installed_snapshot() {
-        let (catalog, error, _) =
-            load_catalog(&QString::from(include_str!("../resources/catalog.json")));
-        assert_eq!(error, "");
-        let store = Store::fresh(&catalog);
-        // The seed store holds no reported updates; `linux` is pinned below the
-        // catalog, so it stands in for what `xbps-install -un` would print.
-        let linux = catalog.by_name("linux").unwrap();
-        let updates = vec![UpdateEntry {
-            name: linux.name.clone(),
-            version: linux.version.clone(),
-            pkgver: format!("{}-{}", linux.name, linux.version),
-            action: kxbps_core::XbpsAction::Update,
-            arch: "x86_64".into(),
-            repository: "https://repo.example/current".into(),
-            installed_size: 1,
-            download_size: 1,
-        }];
-        let mut backend = CatalogBackendRust {
-            catalog: Arc::new(catalog),
-            ..CatalogBackendRust::default()
+    fn a_finished_search_replaces_the_hits_and_the_count() {
+        let mut backend = with_invoke(fake(vec![("-Rs", reply(0, "", ""))]));
+        backend.begin_search(SearchSignature::new(SearchSource::Repository, "", "lib"));
+        let signature = backend.signature.clone();
+        let landed = answer(
+            SearchSource::Repository,
+            "lib",
+            vec![hit("lib", "6.18.63_1", true), hit("libx", "1_1", false)],
+        );
+        assert!(backend.announce_answer(&landed, &signature));
+        let changed = backend.finish_answer(landed, &signature);
+        assert!(changed, "a new set of hits is a new revision");
+        assert_eq!(backend.result_count, 2);
+        assert_eq!(backend.answer.hits[0].name, "lib");
+        assert!(!backend.searching);
+        assert_eq!(backend.search_error.to_string(), "");
+    }
+
+    #[test]
+    fn a_stale_search_answer_never_overwrites_a_newer_query() {
+        let mut backend = with_invoke(fake(vec![("-Rs", reply(0, "", ""))]));
+        backend.begin_search(SearchSignature::new(SearchSource::Repository, "", "lib"));
+        let slow = answer(
+            SearchSource::Repository,
+            "lib",
+            vec![hit("lib", "6.18.63_1", true)],
+        );
+        // The field moved on before the slow answer arrived.
+        backend.begin_search(SearchSignature::new(SearchSource::Repository, "", "li"));
+        let current = backend.signature.clone();
+        assert!(
+            !backend.announce_answer(&slow, &current),
+            "an answer for a query nobody is asking any more is dropped"
+        );
+        assert!(
+            !backend.finish_answer(slow, &current),
+            "and it never becomes the window"
+        );
+        assert_eq!(backend.result_count, 0);
+        assert_eq!(backend.answer.hits.len(), 0);
+    }
+
+    #[test]
+    fn a_failed_search_keeps_no_rows_and_names_the_key() {
+        let mut backend = with_invoke(fake(vec![("-Rs", reply(0, "", ""))]));
+        backend.begin_search(SearchSignature::new(SearchSource::Repository, "", "lib"));
+        let signature = backend.signature.clone();
+        let landed = SearchAnswer {
+            signature: signature.clone(),
+            error: Some(SnapshotError::Exit {
+                program: "xbps-query".into(),
+                code: 2,
+                stderr: "broken index".into(),
+            }),
+            hits: Vec::new(),
         };
+        assert!(backend.announce_answer(&landed, &signature));
+        backend.finish_answer(landed, &signature);
+        assert_eq!(backend.result_count, 0, "a failure leaves no rows");
+        assert!(backend.answer.hits.is_empty());
+        assert_eq!(backend.search_error.to_string(), "errorXbpsExit");
+        assert_eq!(
+            backend
+                .search_error_args
+                .iter()
+                .map(QString::to_string)
+                .collect::<Vec<_>>(),
+            ["xbps-query", "2", "broken index"]
+        );
+    }
+
+    #[test]
+    fn an_empty_query_clears_the_rows_and_the_error() {
+        let mut backend = with_invoke(fake(vec![("-Rs", reply(0, "", ""))]));
+        backend.begin_search(SearchSignature::new(SearchSource::Repository, "", "lib"));
+        let signature = backend.signature.clone();
+        let landed = answer(
+            SearchSource::Repository,
+            "lib",
+            vec![hit("lib", "6.18.63_1", true)],
+        );
+        backend.announce_answer(&landed, &signature);
+        backend.finish_answer(landed, &signature);
+        assert_eq!(backend.result_count, 1);
+
+        backend.clear_answer();
+        assert_eq!(backend.result_count, 0, "an empty query answers nothing");
+        assert!(backend.answer.hits.is_empty());
+        assert!(!backend.searching);
+        assert_eq!(backend.search_error.to_string(), "");
+        assert_eq!(backend.signature, SearchSignature::default());
+    }
+
+    #[test]
+    fn a_facts_read_for_an_older_pkgver_is_dropped() {
+        let mut backend = CatalogBackendRust::default();
+        backend.begin_facts("vim-9.2.1031_1");
+        backend.begin_facts("ark-25.08.0_1");
+        backend.finish_facts(
+            "vim-9.2.1031_1".to_owned(),
+            Ok(facts("vim-9.2.1031_1", true)),
+        );
+        assert!(
+            backend.facts_of("vim-9.2.1031_1").is_none(),
+            "a newer selection owns the pane"
+        );
+        assert_eq!(backend.facts_pkgver.to_string(), "ark-25.08.0_1");
+    }
+
+    #[test]
+    fn a_failed_facts_read_reports_the_key_and_leaves_the_fields_empty() {
+        let mut backend = CatalogBackendRust::default();
+        backend.begin_facts("zramen-1.0.1_1");
+        backend.finish_facts(
+            "zramen-1.0.1_1".to_owned(),
+            Err(SnapshotError::Exit {
+                program: "xbps-query".into(),
+                code: 2,
+                stderr: "not found".into(),
+            }),
+        );
+        assert!(backend.facts_of("zramen-1.0.1_1").is_none());
+        assert_eq!(backend.facts_error.to_string(), "errorXbpsExit");
+        assert_eq!(backend.facts_pkgver.to_string(), "zramen-1.0.1_1");
+        assert_eq!(
+            backend
+                .facts_error_args
+                .iter()
+                .map(QString::to_string)
+                .collect::<Vec<_>>(),
+            ["xbps-query", "2", "not found"]
+        );
+    }
+
+    #[test]
+    fn the_facts_map_of_an_installed_package_holds_every_read_field() {
+        let backend = CatalogBackendRust::default();
+        let map = backend.facts_map("vim", &facts("vim-9.2.1031_1", true));
+        assert_eq!(text_of(&map, "name"), "vim");
+        assert_eq!(text_of(&map, "version"), "9.2.1031_1");
+        assert_eq!(text_of(&map, "installedVersion"), "9.2.1031_1");
+        assert_eq!(text_of(&map, "short"), "vim-9.2.1031_1 description");
+        assert_eq!(text_of(&map, "homepage"), "https://example.org");
+        assert_eq!(text_of(&map, "license"), "MIT");
+        assert_eq!(text_of(&map, "repo"), "https://repo.example/current");
+        assert_eq!(text_of(&map, "size"), "2125KB");
+        assert_eq!(text_of(&map, "download"), "1735KB");
+        assert_eq!(text_of(&map, "depends"), "glibc>=2.41_1");
+        assert_eq!(text_of(&map, "requiredBy"), "base-system-0.114_2");
+        assert_eq!(text_of(&map, "queuedAction"), "");
+        assert!(flag_of(&map, "installed"));
+        assert!(!flag_of(&map, "isUpdate"));
+    }
+
+    #[test]
+    fn the_facts_map_of_a_package_that_is_not_installed_leaves_the_unknown_fields_empty() {
+        let backend = CatalogBackendRust::default();
+        let map = backend.facts_map("zramen", &facts("zramen-1.0.1_1", false));
+        assert!(!flag_of(&map, "installed"));
+        assert_eq!(text_of(&map, "version"), "1.0.1_1");
+        assert_eq!(text_of(&map, "installedVersion"), "");
+        assert_eq!(text_of(&map, "size"), "");
+        assert_eq!(text_of(&map, "download"), "1735KB");
+        assert!(!flag_of(&map, "held"));
+        assert!(!flag_of(&map, "explicit"));
+    }
+
+    #[test]
+    fn a_facts_map_answers_held_update_and_queue_from_the_snapshot() {
+        let catalog = Catalog::load_from_str(include_str!("../resources/catalog.json")).unwrap();
+        let store = Store::fresh(&catalog);
+        let mut installed = store.installed.clone();
+        let record = installed.get_mut("vim").expect("the seed image has vim");
+        record.held = true;
+        let updates: Vec<UpdateEntry> = serde_json::from_str(
+            r#"[{"name":"vim","version":"9.9","pkgver":"vim-9.9_1","action":"update",
+                 "arch":"x86_64","repository":"https://r/current",
+                 "installedSize":1,"downloadSize":1}]"#,
+        )
+        .unwrap();
+        let mut backend = CatalogBackendRust::default();
         backend.apply_snapshot(
-            store.installed.clone(),
+            installed,
             vec![QueueItem {
-                name: "ark".into(),
-                action: QueueAction::Install,
+                name: "vim".into(),
+                action: QueueAction::Remove,
             }],
             updates,
             Vec::new(),
         );
+        let map = backend.facts_map("vim", &facts("vim-9.2.1031_1", true));
+        assert!(flag_of(&map, "held"));
+        assert!(flag_of(&map, "explicit"));
+        assert!(flag_of(&map, "isUpdate"));
+        assert_eq!(text_of(&map, "queuedAction"), "remove");
+    }
 
-        let vim = backend.map_for(backend.catalog.by_name("vim").unwrap());
+    #[test]
+    fn a_search_hit_map_carries_the_snapshot_and_no_invented_facts() {
+        let backend = CatalogBackendRust::default();
+        let map = backend.hit_map(&hit("libx", "1_1", false));
+        assert_eq!(text_of(&map, "name"), "libx");
+        assert_eq!(text_of(&map, "version"), "1_1");
+        assert_eq!(text_of(&map, "pkgver"), "libx-1_1");
+        assert_eq!(text_of(&map, "installedVersion"), "");
+        assert_eq!(text_of(&map, "short"), "libx description");
+        assert_eq!(text_of(&map, "repo"), "", "`-Rs` reports no repository");
+        assert_eq!(text_of(&map, "category"), "", "and no category");
+        assert_eq!(text_of(&map, "size"), "", "and no size");
+        assert!(!flag_of(&map, "installed"));
+    }
+
+    #[test]
+    fn a_search_hit_map_reports_the_installed_record_it_knows() {
+        let catalog = Catalog::load_from_str(include_str!("../resources/catalog.json")).unwrap();
+        let store = Store::fresh(&catalog);
+        let mut backend = CatalogBackendRust::default();
+        backend.apply_snapshot(store.installed.clone(), Vec::new(), Vec::new(), Vec::new());
+        let version = store.installed["vim"].version.clone();
+        let map = backend.hit_map(&hit("vim", &version, true));
+        assert_eq!(text_of(&map, "installedVersion"), version);
         assert_eq!(
-            text_of(&vim, "installedVersion"),
-            store.installed["vim"].version,
-            "an installed package reports its version"
+            flag_of(&map, "explicit"),
+            store.installed["vim"].explicit,
+            "the hit repeats the installed record"
         );
-        assert!(flag_of(&vim, "explicit"));
-        assert!(!flag_of(&vim, "isUpdate"), "vim is up to date");
-
-        let linux = backend.catalog.by_name("linux").unwrap();
-        let linux_map = backend.map_for(linux);
-        assert!(flag_of(&linux_map, "isUpdate"), "the seed pins linux");
-        assert_eq!(text_of(&linux_map, "updateVersion"), linux.version);
-
-        let ark = backend.map_for(backend.catalog.by_name("ark").unwrap());
-        assert_eq!(text_of(&ark, "installedVersion"), "");
-        assert!(!flag_of(&ark, "explicit"));
-        assert_eq!(text_of(&ark, "queuedAction"), "install");
     }
 
     #[test]
@@ -364,5 +1046,28 @@ mod tests {
         assert_eq!(error, "");
         assert_eq!(catalog.len(), 115);
         assert_eq!(json.to_string(), include_str!("../resources/catalog.json"));
+    }
+
+    #[test]
+    fn a_second_selection_reuses_the_cached_facts() {
+        let calls = Arc::new(AtomicU64::new(0));
+        let counted = calls.clone();
+        let invoke: SharedInvoke = Arc::new(move |_request: &str, _| {
+            counted.fetch_add(1, Ordering::SeqCst);
+            serde_json::json!({"exitCode": 0, "stdout": "", "stderr": "", "timedOut": false})
+                .to_string()
+        });
+        let mut backend = CatalogBackendRust {
+            invoke,
+            ..CatalogBackendRust::default()
+        };
+        assert!(backend.begin_facts("vim-9.2.1031_1").is_some());
+        backend.finish_facts("vim-9.2.1031_1".to_owned(), Ok(PackageFacts::default()));
+        let before = calls.load(Ordering::SeqCst);
+        assert!(
+            backend.begin_facts("vim-9.2.1031_1").is_none(),
+            "a cached pkgver never starts a second read"
+        );
+        assert_eq!(calls.load(Ordering::SeqCst), before);
     }
 }
