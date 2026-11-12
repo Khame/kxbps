@@ -249,13 +249,17 @@ pub fn script(items: &[PlanItem], mirror: &str, repos: Repos) -> (Vec<JobStep>, 
     (steps, false)
 }
 
-/// Whether a mirror may carry a transaction: `https://` with a host.
+/// Whether a mirror may carry a transaction: `https://` with a non-empty host.
 ///
-/// The core already refuses a plain-HTTP URL before a probe request; this is
-/// the same rule for the simulated transaction, so the two cannot disagree.
+/// Deliberately stricter than [`khaxbps_core::check_probe_url`], which only
+/// refuses plain HTTP and lets an empty string through: a probe of a missing
+/// mirror is harmless, a transaction against one is not. The host check is a
+/// split on `/`, not a URL parse — a mirror is a base URL, not a user-supplied
+/// link, and `https:///foo` must not pass.
 pub fn secure_mirror(url: &str) -> bool {
     url.strip_prefix("https://")
-        .is_some_and(|rest| !rest.is_empty())
+        .and_then(|rest| rest.split('/').next())
+        .is_some_and(|host| !host.is_empty())
 }
 
 /// Progress curve: one tick per phase and per package, clamped at 100.
@@ -626,9 +630,12 @@ mod tests {
     fn only_https_mirrors_are_secure() {
         assert!(secure_mirror("https://repo-default.voidlinux.org"));
         assert!(secure_mirror("https://repo-default.voidlinux.org/"));
+        assert!(secure_mirror("https://repo-de.voidlinux.org/current"));
         assert!(!secure_mirror("http://ftp.dk.xemacs.org/voidlinux/"));
         assert!(!secure_mirror(""));
         assert!(!secure_mirror("https://"));
+        assert!(!secure_mirror("https:///current"));
+        assert!(!secure_mirror("ftp://repo-de.voidlinux.org/"));
     }
 
     #[test]
