@@ -767,19 +767,28 @@ mod tests {
     }
 
     #[test]
-    fn a_production_run_without_root_ends_on_a_documented_code() {
-        // The real commands, a temp path: a normal user cannot write /etc, so
-        // the helper exits with a documented code instead of panicking.
-        let dir = tempdir("cli-no-root");
+    fn a_failed_sync_ends_on_a_documented_code_and_leaves_no_config() {
+        // The fake fails the way a normal user's real `xbps-install -S` does,
+        // with a permission error. The test used to run the real command, which
+        // made the suite take the real database lock and wait on it.
+        let dir = tempdir("cli-sync-fail");
         let path = dir.join("00-repository-main.conf");
-        let result = cli_over(&path, Some(GOOD)).run();
-        assert!(
-            result.exit.code() == 3 || result.exit.code() == 4,
-            "write or sync, never a panic: {} {}",
-            result.exit.code(),
+        let script = "#!/bin/sh\ncase \"$1\" in\n  -S) echo 'xbps-install: Operation not permitted' >&2; exit 19 ;;\n  *) exit 9 ;;\nesac\n";
+        let bin = write_fake_xbps(&dir, script);
+
+        let result = with_fake_xbps(&bin, || cli_over(&path, Some(GOOD)).run());
+        assert_eq!(
+            result.exit,
+            Exit::SyncFailed,
+            "a sync failure is code 4, not a panic: {}",
             result.detail
         );
-        assert!(!path.exists(), "nothing was written");
+        assert!(
+            result.detail.contains("Operation not permitted"),
+            "the helper keeps xbps' own sentence: {}",
+            result.detail
+        );
+        assert!(!path.exists(), "the failed config was reverted");
         let _ = fs::remove_dir_all(&dir);
     }
 
