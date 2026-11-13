@@ -206,10 +206,6 @@ Kirigami.ApplicationWindow {
         if (at >= 0 && at + 1 < Qt.application.arguments.length) {
             root.selectFilter(Qt.application.arguments[at + 1])
         }
-        // The sidebar lists the repositories xbps reads; the read is cheap
-        // (world-readable files plus `xbps-query -L`) and runs with the first
-        // frame so the group is not empty on start.
-        root.systemRepos = root.parseRepos(mirrorBackend.systemRepos)
     }
 
     // Whether closing the window should hand it to the tray. Bound, not copied:
@@ -631,80 +627,6 @@ Kirigami.ApplicationWindow {
         { token: "held", label: i18nd("kxbps", "On hold"), icon: "object-locked" }
     ]
 
-    // `xbps-query -L` plus the `.conf` files, as `{url, count, signed, file}`.
-    // The sidebar only reports them: a package's repository is known for search
-    // hits alone, so the rows must not pretend to filter the installed set.
-    property var systemRepos: []
-    function parseRepos(json) {
-        try {
-            const parsed = JSON.parse(json)
-            if (!Array.isArray(parsed)) {
-                return []
-            }
-            // `-L` and the `.conf` files can name the same repository more than
-            // once (a base URL and its `/current` form, or several files with
-            // the same value). The sidebar is a list of repositories, not of
-            // files, so one row per repository is the honest view.
-            const seen = []
-            return parsed.filter(repo => {
-                if (typeof repo.url !== "string" || repo.url.length === 0) {
-                    return false
-                }
-                const key = repo.url.replace(/\/+$/, "").replace(/\/current$/, "")
-                if (seen.indexOf(key) >= 0) {
-                    return false
-                }
-                seen.push(key)
-                return true
-            })
-        } catch (error) {
-            return []
-        }
-    }
-    // A repository URL as a sidebar row: the host, then the path that tells two
-    // repositories on one host apart. `https://repo-fi.voidlinux.org/current`
-    // reads as `repo-fi.voidlinux.org`. A third-party repository keeps its first
-    // path segment, because the host alone would name two of them the same.
-    function shortRepo(url) {
-        let rest = url.indexOf("://") >= 0 ? url.slice(url.indexOf("://") + 3) : url
-        if (rest.endsWith("/")) {
-            rest = rest.slice(0, -1)
-        }
-        const slash = rest.indexOf("/")
-        if (slash < 0) {
-            return rest
-        }
-        const host = rest.slice(0, slash)
-        const path = rest.slice(slash + 1)
-        // The official layout is `<base>/current[/<component>]`. The component
-        // after `current` is what tells multilib from nonfree; dropping it made
-        // three different repositories read as the same row.
-        const tail = path === "current" ? "" : path.replace(/^current\//, "")
-        return tail.length === 0 ? host : host + "/" + tail
-    }
-
-    // A repository is in use when its URL is the one the system half reports:
-    // `-L` lists `<base>current`, so both spellings match.
-    function repoInUse(url) {
-        const base = mirrorBackend.systemMirror
-        if (base.length === 0 || url.length === 0) {
-            return false
-        }
-        return url === base || url === base.replace(/\/+$/, "") + "/current"
-    }
-
-    // Counts for the status bar: what the filters show is not the machine's
-    // total, so the total is summed once here over the model's own filters.
-    property int upgradableBadge: installedBackend.updatesCount
-
-    // The repository rows open the Mirrors page on the repository they name.
-    function showRepository(url) {
-        section = "mirrors"
-        if (url.length > 0) {
-            mirrorBackend.currentMirror = url
-        }
-    }
-
     // Refreshing xbps: the installed set and the repository list are two
     // different reads, and the toolbar's button refreshes both.
     function refreshAll() {
@@ -821,45 +743,6 @@ Kirigami.ApplicationWindow {
                         Layout.bottomMargin: Kirigami.Units.smallSpacing
                     }
 
-                    QQC2.Label {
-                        Layout.fillWidth: true
-                        Layout.leftMargin: Kirigami.Units.smallSpacing
-                        Layout.bottomMargin: Kirigami.Units.smallSpacing
-                        text: i18nd("kxbps", "Repository")
-                        font.family: Kirigami.Theme.smallFont.family
-                        font.pixelSize: Kirigami.Theme.smallFont.pixelSize
-                        font.capitalization: Font.AllUppercase
-                        color: Kirigami.Theme.disabledTextColor
-                        elide: Text.ElideRight
-                    }
-
-                    Repeater {
-                        model: root.systemRepos
-
-                        NavItem {
-                            required property var modelData
-                            Layout.fillWidth: true
-                            compact: true
-                            muted: true
-                            label: root.shortRepo(modelData.url)
-                            badgeText: root.repoInUse(modelData.url) ? i18nd("kxbps", "In use") : ""
-                            Accessible.name: modelData.url
-                            QQC2.ToolTip.visible: hovered
-                            QQC2.ToolTip.text: modelData.url
-                            onClicked: root.showRepository(modelData.url)
-                        }
-                    }
-
-                    QQC2.Label {
-                        Layout.fillWidth: true
-                        Layout.leftMargin: Kirigami.Units.smallSpacing
-                        visible: root.systemRepos.length === 0
-                        text: i18nd("kxbps", "No repository read yet")
-                        font: Kirigami.Theme.smallFont
-                        color: Kirigami.Theme.disabledTextColor
-                        elide: Text.ElideRight
-                    }
-
                     Item {
                         Layout.fillHeight: true
                     }
@@ -949,8 +832,13 @@ Kirigami.ApplicationWindow {
                 Layout.fillHeight: true
                 spacing: 0
 
+                // The window toolbar. It exists only where it carries an
+                // action: the package list and the mirrors page. Query and
+                // Settings have their own controls, and an empty bar above
+                // them said nothing.
                 Rectangle {
                     Layout.fillWidth: true
+                    visible: root.section === "packages" || root.section === "mirrors"
                     implicitHeight: toolbarLayout.implicitHeight
                                     + Kirigami.Units.smallSpacing * 2
                     color: Kirigami.Theme.backgroundColor
@@ -992,7 +880,7 @@ Kirigami.ApplicationWindow {
                             // The repository query belongs to the package page;
                             // a pattern typed elsewhere would also change what
                             // that page shows when it comes back.
-                            enabled: root.section === "packages"
+                            visible: root.section === "packages"
                             placeholderText: i18nd("kxbps", "Search packages…")
                             text: packagesView.searchText
                             onTextChanged: packagesView.searchText = text
@@ -1164,15 +1052,6 @@ Kirigami.ApplicationWindow {
 
     // The repository list is read once at start, and again whenever the
     // Mirrors page or a job changes what xbps reads.
-    Connections {
-        target: mirrorBackend
-        function onSystemReposChanged() {
-            root.systemRepos = root.parseRepos(mirrorBackend.systemRepos)
-        }
-    }
-
-    // The sidebar's repository rows and the Mirrors page share one read, so
-    // the first frame does not sit on an empty list.
     onVisibleChanged: {
         if (visible) {
             mirrorBackend.refreshSystem()
