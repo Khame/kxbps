@@ -405,6 +405,10 @@ const DOWNLOAD_PROPERTIES: &[&str] = &[
     "short_desc",
     "homepage",
     "license",
+    // The unpacked size of the version in the index: the plain take only has
+    // it for an installed package, and a package page wants the number before
+    // the install as well.
+    "installed_size",
     "filename-size",
     "repository",
 ];
@@ -508,7 +512,10 @@ pub fn read_package(
         short_desc: preferred(&plain, &download, "short_desc"),
         homepage: preferred(&plain, &download, "homepage"),
         license: preferred(&plain, &download, "license"),
-        installed_size: value_of(&plain, "installed_size"),
+        // The unpacked size: the installed record's when the package is
+        // installed, otherwise the repository's, which is what installing it
+        // would take on disk.
+        installed_size: preferred(&plain, &download, "installed_size"),
         repository: preferred(&plain, &download, "repository"),
         state: if installed {
             "installed"
@@ -1131,7 +1138,7 @@ mod tests {
             (
                 "-R -p",
                 ok_reply(
-                    "vim-9.2.1031_1\nVim editor (vi clone)\nhttps://www.vim.org\nVim\n1735KB\nhttps://repo-de.voidlinux.org/current\n",
+                    "vim-9.2.1031_1\nVim editor (vi clone)\nhttps://www.vim.org\nVim\n4851KB\n1735KB\nhttps://repo-de.voidlinux.org/current\n",
                 ),
             ),
             ("-x", ok_reply("glibc>=2.41_1\n")),
@@ -1174,7 +1181,7 @@ mod tests {
                     "xbps-query",
                     "-R",
                     "-p",
-                    "pkgver,short_desc,homepage,license,filename-size,repository",
+                    "pkgver,short_desc,homepage,license,installed_size,filename-size,repository",
                     "vim-9.2.1031_1",
                 ],
                 vec!["xbps-query", "-x", "vim"],
@@ -1199,7 +1206,7 @@ mod tests {
             (
                 "-R -p",
                 ok_reply(
-                    "zramen-1.0.1_1\nManage zram swap space\nhttps://github.com/atweiden/zramen\nUnlicense\n5505B\nhttps://repo-de.voidlinux.org/current\n",
+                    "zramen-1.0.1_1\nManage zram swap space\nhttps://github.com/atweiden/zramen\nUnlicense\n2307B\n5505B\nhttps://repo-de.voidlinux.org/current\n",
                 ),
             ),
             (
@@ -1221,9 +1228,9 @@ mod tests {
         assert_eq!(facts.license, "Unlicense");
         assert_eq!(facts.filename_size, "5505B");
         assert_eq!(facts.state, "not installed");
-        assert!(
-            facts.installed_size.is_empty(),
-            "a package that is not installed reports no installed size"
+        assert_eq!(
+            facts.installed_size, "2307B",
+            "the repository says what the package will take on disk"
         );
         assert!(
             facts.depends.is_empty(),
@@ -1246,7 +1253,7 @@ mod tests {
             (
                 "-R -p",
                 ok_reply(
-                    "vim-9.2.2000_1\nVim editor (vi clone)\nhttps://www.vim.org\nVim\n1800KB\nhttps://repo-de.voidlinux.org/current\n",
+                    "vim-9.2.2000_1\nVim editor (vi clone)\nhttps://www.vim.org\nVim\n5000KB\n1800KB\nhttps://repo-de.voidlinux.org/current\n",
                 ),
             ),
             ("-x", ok_reply("glibc>=2.41_1\n")),
@@ -1263,7 +1270,10 @@ mod tests {
             facts.filename_size, "1800KB",
             "the download size only the repository take reports"
         );
-        assert_eq!(facts.installed_size, "2125KB");
+        assert_eq!(
+            facts.installed_size, "2125KB",
+            "the installed record's size wins over the repository's"
+        );
     }
 
     #[test]
@@ -1279,7 +1289,7 @@ mod tests {
             (
                 "-R -p",
                 ok_reply(
-                    "nope-1_1\nNot here\nhttps://example.org\nMIT\n1234B\nhttps://repo-de.voidlinux.org/current\n",
+                    "nope-1_1\nNot here\nhttps://example.org\nMIT\n4321B\n1234B\nhttps://repo-de.voidlinux.org/current\n",
                 ),
             ),
             // `-x`/`-X` are not in the table: a call to them panics the fake.
@@ -1293,7 +1303,7 @@ mod tests {
         let facts = read_package(&*spy, "nope", "nope-1_1").expect("the repository answers");
         assert!(!facts.installed);
         assert_eq!(facts.state, "not installed");
-        assert!(facts.installed_size.is_empty());
+        assert_eq!(facts.installed_size, "4321B");
         assert!(facts.depends.is_empty());
         assert!(facts.required_by.is_empty());
         assert_eq!(
