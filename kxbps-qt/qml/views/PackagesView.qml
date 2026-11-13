@@ -177,6 +177,19 @@ Item {
         }
     }
 
+    // One selection, whatever moved it: a click and the keyboard both land
+    // here, so the row highlight and the details pane follow either. The
+    // delegate is the only place the row's fields are safe to read; a delegate
+    // that is being created or destroyed has no name yet.
+    function select(item) {
+        if (item === null || item === undefined || item.packageName === undefined
+                || item.packageName.length === 0) {
+            return
+        }
+        view.selectedName = item.packageName
+        view.selectedPkgver = item.packagePkgver
+    }
+
     // Drops the selection, so the details area closes with the row it described.
     function clearSelection() {
         view.selectedName = ""
@@ -718,6 +731,8 @@ Item {
                     clip: true
                     model: view.packages
                     currentIndex: -1
+                    // Arrow keys move the current row; the selection follows it.
+                    onCurrentItemChanged: view.select(currentItem)
                     // A model reset (filter or search change) drops the current row: the
                     // window must not keep acting on a row that is no longer on screen.
                     onCountChanged: {
@@ -747,8 +762,7 @@ Item {
                         selected: view.selectedName === packageName
                                   && view.selectedPkgver === packagePkgver
                         onClicked: {
-                            view.selectedName = packageName
-                            view.selectedPkgver = packagePkgver
+                            view.select(this)
                             list.currentIndex = index
                         }
                     }
