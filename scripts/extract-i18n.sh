@@ -68,6 +68,7 @@ kxbps-core/src/store.rs
 kxbps-core/src/transaction.rs
 kxbps-qt/src/plan_backend.rs
 kxbps-qt/src/job_backend.rs
+kxbps-qt/src/mirror_backend.rs
 kxbps-qt/src/xbps_snapshot.rs
 kxbps-qt/src/xbps_plan.rs
 "

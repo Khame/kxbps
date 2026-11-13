@@ -23,8 +23,8 @@ pub use engine::{
 };
 pub use format::{ByteUnit, action_key, byte_decimals, format_bytes, reason_key};
 pub use mirror_apply::{
-    ApplyRequest, ApplyResult, Cli, Exit, HELPER_PATH, XBPS_INSTALL, XBPS_QUERY, apply, check_url,
-    last_line, sync_argv, verify_argv, verify_repos,
+    ApplyRequest, ApplyResult, Cli, Exit, HELPER_PATH, XBPS_QUERY, apply, check_url, last_line,
+    verify_argv, verify_repos,
 };
 pub use mirror_config::{
     BACKUP_SUFFIX, Backup, ConfigError, ParseReason, Previous, SYSTEM_CONFIG_PATH, SystemConfig,

@@ -18,6 +18,8 @@
 //! owner of the [`Store`](kxbps_core::Store); this backend reads it at startup
 //! and writes through the store on every change, so a restart remembers it.
 
+use std::os::unix::fs::PermissionsExt;
+use std::path::Path;
 use std::pin::Pin;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
@@ -143,6 +145,14 @@ pub mod qobject {
         /// An apply job is running: the slot refuses a second one, and the
         /// button must say so before the round trip.
         #[qproperty(bool, apply_busy, READ, NOTIFY)]
+        /// Whether the privileged helper and its polkit action are installed.
+        /// Read once at startup: installing them needs a restart to take
+        /// effect, and a file check on every button click would only race the
+        /// package manager.
+        #[qproperty(bool, helper_ready, READ, CONSTANT)]
+        /// The `errorMirrorHelper*` key when `helperReady` is false; empty
+        /// otherwise. QML turns it into the sentence next to the button.
+        #[qproperty(QString, helper_error_key, READ, CONSTANT)]
         type MirrorBackend = super::MirrorBackendRust;
 
         #[qinvokable]
@@ -324,6 +334,12 @@ pub struct MirrorBackendRust {
     apply_state: ApplyState,
     /// `apply_state.is_busy()`, because a `#[qproperty]` reads a plain field.
     apply_busy: bool,
+    /// The helper and its polkit action are both on disk; see
+    /// [`helper_state`]. Read once, because the answer cannot change while
+    /// this process runs without a reinstall.
+    helper_ready: bool,
+    /// The key for the reason `helper_ready` is false; empty when it is true.
+    helper_error_key: QString,
     /// How many system reads were started; only the newest may write.
     system_generation: Arc<AtomicU64>,
     /// The transport the system read uses; tests install a fake.
@@ -335,6 +351,7 @@ pub struct MirrorBackendRust {
 impl Default for MirrorBackendRust {
     /// Only used before `initialize` runs; the model stays null until then.
     fn default() -> Self {
+        let helper = helper_state(Path::new(HELPER_PATH), Path::new(POLICY_PATH));
         Self {
             model: unsafe { QObjectMutPtr::from_raw(std::ptr::null_mut()) },
             owner: unsafe { QObjectMutPtr::from_raw(std::ptr::null_mut()) },
@@ -353,6 +370,8 @@ impl Default for MirrorBackendRust {
             system_loading: false,
             apply_state: ApplyState::default(),
             apply_busy: false,
+            helper_ready: helper.ready(),
+            helper_error_key: QString::from(helper.key()),
             system_generation: Arc::new(AtomicU64::new(0)),
             invoke: production_invoke(),
             config_path: std::path::PathBuf::from(SYSTEM_CONFIG),
@@ -846,9 +865,138 @@ fn probe_url(handle: usize, url: &str) -> Option<ProbeOutcome> {
     ProbeOutcome::classify(code, measure(start))
 }
 
+/// The installed helper and the polkit action that authorizes it.
+///
+/// `packaging/install.sh` writes both; the policy's `exec.path` names the same
+/// helper path. The check lives here, not in QML, because a missing helper is a
+/// fact about the system and the button has to say why it is disabled before
+/// `pkexec` fails with a code nobody can act on.
+pub const HELPER_PATH: &str = "/usr/libexec/kxbps-mirror-apply";
+pub const POLICY_PATH: &str = "/usr/share/polkit-1/actions/io.github.khame.kxbps.policy";
+
+/// What the privileged half of "Apply to system" is missing.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum HelperState {
+    /// Helper and policy are both installed; an apply may ask for a password.
+    Ready,
+    /// No helper at [`HELPER_PATH`].
+    MissingHelper,
+    /// The helper exists but cannot be executed.
+    NotExecutable,
+    /// The helper exists, but polkit has no action to authorize it.
+    MissingPolicy,
+}
+
+impl HelperState {
+    /// True only when an apply can be attempted.
+    pub fn ready(self) -> bool {
+        self == Self::Ready
+    }
+
+    /// The translation key for the reason; empty when ready.
+    pub fn key(self) -> &'static str {
+        match self {
+            Self::Ready => "",
+            Self::MissingHelper => "errorMirrorHelperMissing",
+            Self::NotExecutable => "errorMirrorHelperNotExecutable",
+            Self::MissingPolicy => "errorMirrorPolicyMissing",
+        }
+    }
+}
+
+/// Checks the two files an apply needs. Any unreadable helper path counts as
+/// missing: a permission error on `/usr/libexec` is the same dead end for the
+/// user as an absent file.
+pub fn helper_state(helper: &Path, policy: &Path) -> HelperState {
+    let metadata = match std::fs::metadata(helper) {
+        Ok(metadata) => metadata,
+        Err(_) => return HelperState::MissingHelper,
+    };
+    if !metadata.is_file() {
+        return HelperState::MissingHelper;
+    }
+    if metadata.permissions().mode() & 0o111 == 0 {
+        return HelperState::NotExecutable;
+    }
+    if !policy.is_file() {
+        return HelperState::MissingPolicy;
+    }
+    HelperState::Ready
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn temp_dir(name: &str) -> std::path::PathBuf {
+        let dir = std::env::temp_dir().join(format!("kxbps-helper-{name}-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).expect("temp dir");
+        dir
+    }
+
+    fn write(path: &Path, executable: bool) {
+        std::fs::write(path, b"#!/bin/sh\nexit 0\n").expect("write");
+        let mut permissions = std::fs::metadata(path).expect("metadata").permissions();
+        permissions.set_mode(if executable { 0o755 } else { 0o644 });
+        std::fs::set_permissions(path, permissions).expect("chmod");
+    }
+
+    #[test]
+    fn a_ready_helper_needs_both_files_and_the_exec_bit() {
+        let dir = temp_dir("ready");
+        let helper = dir.join("kxbps-mirror-apply");
+        let policy = dir.join("kxbps.policy");
+        write(&helper, true);
+        write(&policy, false);
+        assert_eq!(helper_state(&helper, &policy), HelperState::Ready);
+        assert!(helper_state(&helper, &policy).ready());
+    }
+
+    #[test]
+    fn a_missing_helper_is_named_as_such() {
+        let dir = temp_dir("missing");
+        let policy = dir.join("kxbps.policy");
+        write(&policy, false);
+        assert_eq!(
+            helper_state(&dir.join("absent"), &policy),
+            HelperState::MissingHelper
+        );
+    }
+
+    #[test]
+    fn a_helper_without_the_exec_bit_is_not_ready() {
+        let dir = temp_dir("noexec");
+        let helper = dir.join("kxbps-mirror-apply");
+        let policy = dir.join("kxbps.policy");
+        write(&helper, false);
+        write(&policy, false);
+        assert_eq!(helper_state(&helper, &policy), HelperState::NotExecutable);
+    }
+
+    #[test]
+    fn a_missing_policy_is_named_as_such() {
+        let dir = temp_dir("nopolicy");
+        let helper = dir.join("kxbps-mirror-apply");
+        write(&helper, true);
+        assert_eq!(
+            helper_state(&helper, &dir.join("absent.policy")),
+            HelperState::MissingPolicy
+        );
+    }
+
+    #[test]
+    fn only_ready_has_no_message() {
+        assert_eq!(HelperState::Ready.key(), "");
+        for state in [
+            HelperState::MissingHelper,
+            HelperState::NotExecutable,
+            HelperState::MissingPolicy,
+        ] {
+            assert!(!state.key().is_empty());
+            assert!(!state.ready());
+        }
+    }
 
     #[test]
     fn an_answer_is_ok_with_its_latency() {

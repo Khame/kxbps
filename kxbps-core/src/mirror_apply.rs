@@ -1,5 +1,4 @@
-//! The engine behind `kxbps-mirror-apply`: validate, write, sync, verify or
-//! revert.
+//! The engine behind `kxbps-mirror-apply`: validate, write, verify or revert.
 //!
 //! One helper process does the whole thing under one authorization:
 //!
@@ -9,12 +8,12 @@
 //! 2. **Write** `00-repository-main.conf` with a `.kxbps-bak` backup of the
 //!    previous bytes (see [`crate::mirror_config`]). A write failure, including
 //!    a symlinked target, exits 3.
-//! 3. **Sync** with `xbps-install -S` — no `-y`, and stdin is `/dev/null`, so a
-//!    repository that wants a new key gets an error instead of a hang.
-//! 4. **Verify** with `xbps-query -L`: the new URL must be listed with a count
-//!    of at least zero. `-1` is "no index" and is not success.
-//! 5. **Revert** the previous bytes on any failure after the write: exit 4 when
-//!    the revert worked, exit 5 when it did not.
+//! 3. **Verify** with `xbps-query -L`: the new URL must be listed. The count is
+//!    not checked: a mirror that was never synced has no local index yet, and
+//!    that is exactly the state a URL change leaves behind. No network command
+//!    runs here.
+//! 4. **Revert** the previous bytes on a failed verification: exit 4 when the
+//!    revert worked, exit 5 when it did not.
 //!
 //! The commands and every path are injected, so the tests drive the whole
 //! pipeline without root and without xbps. The production entry point is
@@ -23,7 +22,7 @@
 //! ```
 //! use kxbps_core::mirror_apply::{Exit, check_url};
 //!
-//! assert_eq!(Exit::from_code(4), Some(Exit::SyncFailed));
+//! assert_eq!(Exit::from_code(4), Some(Exit::VerifyFailed));
 //! assert!(check_url("http://repo-default.voidlinux.org/").is_err());
 //! ```
 
@@ -43,17 +42,18 @@ use crate::xbps::parse_repos;
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 #[repr(u8)]
 pub enum Exit {
-    /// Written, synced and verified.
+    /// Written and verified.
     Ok = 0,
     /// The URL was refused before any write: plain HTTP, malformed, or not a
     /// base URL.
     UrlRefused = 2,
     /// The configuration could not be written (including a symlinked target).
     WriteFailed = 3,
-    /// `xbps-install -S` failed and the previous file was restored.
-    SyncFailed = 4,
-    /// `xbps-install -S` failed and the revert failed too.
-    SyncAndRevertFailed = 5,
+    /// `xbps-query -L` does not list the new URL, and the previous file was
+    /// restored.
+    VerifyFailed = 4,
+    /// The verification failed and the revert failed too.
+    VerifyAndRevertFailed = 5,
 }
 
 impl Exit {
@@ -68,8 +68,8 @@ impl Exit {
             0 => Some(Self::Ok),
             2 => Some(Self::UrlRefused),
             3 => Some(Self::WriteFailed),
-            4 => Some(Self::SyncFailed),
-            5 => Some(Self::SyncAndRevertFailed),
+            4 => Some(Self::VerifyFailed),
+            5 => Some(Self::VerifyAndRevertFailed),
             _ => None,
         }
     }
@@ -80,8 +80,8 @@ impl Exit {
             Self::Ok => "",
             Self::UrlRefused => "errorMirrorUrlRefused",
             Self::WriteFailed => "errorMirrorWrite",
-            Self::SyncFailed => "errorMirrorSync",
-            Self::SyncAndRevertFailed => "errorMirrorRevert",
+            Self::VerifyFailed => "errorMirrorVerify",
+            Self::VerifyAndRevertFailed => "errorMirrorRevert",
         }
     }
 
@@ -107,15 +107,10 @@ pub fn check_url(url: &str) -> Result<String, String> {
 /// reason the job shows.
 pub type VerifyFn<'a> = dyn FnMut(&str) -> Result<(), String> + 'a;
 
-/// Runs `xbps-install -S`; `Ok(())` when it exited 0. `Err` carries the exit
-/// code and the last stderr line.
-pub type RunFn<'a> = dyn FnMut() -> Result<(), (i32, String)> + 'a;
-
 /// Everything one Apply touches. All of it is outer-world state, so the tests
-/// hand in a temporary directory and closures instead of root and xbps.
+/// hand in a temporary directory and a closure instead of root and xbps.
 pub struct ApplyRequest<'a> {
     pub config_path: PathBuf,
-    pub run_install: Box<RunFn<'a>>,
     pub verify: Box<VerifyFn<'a>>,
 }
 
@@ -140,23 +135,22 @@ impl ApplyResult {
     }
 }
 
-/// True when `xbps-query -L` lists `url` with a count of at least zero.
+/// True when `xbps-query -L` lists `url`, whatever index count it carries.
 ///
-/// A malformed listing is a failed verification, not a pass: the caller has to
-/// learn about a new format, and an unreadable list cannot confirm anything.
+/// The count is deliberately ignored: a repository that was just written has no
+/// local index yet, so `-1` is the expected state after a URL change, not a
+/// failure. A malformed listing is a failed verification, not a pass: the caller
+/// has to learn about a new format, and an unreadable list cannot confirm
+/// anything.
 pub fn verify_repos(listing: &str, url: &str) -> Result<(), String> {
     let repos = parse_repos(listing).map_err(|error| error.to_string())?;
     match repos.iter().find(|repo| repo.url == url) {
-        Some(repo) if repo.available() => Ok(()),
-        Some(repo) => Err(format!(
-            "{url} is listed with count {}, which means no index",
-            repo.count
-        )),
+        Some(_) => Ok(()),
         None => Err(format!("{url} is not listed by xbps-query -L")),
     }
 }
 
-/// Applies a mirror: validate, write, sync, verify, revert on failure.
+/// Applies a mirror: validate, write, verify, revert on failure.
 ///
 /// The URL is checked before any path is touched, so a refusal never leaves a
 /// backup or a temp file behind.
@@ -201,10 +195,6 @@ pub fn apply(mut request: ApplyRequest<'_>, url: &str) -> ApplyResult {
         };
     }
 
-    if let Err((code, stderr)) = (request.run_install)() {
-        let detail = format!("xbps-install -S exited {code}: {stderr}");
-        return finish(previous, current, base, backup, detail);
-    }
     if let Err(detail) = (request.verify)(&format!("{base}current")) {
         return finish(previous, current, base, backup, detail);
     }
@@ -226,9 +216,9 @@ fn finish(
     detail: String,
 ) -> ApplyResult {
     let (exit, detail) = match revert(&previous) {
-        Ok(()) => (Exit::SyncFailed, detail),
+        Ok(()) => (Exit::VerifyFailed, detail),
         Err(error) => (
-            Exit::SyncAndRevertFailed,
+            Exit::VerifyAndRevertFailed,
             format!("{detail}; revert failed: {}", describe(&error)),
         ),
     };
@@ -256,21 +246,10 @@ pub fn describe(error: &ConfigError) -> String {
     }
 }
 
-/// The argv of the sync command: `xbps-install -S`.
-///
-/// Deliberately no `-y`: it is a yes-to-everything flag and has nothing to
-/// decide here; a missing key still fails on the `/dev/null` stdin.
-pub fn sync_argv() -> Vec<String> {
-    vec![String::from(XBPS_INSTALL), String::from("-S")]
-}
-
 /// The argv of the verification command: `xbps-query -L`.
 pub fn verify_argv() -> Vec<String> {
     vec![String::from(XBPS_QUERY), String::from("-L")]
 }
-
-/// The absolute path of `xbps-install`, as `transaction` names it too.
-pub const XBPS_INSTALL: &str = "/usr/bin/xbps-install";
 
 /// The absolute path of `xbps-query`.
 pub const XBPS_QUERY: &str = "/usr/bin/xbps-query";
@@ -322,7 +301,6 @@ impl Cli {
         apply(
             ApplyRequest {
                 config_path,
-                run_install: Box::new(run_sync),
                 verify: Box::new(run_verify),
             },
             &url,
@@ -330,28 +308,7 @@ impl Cli {
     }
 }
 
-/// Runs `xbps-install -S` with stdin on `/dev/null` and the output captured.
-///
-/// No shell, no `-y`, no timeout of our own: xbps is the one that knows how
-/// long a repository may take, and a key prompt gets EOF instead of a hang.
-fn run_sync() -> Result<(), (i32, String)> {
-    let output = Command::new(command_path(XBPS_INSTALL))
-        .args(sync_argv().iter().skip(1))
-        .stdin(Stdio::null())
-        .output();
-    let output = match output {
-        Ok(output) => output,
-        Err(error) => return Err((-1, error.to_string())),
-    };
-    if output.status.success() {
-        Ok(())
-    } else {
-        let code = output.status.code().unwrap_or(-1);
-        Err((code, last_line(&String::from_utf8_lossy(&output.stderr))))
-    }
-}
-
-/// Runs `xbps-query -L` and checks the new URL is listed with an index.
+/// Runs `xbps-query -L` and checks the new URL is listed.
 fn run_verify(url: &str) -> Result<(), String> {
     let output = Command::new(command_path(XBPS_QUERY))
         .arg("-L")
@@ -427,11 +384,10 @@ mod tests {
         format!("{count} {url} (RSA signed)\n")
     }
 
-    /// A happy-path request: the sync succeeds and `-L` lists the new URL.
+    /// A happy-path request: `-L` lists the new URL.
     fn request<'a>(config_path: &Path) -> ApplyRequest<'a> {
         ApplyRequest {
             config_path: config_path.to_path_buf(),
-            run_install: Box::new(|| Ok(())),
             verify: Box::new(|url| {
                 if url == "https://repo-default.voidlinux.org/current" {
                     Ok(())
@@ -453,21 +409,21 @@ mod tests {
         assert_eq!(Exit::Ok.code(), 0);
         assert_eq!(Exit::UrlRefused.code(), 2);
         assert_eq!(Exit::WriteFailed.code(), 3);
-        assert_eq!(Exit::SyncFailed.code(), 4);
-        assert_eq!(Exit::SyncAndRevertFailed.code(), 5);
+        assert_eq!(Exit::VerifyFailed.code(), 4);
+        assert_eq!(Exit::VerifyAndRevertFailed.code(), 5);
         for exit in [
             Exit::Ok,
             Exit::UrlRefused,
             Exit::WriteFailed,
-            Exit::SyncFailed,
-            Exit::SyncAndRevertFailed,
+            Exit::VerifyFailed,
+            Exit::VerifyAndRevertFailed,
         ] {
             assert_eq!(Exit::from_code(exit.code()), Some(exit));
         }
         assert_eq!(Exit::from_code(1), None);
         assert_eq!(Exit::from_code(126), None);
         assert_eq!(Exit::UrlRefused.key(), "errorMirrorUrlRefused");
-        assert_eq!(Exit::SyncFailed.key(), "errorMirrorSync");
+        assert_eq!(Exit::VerifyFailed.key(), "errorMirrorVerify");
         assert_eq!(
             Exit::UrlRefused.args("https://x/"),
             [String::from("https://x/")]
@@ -480,7 +436,6 @@ mod tests {
         let dir = tempdir("refuse-http");
         let path = dir.join("00-repository-main.conf");
         let mut request = request(&path);
-        request.run_install = Box::new(|| panic!("the sync must not run"));
         request.verify = Box::new(|_| panic!("the verification must not run"));
 
         let result = apply(request, "http://repo-default.voidlinux.org/");
@@ -550,30 +505,29 @@ mod tests {
         let dir = tempdir("no-existing");
         let path = dir.join("00-repository-main.conf");
         let mut request = request(&path);
-        request.run_install = Box::new(|| Err((19, String::from("broken mirror"))));
+        request.verify = Box::new(|_| Err(String::from("broken mirror")));
 
         let result = apply(request, GOOD);
-        assert_eq!(result.exit, Exit::SyncFailed);
+        assert_eq!(result.exit, Exit::VerifyFailed);
         assert!(
             !path.exists(),
             "the file did not exist before the apply, so the revert removes it"
         );
-        assert!(result.detail.contains("19"), "{}", result.detail);
         assert!(result.detail.contains("broken mirror"), "{}", result.detail);
         let _ = fs::remove_dir_all(&dir);
     }
 
     #[test]
-    fn a_failing_sync_restores_the_previous_bytes() {
-        let dir = tempdir("sync-fail");
+    fn a_failing_verify_restores_the_previous_bytes() {
+        let dir = tempdir("verify-fail");
         let path = dir.join("00-repository-main.conf");
         fs::write(&path, MAIN).expect("fixture");
         let before = fs::read(&path).expect("read");
         let mut request = request(&path);
-        request.run_install = Box::new(|| Err((19, String::from("repo-default unreachable"))));
+        request.verify = Box::new(|_| Err(String::from("repo-default unreachable")));
 
         let result = apply(request, GOOD);
-        assert_eq!(result.exit, Exit::SyncFailed, "{}", result.detail);
+        assert_eq!(result.exit, Exit::VerifyFailed, "{}", result.detail);
         assert_eq!(fs::read(&path).expect("read"), before);
         assert_eq!(
             fs::read_to_string(&result.backup).expect("backup"),
@@ -592,28 +546,35 @@ mod tests {
         request.verify = Box::new(|url| Err(format!("{url} is not listed by xbps-query -L")));
 
         let result = apply(request, GOOD);
-        assert_eq!(result.exit, Exit::SyncFailed);
+        assert_eq!(result.exit, Exit::VerifyFailed);
         assert!(result.detail.contains("not listed"), "{}", result.detail);
         assert_eq!(fs::read_to_string(&path).expect("read"), MAIN);
         let _ = fs::remove_dir_all(&dir);
     }
 
     #[test]
-    fn a_failing_sync_with_a_failing_revert_reports_both() {
+    fn a_failing_verify_with_a_failing_revert_reports_both() {
         let dir = tempdir("revert-fail");
         let path = dir.join("00-repository-main.conf");
         fs::write(&path, MAIN).expect("fixture");
         let mut request = request(&path);
+        // The verification fails, and it leaves a symlink in the target's place
+        // so the revert cannot put the previous bytes back.
         let target = path.clone();
-        request.run_install = Box::new(move || {
+        request.verify = Box::new(move |_| {
             break_revert(&target);
-            Err((19, String::from("sync broke")))
+            Err(String::from("verify broke"))
         });
 
         let result = apply(request, GOOD);
-        assert_eq!(result.exit, Exit::SyncAndRevertFailed, "{}", result.detail);
+        assert_eq!(
+            result.exit,
+            Exit::VerifyAndRevertFailed,
+            "{}",
+            result.detail
+        );
         assert_eq!(result.exit.code(), 5);
-        assert!(result.detail.contains("sync broke"), "{}", result.detail);
+        assert!(result.detail.contains("verify broke"), "{}", result.detail);
         assert!(result.detail.contains("revert failed"), "{}", result.detail);
         assert_eq!(
             fs::read_to_string(&result.backup).expect("backup"),
@@ -630,8 +591,7 @@ mod tests {
         fs::write(&real, MAIN).expect("fixture");
         let link = dir.join("00-repository-main.conf");
         symlink(&real, &link).expect("symlink");
-        let mut request = request(&link);
-        request.run_install = Box::new(|| panic!("the sync must not run"));
+        let request = request(&link);
 
         let result = apply(request, GOOD);
         assert_eq!(result.exit, Exit::WriteFailed);
@@ -651,11 +611,12 @@ mod tests {
     }
 
     #[test]
-    fn verify_repos_rejects_a_minus_one_index() {
+    fn a_repo_listed_without_an_index_still_verifies() {
         let text = listing("https://repo-default.voidlinux.org/current", -1);
-        let error = verify_repos(&text, "https://repo-default.voidlinux.org/current")
-            .expect_err("-1 is no index, not success");
-        assert!(error.contains("-1"), "{error}");
+        assert_eq!(
+            verify_repos(&text, "https://repo-default.voidlinux.org/current"),
+            Ok(())
+        );
     }
 
     #[test]
@@ -674,14 +635,9 @@ mod tests {
     }
 
     #[test]
-    fn the_sync_argv_carries_no_yes_flag() {
-        let argv = sync_argv();
-        assert_eq!(argv, ["/usr/bin/xbps-install", "-S"]);
-        assert!(
-            !argv.iter().any(|arg| arg == "-y" || arg == "--yes"),
-            "`-y` would answer prompts nobody asked: {argv:?}"
-        );
-        assert_eq!(verify_argv(), ["/usr/bin/xbps-query", "-L"]);
+    fn the_verify_argv_is_xbps_query_l() {
+        let argv = verify_argv();
+        assert_eq!(argv, ["/usr/bin/xbps-query", "-L"]);
     }
 
     #[test]
@@ -719,7 +675,10 @@ mod tests {
 
     #[test]
     fn a_refused_argument_list_ends_on_exit_code_2() {
-        let normal = Cli::parse([OsString::from("xbps-install"), OsString::from("-S")]);
+        let normal = Cli::parse([
+            OsString::from("https://a.example/"),
+            OsString::from("https://b.example/"),
+        ]);
         assert!(normal.url.is_none(), "two arguments are never guessed");
         let refused = normal.run();
         assert_eq!(refused.exit, Exit::UrlRefused);
@@ -741,13 +700,12 @@ mod tests {
     }
 
     #[test]
-    fn the_cli_writes_syncs_and_verifies_with_the_fake_commands() {
+    fn the_cli_writes_and_verifies_with_the_fake_commands() {
         let dir = tempdir("cli-ok");
         let path = dir.join("00-repository-main.conf");
         let listing = format!("7 {GOOD}current (RSA signed)");
-        let script = format!(
-            "#!/bin/sh\ncase \"$1\" in\n  -S) exit 0 ;;\n  -L) echo '{listing}' ;;\n  *) exit 9 ;;\nesac\n"
-        );
+        let script =
+            format!("#!/bin/sh\ncase \"$1\" in\n  -L) echo '{listing}' ;;\n  *) exit 9 ;;\nesac\n");
         let bin = write_fake_xbps(&dir, &script);
 
         let result = with_fake_xbps(&bin, || cli_over(&path, Some(GOOD)).run());
@@ -767,24 +725,23 @@ mod tests {
     }
 
     #[test]
-    fn a_failed_sync_ends_on_a_documented_code_and_leaves_no_config() {
-        // The fake fails the way a normal user's real `xbps-install -S` does,
-        // with a permission error. The test used to run the real command, which
-        // made the suite take the real database lock and wait on it.
-        let dir = tempdir("cli-sync-fail");
+    fn a_failed_verify_ends_on_a_documented_code_and_leaves_no_config() {
+        // The fake fails the way a real `xbps-query -L` does when the database
+        // is unreadable: a non-zero exit and one stderr line.
+        let dir = tempdir("cli-verify-fail");
         let path = dir.join("00-repository-main.conf");
-        let script = "#!/bin/sh\ncase \"$1\" in\n  -S) echo 'xbps-install: Operation not permitted' >&2; exit 19 ;;\n  *) exit 9 ;;\nesac\n";
+        let script = "#!/bin/sh\ncase \"$1\" in\n  -L) echo 'xbps-query: database locked' >&2; exit 1 ;;\n  *) exit 9 ;;\nesac\n";
         let bin = write_fake_xbps(&dir, script);
 
         let result = with_fake_xbps(&bin, || cli_over(&path, Some(GOOD)).run());
         assert_eq!(
             result.exit,
-            Exit::SyncFailed,
-            "a sync failure is code 4, not a panic: {}",
+            Exit::VerifyFailed,
+            "a verification failure is code 4, not a panic: {}",
             result.detail
         );
         assert!(
-            result.detail.contains("Operation not permitted"),
+            result.detail.contains("database locked"),
             "the helper keeps xbps' own sentence: {}",
             result.detail
         );

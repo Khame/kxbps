@@ -489,29 +489,19 @@ fn mirror_verdict(code: i32, detail: &str, url: &str) -> Verdict {
 
 /// The verdict of one documented helper failure.
 ///
-/// Arguments follow the brief's table (`task-20-brief.md` §3):
+/// Arguments follow the helper's own contract:
 /// - `errorMirrorUrlRefused` takes `%1` = the URL the helper refused, from
 ///   [`Exit::args`] — the job's own base, so a refusal names what was asked for.
-/// - `errorMirrorSync` takes `%1` = the `xbps-install -S` exit code and
-///   `%2` = its last stderr line. The helper's `detail` carries both glued
-///   together (`"xbps-install -S exited 19: <line>"`), so only the trailing
-///   line is peeled off; the code is the number, not a prefix of a sentence.
-/// - `errorMirrorWrite` and `errorMirrorRevert` take `%1` = the path the helper
-///   names. Divergence from the brief, documented here: the stderr detail
-///   *is* an English sentence that already contains the path, and the job has
-///   no other source for it. Passing the sentence as `%1` keeps the message
-///   readable instead of printing the same text twice; inventing a path by
-///   parsing the sentence would guess. The keys' `%1` intent ("path") is kept
-///   for a helper that eventually emits a bare path.
+/// - `errorMirrorWrite`, `errorMirrorVerify` and `errorMirrorRevert` take `%1`
+///   = the helper's English sentence, which already names the path or the URL
+///   it could not confirm. Inventing a path by parsing the sentence would
+///   guess, and printing the same text twice helps nobody.
 fn mirror_failed(exit: Exit, code: i32, detail: &str, url: &str) -> Verdict {
     let args = match exit {
         Exit::UrlRefused => exit.args(url),
-        // `errorMirrorSync` wants the code and the line on their own.
-        Exit::SyncFailed | Exit::SyncAndRevertFailed => vec![
-            sync_exit_code(detail).unwrap_or_else(|| code.to_string()),
-            sync_stderr_tail(detail).to_owned(),
-        ],
-        Exit::Ok | Exit::WriteFailed => vec![detail.to_owned()],
+        Exit::Ok | Exit::WriteFailed | Exit::VerifyFailed | Exit::VerifyAndRevertFailed => {
+            vec![detail.to_owned()]
+        }
     };
     Verdict {
         done: true,
@@ -521,29 +511,6 @@ fn mirror_failed(exit: Exit, code: i32, detail: &str, url: &str) -> Verdict {
         key: exit.key(),
         args,
     }
-}
-
-/// The `xbps-install -S` exit code the helper's detail starts with.
-///
-/// `snapshot_previous`/`finish` in `kxbps_core::mirror_apply` format the line as
-/// `xbps-install -S exited <code>: <stderr>`; a detail that does not start that
-/// way is not a sync failure and answers `None`, so the caller falls back to the
-/// helper's own exit code.
-fn sync_exit_code(detail: &str) -> Option<String> {
-    let rest = detail.strip_prefix("xbps-install -S exited ")?;
-    let (code, _) = rest.split_once(':')?;
-    let code = code.trim();
-    (!code.is_empty() && code.chars().all(|c| c.is_ascii_digit() || c == '-'))
-        .then(|| code.to_owned())
-}
-
-/// Everything after the first `": "` of the helper's `-S` line, or the whole
-/// detail when it has no separator: the last stderr line `xbps-install` printed.
-fn sync_stderr_tail(detail: &str) -> &str {
-    detail
-        .split_once(": ")
-        .map(|(_, tail)| tail)
-        .unwrap_or(detail)
 }
 
 /// Everything a finished job shows.
@@ -1451,9 +1418,9 @@ mod tests {
         );
         assert_eq!(
             JobKind::MirrorApply
-                .verdict(4, "xbps-install -S exited 19", url)
+                .verdict(4, "the URL is not listed by xbps-query -L", url)
                 .key,
-            "errorMirrorSync"
+            "errorMirrorVerify"
         );
         assert_eq!(
             JobKind::MirrorApply.verdict(5, "both", url).key,
@@ -1491,24 +1458,21 @@ mod tests {
                 .any(|arg| arg == "plain HTTP is not allowed")
         );
 
-        // `errorMirrorSync` %1 = the `-S` exit code, %2 = its stderr tail.
-        let sync = JobKind::MirrorApply.verdict(
+        // `errorMirrorVerify` %1 = the helper's sentence: the URL was written
+        // but xbps-query -L does not list it.
+        let verify = JobKind::MirrorApply.verdict(
             4,
-            "xbps-install -S exited 19: failed to fetch repodata",
-            eval_url,
-        );
-        assert_eq!(sync.args, ["19", "failed to fetch repodata"]);
-
-        // `errorMirrorRevert` %1 = the helper's sentence, which names the path.
-        let revert = JobKind::MirrorApply.verdict(
-            5,
-            "xbps-install -S exited 19: EOF; revert failed: /etc/xbps.d denied",
+            "https://repo-de.voidlinux.org/current is not listed by xbps-query -L",
             eval_url,
         );
         assert_eq!(
-            revert.args,
-            ["19", "EOF; revert failed: /etc/xbps.d denied"]
+            verify.args,
+            ["https://repo-de.voidlinux.org/current is not listed by xbps-query -L"]
         );
+
+        // `errorMirrorRevert` %1 = the helper's sentence, which names the path.
+        let revert = JobKind::MirrorApply.verdict(5, "revert failed: /etc/xbps.d denied", eval_url);
+        assert_eq!(revert.args, ["revert failed: /etc/xbps.d denied"]);
 
         // `errorMirrorWrite` %1 = the helper's sentence; it names the path.
         let write = JobKind::MirrorApply.verdict(
@@ -1523,11 +1487,17 @@ mod tests {
     }
 
     #[test]
-    fn a_sync_failure_without_the_expected_prefix_falls_back_to_the_exit_code() {
-        // The helper's own detail never looks like this; the fallback exists so
-        // a wording change shows the code rather than an empty `%1`.
-        let sync = JobKind::MirrorApply.verdict(4, "sync broke", "https://a.example/");
-        assert_eq!(sync.args, ["4", "sync broke"]);
+    fn a_verify_failure_carries_the_helper_sentence_as_its_only_argument() {
+        let verify = JobKind::MirrorApply.verdict(
+            4,
+            "https://repo-de.voidlinux.org/current is not listed by xbps-query -L",
+            "https://repo-de.voidlinux.org/",
+        );
+        assert_eq!(
+            verify.args,
+            ["https://repo-de.voidlinux.org/current is not listed by xbps-query -L"]
+        );
+        assert_eq!(verify.key, "errorMirrorVerify");
     }
 
     #[test]

@@ -25,11 +25,11 @@
     </defaults>
   </action>
 
-  <!-- Apply to system: the helper writes 00-repository-main.conf, runs
-       `xbps-install -S` and reverts on failure, all under one authorization. -->
+  <!-- Apply to system: the helper writes 00-repository-main.conf and reverts
+       on failure, all under one authorization. -->
   <action id="io.github.khame.kxbps.mirror">
     <description>Apply a repository mirror to the system configuration</description>
-    <message>Authentication is required to change the system repository and sync it</message>
+    <message>Authentication is required to change the system repository</message>
     <annotate key="org.freedesktop.policykit.exec.path">/usr/libexec/kxbps-mirror-apply</annotate>
     <defaults>
       <allow_active>auth_admin</allow_active>

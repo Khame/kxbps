@@ -46,9 +46,10 @@ not compute the steps, order them, or add a package xbps did not print.
 
 The real transaction is always `pkexec /usr/bin/xbps-install -y <pkgvers>` or
 `pkexec /usr/bin/xbps-remove -y <pkgvers>`, built as an argument list and never
-as a shell string. The mirror helper runs `xbps-install -S` after writing its
-configuration file, which is the only file KXbps ever writes outside its own
-state directory.
+as a shell string. The mirror helper writes `/etc/xbps.d/00-repository-main.conf`
+and nothing else; it does not sync the repository index, because the URL is the
+only thing a mirror change decides. `00-repository-main.conf` is the only file
+KXbps ever writes outside its own state directory.
 
 ## Exit codes
 
@@ -78,11 +79,11 @@ Mirror helper (`/usr/libexec/kxbps-mirror-apply`):
 
 | Code | Meaning |
 | --- | --- |
-| `0` | written, synced and verified |
+| `0` | written and verified |
 | `2` | URL refused before any write (plain HTTP, malformed, not a base URL) |
 | `3` | the configuration could not be written |
-| `4` | `xbps-install -S` failed and the previous file was restored |
-| `5` | the sync failed and so did the revert |
+| `4` | `xbps-query -L` does not list the new URL; the previous file was restored |
+| `5` | the verification failed and so did the revert |
 
 `126`, `127` and `-1` keep their `pkexec` meaning for the helper as well.
 
