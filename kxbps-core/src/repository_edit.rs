@@ -100,26 +100,47 @@ pub fn check_url(url: &str) -> Result<&str, RepoError> {
 
 /// The file name this helper uses for `url`: stable, readable and inside the
 /// prefix removal accepts.
+///
+/// The name is the host plus the whole path, because that is what tells two
+/// repositories apart: `repo-de.voidlinux.org/current/multilib` and `…/nonfree`
+/// share a host *and* the `current` segment and differ only at the end.
+/// Cutting the slug after three hyphen-separated parts dropped the top-level
+/// domain and the path, so the second repository of a host was refused as
+/// already present.
 pub fn file_name(url: &str) -> String {
+    let rest = url.trim_start_matches("https://");
+    let (host, path) = rest.split_once('/').unwrap_or((rest, ""));
+
+    let mut slug = slugify(host);
+    let tail = slugify(path);
+    if !tail.is_empty() {
+        if !slug.is_empty() {
+            slug.push('-');
+        }
+        slug.push_str(&tail);
+    }
+    // A long path would make a name nobody can scan in the list, and the two
+    // URLs that differ past the cap are told apart by the helper's refusal, not
+    // by a silent overwrite. ASCII only, so cutting at a byte is safe.
+    slug.truncate(MAX_SLUG);
+    let slug = slug.trim_matches('-');
+    format!("{FILE_PREFIX}{slug}.conf")
+}
+
+/// How much of the slug a name keeps; the prefix and `.conf` add 14 bytes.
+const MAX_SLUG: usize = 48;
+
+/// Lowercase ASCII alphanumerics, with one `-` for every run of anything else.
+fn slugify(text: &str) -> String {
     let mut slug = String::new();
-    for ch in url.trim_start_matches("https://").chars() {
+    for ch in text.chars() {
         if ch.is_ascii_alphanumeric() {
             slug.push(ch.to_ascii_lowercase());
-        } else if !slug.ends_with('-') {
+        } else if !slug.is_empty() && !slug.ends_with('-') {
             slug.push('-');
         }
     }
-    let slug = slug.trim_matches('-');
-    // A long path would make an unreadable name; the host plus the first path
-    // segment is what tells two repositories apart.
-    let mut short = String::new();
-    for (index, part) in slug.split('-').take(3).enumerate() {
-        if index > 0 {
-            short.push('-');
-        }
-        short.push_str(part);
-    }
-    format!("{FILE_PREFIX}{short}.conf")
+    slug.trim_matches('-').to_owned()
 }
 
 /// The exact bytes of a repository file.
@@ -230,16 +251,39 @@ mod tests {
     }
 
     #[test]
+    fn two_repositories_on_one_host_get_different_names() {
+        // The common Void layout: multilib and nonfree live under one host and
+        // differ only in the last path segment. A name built from the host
+        // alone would make the second add a refusal, not a repository.
+        let multilib = file_name("https://repo-de.voidlinux.org/current/multilib");
+        let nonfree = file_name("https://repo-de.voidlinux.org/current/nonfree");
+        assert_ne!(multilib, nonfree, "{multilib} names both repositories");
+        assert!(multilib.starts_with(FILE_PREFIX) && nonfree.starts_with(FILE_PREFIX));
+    }
+
+    #[test]
     fn the_file_name_is_stable_and_inside_the_prefix() {
         assert_eq!(
             file_name("https://repo.example.org/current"),
-            "20-kxbps-repo-example-org.conf"
+            "20-kxbps-repo-example-org-current.conf"
         );
         assert_eq!(
             file_name("https://khame.github.io/void-packages/"),
-            "20-kxbps-khame-github-io.conf"
+            "20-kxbps-khame-github-io-void-packages.conf"
         );
-        assert!(file_name("https://repo.example.org/").starts_with(FILE_PREFIX));
+        assert_eq!(
+            file_name("https://repo.example.org/"),
+            "20-kxbps-repo-example-org.conf"
+        );
+        // A path longer than the cap is cut, not rejected: the name still has
+        // the prefix, the host and a readable start.
+        let long = format!("https://repo.example.org/{}", "segment/".repeat(40));
+        let name = file_name(&long);
+        assert!(
+            name.starts_with("20-kxbps-repo-example-org-segment"),
+            "{name}"
+        );
+        assert!(name.len() <= FILE_PREFIX.len() + MAX_SLUG + ".conf".len());
     }
 
     #[test]
