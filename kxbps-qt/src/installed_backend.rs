@@ -887,6 +887,10 @@ impl qobject::InstalledBackend {
         }
         save_store(self.as_mut());
         refresh(self.as_mut());
+        // The plan says what the transaction meant to do; only xbps says what
+        // it did. Without a fresh read the updated package stays on the
+        // updates list with its old version until the user refreshes by hand.
+        self.as_mut().reload();
     }
 
     /// The backend as a `QObject*`, for the C++ child factories.
