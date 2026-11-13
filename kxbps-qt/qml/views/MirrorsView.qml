@@ -31,6 +31,22 @@ Item {
     // from the rows, which use this same width.
     readonly property real latencyWidth: Kirigami.Units.gridUnit * 7
     readonly property real stateWidth: Kirigami.Units.gridUnit * 16
+    readonly property real countWidth: Kirigami.Units.gridUnit * 6
+    readonly property real signatureWidth: Kirigami.Units.gridUnit * 8
+    readonly property real fileWidth: Kirigami.Units.gridUnit * 18
+
+    // Filter indices, the same three values `mirror_model.rs` documents: `0`
+    // all, `1` answered (`ok`), `2` failed. The labels use the row's own words
+    // so the filter and the pill never name one state two ways. Filled in
+    // `Component.onCompleted` rather than in the declaration: a `readonly var`
+    // whose initialiser throws once stays undefined for the object's lifetime.
+    property var filterLabels: []
+
+    // `xbps-query -L` plus the `.conf` files, as `{url, count, signed, file}`.
+    // Recomputed only when the backend re-reads, so `JSON.parse` never runs per
+    // binding evaluation. A value this view cannot parse is an empty list: a
+    // half-parsed repository table would claim a state xbps did not report.
+    property var repos: []
     // The strip the scrollbar takes when it is visible. Rows and the header end
     // before it, so the state badge is never cut by the bar.
     readonly property real mirrorScrollBarSpace: mirrorBar.visible ? mirrorBar.width : 0
