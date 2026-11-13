@@ -337,8 +337,11 @@ Item {
 
                 QQC2.Label {
                     anchors.centerIn: parent
-                    visible: view.mirrorBackend.model.count === 0
+                    // The list's own count, not the model's: `count` is the
+                    // snapshot size and does not move with a filter.
+                    visible: mirrorList.count === 0
                     text: view.mirrorBackend.model.filter === 0
+                          && view.mirrorBackend.model.regionFilter.length === 0
                           ? i18nd("kxbps", "No mirrors.")
                           : i18nd("kxbps", "No mirror matches this filter.")
                     color: Kirigami.Theme.disabledTextColor

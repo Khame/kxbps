@@ -656,15 +656,28 @@ impl qobject::MirrorModel {
         }
     }
 
-    /// Changes the state filter and resets when the visible list moved.
+    /// Changes the region filter and resets when the visible list moved.
+    ///
+    /// The reset is not optional: without it the view keeps the rows it
+    /// already built, so a narrowed list still paints the old count and the
+    /// delegates past the new `rowCount` come out empty.
     fn set_region_filter(mut self: Pin<&mut Self>, value: &cxx_qt_lib::QString) {
         let text = value.to_string();
-        let moved = {
+        let (changed, moved, rows) = {
             let data = Pin::get_mut(self.as_mut().rust_mut());
-            data.set_region_filter(&text)
+            let before = data.region_filter.to_string();
+            let moved = data.set_region_filter(&text);
+            (
+                before != data.region_filter.to_string(),
+                moved,
+                data.visible_count(),
+            )
         };
-        if moved {
+        if changed {
             self.as_mut().region_filter_changed();
+        }
+        if moved {
+            reset_visible(base(self.as_mut()), true, rows);
         }
     }
 
@@ -786,6 +799,10 @@ mod tests {
         assert!(model.set_region_filter("EU"));
         assert_eq!(model.visible_rows(), [1], "only Denmark is in Europe");
         assert_eq!(model.region_filter_value(), "EU");
+
+        // The code it already holds moves nothing: a repeated write must not
+        // reset the view.
+        assert!(!model.set_region_filter("EU"));
 
         // A code the list does not know is the same as no filter: the combo can
         // only offer the codes the model publishes, so a stale one must not
