@@ -267,7 +267,6 @@ msgid "Add repository"
 msgstr "Dodaj repozytorium"
 
 #: kxbps-qt/qml/views/RepositoriesView.qml:68
-#, fuzzy
 msgid "Adding and removing repositories needs %1, which packaging/install.sh installs."
 msgstr "Dodawanie i usuwanie repozytoriów wymaga %1, który instaluje packaging/install.sh."
 
