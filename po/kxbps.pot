@@ -8,7 +8,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: kxbps 0.1.0\n"
 "Report-Msgid-Bugs-To: \n"
-"POT-Creation-Date: 2026-11-13 18:00+0000\n"
+"POT-Creation-Date: 2026-11-13 18:25+0000\n"
 "PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\n"
 "Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
 "Language-Team: English\n"
@@ -122,7 +122,7 @@ msgid "%1 did not answer within %2 s."
 msgstr ""
 
 #: kxbps-qt/qml/components/DetailsPane.qml:97
-#: kxbps-qt/qml/views/PackagesView.qml:464 kxbps-qt/qml/views/QueryView.qml:119
+#: kxbps-qt/qml/views/PackagesView.qml:477 kxbps-qt/qml/views/QueryView.qml:119
 msgid "%1 did not answer within %2 seconds."
 msgstr ""
 
@@ -131,15 +131,9 @@ msgid "%1 exited with %2: %3"
 msgstr ""
 
 #: kxbps-qt/qml/components/DetailsPane.qml:99
-#: kxbps-qt/qml/views/PackagesView.qml:466 kxbps-qt/qml/views/QueryView.qml:121
+#: kxbps-qt/qml/views/PackagesView.qml:479 kxbps-qt/qml/views/QueryView.qml:121
 msgid "%1 failed with exit code %2: %3"
 msgstr ""
-
-#: kxbps-qt/qml/Main.qml:334
-msgid "%1 installed package"
-msgid_plural "%1 installed packages"
-msgstr[0] ""
-msgstr[1] ""
 
 #: kxbps-qt/qml/components/PackageDelegate.qml:191
 msgid "%1 is installed; nothing to queue"
@@ -159,7 +153,7 @@ msgstr ""
 msgid "%1 of %2 mirrors probed"
 msgstr ""
 
-#: kxbps-qt/qml/Main.qml:340 kxbps-qt/qml/components/PlanDialog.qml:467
+#: kxbps-qt/qml/Main.qml:345 kxbps-qt/qml/components/PlanDialog.qml:467
 msgid "%1 package"
 msgid_plural "%1 packages"
 msgstr[0] ""
@@ -173,7 +167,7 @@ msgstr[0] ""
 msgstr[1] ""
 
 #: kxbps-qt/qml/components/DetailsPane.qml:101
-#: kxbps-qt/qml/views/PackagesView.qml:468 kxbps-qt/qml/views/QueryView.qml:123
+#: kxbps-qt/qml/views/PackagesView.qml:481 kxbps-qt/qml/views/QueryView.qml:123
 msgid "%1 printed a line this version does not understand (line %2): %3"
 msgstr ""
 
@@ -181,7 +175,7 @@ msgstr ""
 msgid "%1 printed a line xbps cannot be read from: %3 (line %2)"
 msgstr ""
 
-#: kxbps-qt/qml/views/PackagesView.qml:470
+#: kxbps-qt/qml/views/PackagesView.qml:483
 msgid "%1 printed no packages."
 msgstr ""
 
@@ -190,27 +184,15 @@ msgstr ""
 msgid "%1 printed nothing."
 msgstr ""
 
-#: kxbps-qt/qml/Main.qml:338
-msgid "%1 queued package"
-msgid_plural "%1 queued packages"
-msgstr[0] ""
-msgstr[1] ""
-
 #: kxbps-qt/qml/Main.qml:307 kxbps-qt/qml/views/QueryView.qml:270
 msgid "%1 result"
 msgid_plural "%1 results"
 msgstr[0] ""
 msgstr[1] ""
 
-#: kxbps-qt/qml/Main.qml:330
+#: kxbps-qt/qml/Main.qml:337
 msgid "%1 search result"
 msgid_plural "%1 search results"
-msgstr[0] ""
-msgstr[1] ""
-
-#: kxbps-qt/qml/Main.qml:336
-msgid "%1 update"
-msgid_plural "%1 updates"
 msgstr[0] ""
 msgstr[1] ""
 
@@ -247,11 +229,11 @@ msgstr ""
 msgid "Another transaction is running"
 msgstr ""
 
-#: kxbps-qt/qml/Main.qml:1030 kxbps-qt/qml/components/PlanDialog.qml:265
+#: kxbps-qt/qml/Main.qml:1035 kxbps-qt/qml/components/PlanDialog.qml:265
 msgid "Apply"
 msgstr ""
 
-#: kxbps-qt/qml/Main.qml:1029
+#: kxbps-qt/qml/Main.qml:1034
 msgid "Apply (%1)"
 msgid_plural "Apply (%1)"
 msgstr[0] ""
@@ -261,11 +243,11 @@ msgstr[1] ""
 msgid "Apply queued changes"
 msgstr ""
 
-#: kxbps-qt/qml/Main.qml:1049
+#: kxbps-qt/qml/Main.qml:1054
 msgid "Apply to system"
 msgstr ""
 
-#: kxbps-qt/qml/Main.qml:348
+#: kxbps-qt/qml/Main.qml:353
 msgid "Apply to system needs the installed helper: run packaging/install.sh."
 msgstr ""
 
@@ -273,8 +255,8 @@ msgstr ""
 msgid "Asia"
 msgstr ""
 
-#: kxbps-qt/qml/Main.qml:367 kxbps-qt/qml/Main.qml:374
-#: kxbps-qt/qml/Main.qml:388 kxbps-qt/qml/Main.qml:406
+#: kxbps-qt/qml/Main.qml:372 kxbps-qt/qml/Main.qml:379
+#: kxbps-qt/qml/Main.qml:393 kxbps-qt/qml/Main.qml:411
 msgid "Asking xbps what it would do…"
 msgstr ""
 
@@ -286,8 +268,8 @@ msgstr ""
 msgid "Authentication was dismissed"
 msgstr ""
 
-#: kxbps-qt/qml/Main.qml:292 kxbps-qt/qml/Main.qml:622
-#: kxbps-qt/qml/views/PackagesView.qml:663
+#: kxbps-qt/qml/Main.qml:292 kxbps-qt/qml/Main.qml:627
+#: kxbps-qt/qml/views/PackagesView.qml:676
 msgid "Available"
 msgstr ""
 
@@ -310,11 +292,11 @@ msgstr ""
 msgid "Close"
 msgstr ""
 
-#: kxbps-qt/qml/views/PackagesView.qml:487
+#: kxbps-qt/qml/views/PackagesView.qml:500
 msgid "Could not read %1: %2"
 msgstr ""
 
-#: kxbps-qt/qml/views/PackagesView.qml:472
+#: kxbps-qt/qml/views/PackagesView.qml:485
 msgid "Could not read the installed packages: %1"
 msgstr ""
 
@@ -331,7 +313,7 @@ msgid "Could not read the xbps configuration: %1."
 msgstr ""
 
 #: kxbps-qt/qml/components/DetailsPane.qml:95
-#: kxbps-qt/qml/views/PackagesView.qml:462 kxbps-qt/qml/views/QueryView.qml:117
+#: kxbps-qt/qml/views/PackagesView.qml:475 kxbps-qt/qml/views/QueryView.qml:117
 msgid "Could not run %1: %2"
 msgstr ""
 
@@ -339,7 +321,7 @@ msgstr ""
 msgid "Could not run the query: %1"
 msgstr ""
 
-#: kxbps-qt/qml/views/PackagesView.qml:489
+#: kxbps-qt/qml/views/PackagesView.qml:502
 msgid "Could not save the system state."
 msgstr ""
 
@@ -347,7 +329,7 @@ msgstr ""
 msgid "Could not write %1."
 msgstr ""
 
-#: kxbps-qt/qml/views/PackagesView.qml:485
+#: kxbps-qt/qml/views/PackagesView.qml:498
 msgid "Could not write %1: %2"
 msgstr ""
 
@@ -372,11 +354,11 @@ msgstr ""
 msgid "Depends"
 msgstr ""
 
-#: kxbps-qt/qml/views/PackagesView.qml:639
+#: kxbps-qt/qml/views/PackagesView.qml:652
 msgid "Description"
 msgstr ""
 
-#: kxbps-qt/qml/views/PackagesView.qml:842
+#: kxbps-qt/qml/views/PackagesView.qml:856
 msgid "Details of %1"
 msgstr ""
 
@@ -393,7 +375,7 @@ msgid "Disk change: −%1"
 msgstr ""
 
 #: kxbps-qt/qml/components/DetailsPane.qml:321
-#: kxbps-qt/qml/views/PackagesView.qml:702
+#: kxbps-qt/qml/views/PackagesView.qml:715
 msgid "Download"
 msgstr ""
 
@@ -417,11 +399,11 @@ msgstr ""
 msgid "Europe"
 msgstr ""
 
-#: kxbps-qt/qml/views/PackagesView.qml:443
+#: kxbps-qt/qml/views/PackagesView.qml:456
 msgid "Everything is up to date."
 msgstr ""
 
-#: kxbps-qt/qml/Main.qml:296 kxbps-qt/qml/Main.qml:624
+#: kxbps-qt/qml/Main.qml:296 kxbps-qt/qml/Main.qml:629
 #: kxbps-qt/qml/components/DetailsPane.qml:235
 msgid "Explicit"
 msgstr ""
@@ -435,7 +417,7 @@ msgstr ""
 msgid "File"
 msgstr ""
 
-#: kxbps-qt/qml/Main.qml:781
+#: kxbps-qt/qml/Main.qml:786
 msgid "Filter"
 msgstr ""
 
@@ -461,7 +443,7 @@ msgstr ""
 msgid "Hold"
 msgstr ""
 
-#: kxbps-qt/qml/Main.qml:840 kxbps-qt/qml/components/MirrorDelegate.qml:52
+#: kxbps-qt/qml/Main.qml:845 kxbps-qt/qml/components/MirrorDelegate.qml:52
 #: kxbps-qt/qml/components/MirrorDelegate.qml:179
 msgid "In use"
 msgstr ""
@@ -475,11 +457,11 @@ msgstr ""
 msgid "Install packages"
 msgstr ""
 
-#: kxbps-qt/qml/Main.qml:288 kxbps-qt/qml/Main.qml:620
+#: kxbps-qt/qml/Main.qml:288 kxbps-qt/qml/Main.qml:625
 #: kxbps-qt/qml/components/DetailsPane.qml:315
 #: kxbps-qt/qml/components/PackageDelegate.qml:243
 #: kxbps-qt/qml/components/QueryDelegate.qml:62
-#: kxbps-qt/qml/views/PackagesView.qml:651
+#: kxbps-qt/qml/views/PackagesView.qml:664
 msgid "Installed"
 msgstr ""
 
@@ -522,11 +504,11 @@ msgstr ""
 msgid "Mark %1 for the update"
 msgstr ""
 
-#: kxbps-qt/qml/Main.qml:1002 kxbps-qt/qml/Main.qml:1005
+#: kxbps-qt/qml/Main.qml:1007 kxbps-qt/qml/Main.qml:1010
 msgid "Mark all upgrades"
 msgstr ""
 
-#: kxbps-qt/qml/Main.qml:623
+#: kxbps-qt/qml/Main.qml:628
 msgid "Marked"
 msgstr ""
 
@@ -538,7 +520,7 @@ msgstr ""
 msgid "Mirror filter"
 msgstr ""
 
-#: kxbps-qt/qml/Main.qml:281 kxbps-qt/qml/Main.qml:890
+#: kxbps-qt/qml/Main.qml:281 kxbps-qt/qml/Main.qml:895
 #: kxbps-qt/qml/views/MirrorsView.qml:181
 msgid "Mirrors"
 msgstr ""
@@ -570,23 +552,23 @@ msgstr ""
 msgid "No mirrors."
 msgstr ""
 
-#: kxbps-qt/qml/views/PackagesView.qml:449
+#: kxbps-qt/qml/views/PackagesView.qml:462
 msgid "No orphans."
 msgstr ""
 
-#: kxbps-qt/qml/views/PackagesView.qml:447
+#: kxbps-qt/qml/views/PackagesView.qml:460
 msgid "No package is on hold."
 msgstr ""
 
-#: kxbps-qt/qml/views/PackagesView.qml:437
+#: kxbps-qt/qml/views/PackagesView.qml:450
 msgid "No package matches “%1”."
 msgstr ""
 
-#: kxbps-qt/qml/views/PackagesView.qml:441
+#: kxbps-qt/qml/views/PackagesView.qml:454
 msgid "No packages installed."
 msgstr ""
 
-#: kxbps-qt/qml/views/PackagesView.qml:451
+#: kxbps-qt/qml/views/PackagesView.qml:464
 msgid "No packages."
 msgstr ""
 
@@ -594,7 +576,7 @@ msgstr ""
 msgid "No repositories."
 msgstr ""
 
-#: kxbps-qt/qml/Main.qml:852
+#: kxbps-qt/qml/Main.qml:857
 msgid "No repository read yet"
 msgstr ""
 
@@ -632,7 +614,7 @@ msgstr ""
 msgid "Nothing depends on it"
 msgstr ""
 
-#: kxbps-qt/qml/views/PackagesView.qml:445
+#: kxbps-qt/qml/views/PackagesView.qml:458
 msgid "Nothing marked. Add packages from the list."
 msgstr ""
 
@@ -661,7 +643,7 @@ msgstr ""
 msgid "Oceania"
 msgstr ""
 
-#: kxbps-qt/qml/Main.qml:626
+#: kxbps-qt/qml/Main.qml:631
 msgid "On hold"
 msgstr ""
 
@@ -674,7 +656,7 @@ msgstr ""
 msgid "Orphan"
 msgstr ""
 
-#: kxbps-qt/qml/Main.qml:298 kxbps-qt/qml/Main.qml:625
+#: kxbps-qt/qml/Main.qml:298 kxbps-qt/qml/Main.qml:630
 msgid "Orphans"
 msgstr ""
 
@@ -683,7 +665,7 @@ msgid "Output of %1"
 msgstr ""
 
 #: kxbps-qt/qml/components/PlanDialog.qml:302
-#: kxbps-qt/qml/views/PackagesView.qml:617
+#: kxbps-qt/qml/views/PackagesView.qml:630
 msgid "Package"
 msgstr ""
 
@@ -699,7 +681,7 @@ msgstr ""
 msgid "Plain HTTP is not probed"
 msgstr ""
 
-#: kxbps-qt/qml/Main.qml:1039
+#: kxbps-qt/qml/Main.qml:1044
 msgid "Probe all"
 msgstr ""
 
@@ -707,7 +689,7 @@ msgstr ""
 msgid "Probing"
 msgstr ""
 
-#: kxbps-qt/qml/Main.qml:278 kxbps-qt/qml/Main.qml:882
+#: kxbps-qt/qml/Main.qml:278 kxbps-qt/qml/Main.qml:887
 msgid "Query"
 msgstr ""
 
@@ -735,11 +717,11 @@ msgstr ""
 msgid "Reading repositories…"
 msgstr ""
 
-#: kxbps-qt/qml/Main.qml:325
+#: kxbps-qt/qml/Main.qml:332
 msgid "Reading the repository list…"
 msgstr ""
 
-#: kxbps-qt/qml/Main.qml:976 kxbps-qt/qml/Main.qml:977
+#: kxbps-qt/qml/Main.qml:981 kxbps-qt/qml/Main.qml:982
 msgid "Refresh"
 msgstr ""
 
@@ -776,7 +758,7 @@ msgstr ""
 msgid "Repositories"
 msgstr ""
 
-#: kxbps-qt/qml/Main.qml:823 kxbps-qt/qml/components/DetailsPane.qml:245
+#: kxbps-qt/qml/Main.qml:828 kxbps-qt/qml/components/DetailsPane.qml:245
 #: kxbps-qt/qml/views/MirrorsView.qml:457
 msgid "Repository"
 msgstr ""
@@ -801,11 +783,11 @@ msgstr ""
 msgid "Running xbps…"
 msgstr ""
 
-#: kxbps-qt/qml/Main.qml:991
+#: kxbps-qt/qml/Main.qml:996
 msgid "Search packages…"
 msgstr ""
 
-#: kxbps-qt/qml/Main.qml:324
+#: kxbps-qt/qml/Main.qml:331
 msgid "Searching the repositories…"
 msgstr ""
 
@@ -822,13 +804,13 @@ msgstr ""
 msgid "Server"
 msgstr ""
 
-#: kxbps-qt/qml/Main.qml:284 kxbps-qt/qml/Main.qml:905
+#: kxbps-qt/qml/Main.qml:284 kxbps-qt/qml/Main.qml:910
 msgid "Settings"
 msgstr ""
 
 #: kxbps-qt/qml/components/LogDrawer.qml:99
 #: kxbps-qt/qml/views/MirrorsView.qml:215
-#: kxbps-qt/qml/views/PackagesView.qml:848
+#: kxbps-qt/qml/views/PackagesView.qml:862
 msgid "Show"
 msgstr ""
 
@@ -844,7 +826,7 @@ msgid "Signed"
 msgstr ""
 
 #: kxbps-qt/qml/components/PlanDialog.qml:331
-#: kxbps-qt/qml/views/PackagesView.qml:675
+#: kxbps-qt/qml/views/PackagesView.qml:688
 msgid "Size"
 msgstr ""
 
@@ -877,11 +859,11 @@ msgstr ""
 msgid "System upgrade"
 msgstr ""
 
-#: kxbps-qt/qml/views/PackagesView.qml:483
+#: kxbps-qt/qml/views/PackagesView.qml:496
 msgid "The data directory could not be located: neither XDG_DATA_HOME nor HOME is set."
 msgstr ""
 
-#: kxbps-qt/qml/Main.qml:738
+#: kxbps-qt/qml/Main.qml:743
 msgid "The dry run returned nothing that could be applied."
 msgstr ""
 
@@ -893,7 +875,7 @@ msgstr ""
 msgid "The helper refused the mirror URL."
 msgstr ""
 
-#: kxbps-qt/qml/Main.qml:350
+#: kxbps-qt/qml/Main.qml:355
 msgid "The mirror helper at %1 is not executable."
 msgstr ""
 
@@ -909,7 +891,7 @@ msgstr ""
 msgid "The new repository URL is not in effect: %1"
 msgstr ""
 
-#: kxbps-qt/qml/Main.qml:352
+#: kxbps-qt/qml/Main.qml:357
 msgid "The polkit policy is missing, so the system cannot ask for a password: run packaging/install.sh."
 msgstr ""
 
@@ -949,7 +931,7 @@ msgstr ""
 msgid "To update"
 msgstr ""
 
-#: kxbps-qt/qml/Main.qml:872
+#: kxbps-qt/qml/Main.qml:877
 msgid "Tools"
 msgstr ""
 
@@ -973,7 +955,7 @@ msgstr ""
 msgid "Unmark %1"
 msgstr ""
 
-#: kxbps-qt/qml/Main.qml:1014 kxbps-qt/qml/Main.qml:1017
+#: kxbps-qt/qml/Main.qml:1019 kxbps-qt/qml/Main.qml:1022
 msgid "Unmark all"
 msgstr ""
 
@@ -998,7 +980,7 @@ msgstr ""
 msgid "Updates available"
 msgstr ""
 
-#: kxbps-qt/qml/Main.qml:621
+#: kxbps-qt/qml/Main.qml:626
 msgid "Upgradable"
 msgstr ""
 

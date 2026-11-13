@@ -316,28 +316,33 @@ Kirigami.ApplicationWindow {
         if (section === "settings") {
             return i18nd("kxbps", "Notifications and startup")
         }
-        const filter = installedBackend.packages.filter
-        // A repository read in flight: the rows on screen are the previous
-        // answer, so the count would describe a list that is about to change.
-        if (installedBackend.packages.searchLoading) {
-            return installedBackend.packages.search.length > 0
+        return ""
+    }
+
+    // The one line above the table. It carries only what the status strip
+    // cannot: the sidebar already names the active filter, and the strip counts
+    // the installed set, the updates and the queue, so repeating those numbers
+    // here said nothing. A search result count, a read in flight and the
+    // filters the strip does not count still belong here.
+    function listCaption() {
+        const packages = installedBackend.packages
+        if (packages.searchLoading) {
+            return packages.search.length > 0
                     ? i18nd("kxbps", "Searching the repositories…")
                     : i18nd("kxbps", "Reading the repository list…")
         }
         // A non-empty pattern asks the repositories, so the number is the size
         // of the answer, not of the installed set.
-        if (installedBackend.packages.search.length > 0) {
-            return i18ndp("kxbps", "%1 search result", "%1 search results", count)
+        if (packages.search.length > 0) {
+            return i18ndp("kxbps", "%1 search result", "%1 search results", packages.count)
         }
-        switch (filter) {
+        switch (packages.filter) {
         case "installed":
-            return i18ndp("kxbps", "%1 installed package", "%1 installed packages", count)
         case "updates":
-            return i18ndp("kxbps", "%1 update", "%1 updates", count)
         case "queued":
-            return i18ndp("kxbps", "%1 queued package", "%1 queued packages", count)
+            return ""
         }
-        return i18ndp("kxbps", "%1 package", "%1 packages", count)
+        return i18ndp("kxbps", "%1 package", "%1 packages", packages.count)
     }
 
     // The one sentence for a missing privileged half, chosen by the key the
@@ -1060,12 +1065,16 @@ Kirigami.ApplicationWindow {
 
                 // The page's own title, kept as a single muted line so the
                 // toolbar stays one row and the table starts as high as it can.
+                // The band stays even when it has nothing to say: it separates
+                // the toolbar from the table.
                 QQC2.Label {
                     Layout.fillWidth: true
                     Layout.leftMargin: Kirigami.Units.largeSpacing
                     Layout.rightMargin: Kirigami.Units.largeSpacing
                     Layout.topMargin: Kirigami.Units.smallSpacing
-                    text: root.headerTitle() + " · " + root.headerSubtitle(installedBackend.packages.count)
+                    text: root.section === "packages"
+                          ? root.listCaption()
+                          : root.headerTitle() + " · " + root.headerSubtitle(installedBackend.packages.count)
                     font: Kirigami.Theme.smallFont
                     color: Kirigami.Theme.disabledTextColor
                     elide: Text.ElideRight
