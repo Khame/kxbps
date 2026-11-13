@@ -14,11 +14,15 @@ Requirements: Rust 1.99 or newer, Qt 6 base and declarative, KF6 Kirigami and
 KI18n. On Void:
 
 ```sh
-sudo xbps-install rust cargo qt6-base-devel qt6-declarative-devel \
+sudo xbps-install rust cargo lld qt6-base-devel qt6-declarative-devel \
     kf6-kirigami-devel kf6-ki18n-devel
 cargo build
 ./target/debug/kxbps
 ```
+
+`lld` is required: cxx-qt asks the linker to use it, and GNU ld drops the
+initializers the generated C++ needs, so the link fails with undefined
+references to `cxx_qt_init_crate_*`.
 
 `cargo test --workspace` runs the suite; the Qt side is tested through the
 CXX-Qt bridge without a display, and the UI smoke test is
