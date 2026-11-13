@@ -1,7 +1,7 @@
 #!/bin/sh
 # SPDX-License-Identifier: GPL-3.0-or-later
 #
-# Regenerate the gettext template and check the Polish catalog against it.
+# Regenerate the gettext template and check every catalog against it.
 #
 # Usage:
 #   scripts/extract-i18n.sh            check only; exit 1 when the tree uses an
@@ -56,6 +56,7 @@ ROOT=$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)
 QML_DIR=$ROOT/kxbps-qt/qml
 POT=$ROOT/po/$DOMAIN.pot
 PL=$ROOT/po/pl.po
+# pl.po is the reference catalog: check-coverage.py compares the pot against it
 WORK=$(mktemp -d "${TMPDIR:-/tmp}/kxbps-i18n.XXXXXX")
 trap 'rm -rf "$WORK"' EXIT INT TERM
 
@@ -154,9 +155,15 @@ if ! python3 "$ROOT/scripts/check-coverage.py" "$WORK/$DOMAIN.pot" "$PL"; then
     fail=1
 fi
 
-if ! python3 "$ROOT/scripts/check-placeholders.py" "$PL"; then
-    fail=1
-fi
+for file in "$ROOT"/po/*.po; do
+    [ -f "$file" ] || continue
+    if ! python3 "$ROOT/scripts/check-placeholders.py" "$file"; then
+        fail=1
+    fi
+    if ! python3 "$ROOT/scripts/check-catalogs.py" "$WORK/$DOMAIN.pot" "$file"; then
+        fail=1
+    fi
+done
 
 # --- 5. Write ---------------------------------------------------------------
 

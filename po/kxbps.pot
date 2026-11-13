@@ -6,9 +6,9 @@
 # a sentence with i18nd(). scripts/extract-i18n.sh lists the files read.
 msgid ""
 msgstr ""
-"Project-Id-Version: kxbps 0.1.0\n"
+"Project-Id-Version: kxbps 1.0.0\n"
 "Report-Msgid-Bugs-To: \n"
-"POT-Creation-Date: 2026-11-13 21:57+0000\n"
+"POT-Creation-Date: 2026-11-13 22:54+0000\n"
 "PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\n"
 "Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
 "Language-Team: English\n"

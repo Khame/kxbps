@@ -7,12 +7,25 @@ Rust-key entries come first and carry no `#:` reference; QML entries follow in
 msgid order and keep every source position.
 """
 import datetime
+import pathlib
 import re
 import sys
 
 # Program names, not sentences: a bare one is not worth a translation. A msgid
 # that merely contains one ("About KXbps") is a sentence and stays.
 IDENTIFIERS = {"KXbps", "kxbps", "xbps", "Void Linux", "pkexec"}
+
+
+def project_version():
+    """Version from the workspace manifest, so the header cannot drift from it."""
+    manifest = pathlib.Path(__file__).resolve().parent.parent / "Cargo.toml"
+    text = manifest.read_text(encoding="utf-8")
+    section = re.search(r"^\[workspace\.package\]\n(.*?)(?=^\[|\Z)", text, re.M | re.S)
+    version = section and re.search(r'^version = "([^"]+)"', section.group(1), re.M)
+    if not version:
+        sys.exit(f"{manifest}: no [workspace.package] version")
+    return version.group(1)
+
 
 qml_pot, rust_keys, out_path = sys.argv[1], sys.argv[2], sys.argv[3]
 
@@ -59,7 +72,7 @@ out = [
     'msgstr ""',
 ]
 for field in (
-    "Project-Id-Version: kxbps 0.1.0",
+    f"Project-Id-Version: kxbps {project_version()}",
     "Report-Msgid-Bugs-To: ",
     f"POT-Creation-Date: {now}",
     "PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE",

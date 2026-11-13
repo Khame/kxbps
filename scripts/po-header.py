@@ -5,11 +5,14 @@ usage: po-header.py PL ROOT
 
 * strips the absolute build path from every `#:` reference, so the file says
   `kxbps-qt/qml/…` no matter where the tree was checked out;
+* takes `Project-Id-Version` and `POT-Creation-Date` from the template beside
+  it, so the catalog cannot claim a version the pot does not;
 * fills the header fields msgfmt warns about (`PO-Revision-Date`,
   `Last-Translator`) when they are missing;
 * keeps `Plural-Forms` exactly as it was.
 """
 import datetime
+import pathlib
 import re
 import sys
 
@@ -21,6 +24,20 @@ text = text.replace(root + "/", "")
 header, _, body = text.partition("\n\n")
 if not header.lstrip().startswith("#"):
     sys.exit(f"{pl_path}: no comment/header block")
+
+pot_path = pathlib.Path(pl_path).parent / "kxbps.pot"
+if pot_path.is_file():
+    pot_header = pot_path.read_text(encoding="utf-8").split("\n\n")[0]
+    for field in ("Project-Id-Version", "POT-Creation-Date"):
+        value = re.search(rf'^"{field}: (.*)\\n"$', pot_header, re.M)
+        if not value:
+            continue
+        header = re.sub(
+            rf'^"{field}: .*\\n"$',
+            lambda _match: f'"{field}: {value.group(1)}\\n"',
+            header,
+            flags=re.M,
+        )
 
 now = datetime.datetime.now(datetime.timezone.utc).strftime("%Y-%m-%d %H:%M+0000")
 translator = "KXbps translation contributors <khame.dev@protonmail.com>"
