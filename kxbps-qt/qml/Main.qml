@@ -1,6 +1,7 @@
 import QtQuick
 import QtQuick.Controls as QQC2
 import QtQuick.Layouts
+import QtQuick.Window
 import org.kde.kirigami as Kirigami
 import org.kde.ki18n 1.0
 import org.kde.kxbps
@@ -10,12 +11,18 @@ import "views"
 Kirigami.ApplicationWindow {
     id: root
 
-    // 16:10, the shape the tool is laid out for, and a 600 px floor: the
-    // sidebar, the table and the status bar have to survive it unclipped.
-    width: Kirigami.Units.gridUnit * 72
-    height: Kirigami.Units.gridUnit * 42
-    minimumWidth: Kirigami.Units.gridUnit * 34
-    minimumHeight: Kirigami.Units.gridUnit * 28
+    // 16:10, the shape the tool is laid out for, clamped to the screen: at a
+    // 2x scale the nominal size is wider than a 1280 px display, and a window
+    // larger than the screen clips its own toolbar.
+    width: Math.min(Kirigami.Units.gridUnit * 72, Screen.width * 0.9)
+    height: Math.min(Kirigami.Units.gridUnit * 42, Screen.height * 0.9)
+    minimumWidth: Math.min(Kirigami.Units.gridUnit * 34, Screen.width * 0.9)
+    minimumHeight: Math.min(Kirigami.Units.gridUnit * 28, Screen.height * 0.9)
+
+    // Below 60 grid units the toolbar drops the words and the sidebar narrows.
+    // The measure is in grid units, so a scaled display counts too: a 1280 px
+    // window at 2x is 35 units, not 70.
+    readonly property bool narrow: width < Kirigami.Units.gridUnit * 60
     // QQmlApplicationEngine does not show the root window on its own.
     visible: true
     title: i18nd("kxbps", "KXbps")
