@@ -37,7 +37,9 @@ pub use plan::{
     is_not_installed, items_from, lock_waited_on, missing_package, parse_breakers, read_dry_run,
 };
 pub use probe::{PROBE_TIMEOUT, PROBE_TIMEOUT_MS, ProbeError, check_probe_url, measure};
-pub use request::{DryRun, PlanRequest, install_names, not_installed, remove_names};
+pub use request::{
+    DryRun, PlanRequest, install_names, installs_as_updates, not_installed, remove_names,
+};
 pub use search::rank_search_hits;
 pub use store::{Store, StoreError, data_dir, installed_map};
 pub use transaction::{

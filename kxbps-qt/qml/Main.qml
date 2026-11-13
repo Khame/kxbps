@@ -323,6 +323,13 @@ Kirigami.ApplicationWindow {
             return i18nd("kxbps", "Notifications and startup")
         }
         const filter = installedBackend.packages.filter
+        // A repository read in flight: the rows on screen are the previous
+        // answer, so the count would describe a list that is about to change.
+        if (installedBackend.packages.searchLoading) {
+            return installedBackend.packages.search.length > 0
+                    ? i18nd("kxbps", "Searching the repositories…")
+                    : i18nd("kxbps", "Reading the repository list…")
+        }
         // A non-empty pattern asks the repositories, so the number is the size
         // of the answer, not of the installed set.
         if (installedBackend.packages.search.length > 0) {
@@ -419,7 +426,13 @@ Kirigami.ApplicationWindow {
             installedBackend.removeQueued(selectedName)
             return
         }
-        const token = selectedIsUpdate ? "update" : (selectedInstalled ? "remove" : "install")
+        const token = selectedIsUpdate ? "update" : (selectedInstalled ? "" : "install")
+        // An installed package has nothing to queue; the row disables its
+        // checkbox for the same reason, and a menu that could still install it
+        // would ask for the password to do nothing.
+        if (token.length === 0) {
+            return
+        }
         installedBackend.toggleQueue(selectedName, token)
     }
 

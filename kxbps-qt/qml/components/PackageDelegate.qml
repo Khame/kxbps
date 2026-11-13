@@ -71,8 +71,36 @@ QQC2.ItemDelegate {
     readonly property bool queued: model.queuedAction !== ""
     // What the checkbox sends when it is checked. An update outranks
     // "installed": queueing an update as an install would pin the old version.
+    // An installed package with no update has nothing to queue — xbps would
+    // answer "already installed" and still ask for the password — so its
+    // checkbox stays disabled and removal is the details pane's `Remove`.
     readonly property string actionToken: delegate.isUpdate ? "update"
-                                          : (delegate.installed ? "remove" : "install")
+                                          : (delegate.installed ? "" : "install")
+    readonly property bool canQueue: delegate.actionToken.length > 0
+    // The action the queue will run for this row, in the row's own words: a
+    // bare "Marked" never said whether Apply would install or remove.
+    readonly property string queuedActionText: {
+        switch (delegate.packageQueuedAction) {
+        case "install":
+            return i18nd("kxbps", "To install")
+        case "update":
+            return i18nd("kxbps", "To update")
+        case "remove":
+            return i18nd("kxbps", "To remove")
+        }
+        return ""
+    }
+    // A mixed list — the repository listing or a search — says which rows the
+    // machine already holds. On a filter whose every row is installed the
+    // column says it, and a pill on all of them would be noise.
+    readonly property bool showInstalledState: {
+        if (!delegate.installed || delegate.isUpdate || delegate.installedBackend === null
+                || delegate.installedBackend === undefined) {
+            return false
+        }
+        const packages = delegate.installedBackend.packages
+        return packages.filter === "all" || packages.searching
+    }
     // An em dash for a value xbps did not report; never a fabricated zero.
     readonly property string dash: "—"
     readonly property string installedText: delegate.installed ? model.installedVersion : delegate.dash
@@ -149,11 +177,23 @@ QQC2.ItemDelegate {
             QQC2.CheckBox {
                 anchors.centerIn: parent
                 checked: delegate.queued
+                // Nothing to queue for a package the machine already holds, so
+                // the control is disabled rather than queueing a transaction
+                // xbps would refuse to act on.
+                enabled: delegate.queued || delegate.canQueue
                 // The checkbox is the row's action, so its accessible name says
                 // what marking does, not just "select".
-                Accessible.name: delegate.queued
-                                 ? i18nd("kxbps", "Unmark %1", model.name)
-                                 : i18nd("kxbps", "Mark %1 for the queue", model.name)
+                Accessible.name: {
+                    if (delegate.queued) {
+                        return i18nd("kxbps", "Unmark %1", model.name)
+                    }
+                    if (!delegate.canQueue) {
+                        return i18nd("kxbps", "%1 is installed; nothing to queue", model.name)
+                    }
+                    return delegate.isUpdate
+                            ? i18nd("kxbps", "Mark %1 for the update", model.name)
+                            : i18nd("kxbps", "Mark %1 for installation", model.name)
+                }
                 onToggled: {
                     if (delegate.installedBackend === null || delegate.installedBackend === undefined) {
                         return
@@ -199,8 +239,15 @@ QQC2.ItemDelegate {
                 }
 
                 QQC2.Label {
+                    visible: delegate.showInstalledState
+                    text: i18nd("kxbps", "Installed")
+                    font: Kirigami.Theme.smallFont
+                    color: Kirigami.Theme.disabledTextColor
+                }
+
+                QQC2.Label {
                     visible: delegate.queued
-                    text: i18nd("kxbps", "Marked")
+                    text: delegate.queuedActionText
                     font: Kirigami.Theme.smallFont
                     color: Kirigami.Theme.highlightColor
                 }

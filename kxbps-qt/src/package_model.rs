@@ -82,6 +82,10 @@ pub mod qobject {
         // Whether the list is showing the ranked repository answer of a
         // non-empty search field rather than the filter's own rows.
         #[qproperty(bool, searching, READ, NOTIFY)]
+        // Whether a repository read the list asked for is still in flight. The
+        // Available page uses it to say it is reading the list instead of
+        // printing the installed count under a repository heading.
+        #[qproperty(bool, search_loading, READ, NOTIFY)]
         // The failure the newest search read reported: an i18n key and its
         // `%1…%3` arguments, empty when the read succeeded. A reader that does
         // not know the key shows nothing rather than the raw text.
@@ -401,6 +405,9 @@ pub struct PackageModelRust {
     /// field. Mirrors `active_search.is_some()`, kept as a field because a
     /// `#[qproperty]` reads it directly.
     searching: bool,
+    /// Whether a repository read the list asked for is still in flight. The
+    /// header says so instead of counting rows that are about to be replaced.
+    search_loading: bool,
     /// The failure the newest search read reported, as a key and its
     /// arguments; both empty on success.
     search_error: QString,
@@ -508,6 +515,7 @@ impl Default for PackageModelRust {
             sort_descending: false,
             count: 0,
             searching: false,
+            search_loading: false,
             search_error: QString::from(""),
             search_error_args: QStringList::default(),
             active_search: None,
@@ -808,9 +816,24 @@ impl PackageModelRust {
     }
 
     /// Commits `rows` as the visible set and keeps `count` in step.
+    ///
+    /// The count is what the view shows, and a search answer is what it shows
+    /// while one is on screen: a snapshot that lands after the answer rebuilds
+    /// the filter's own rows, and the header must keep counting the hits
+    /// instead of falling back to the installed set.
     pub(crate) fn assign_rows(&mut self, rows: Vec<u32>) {
-        self.count = i32::try_from(rows.len()).unwrap_or(i32::MAX);
         self.rows = rows;
+        self.count = self.visible_count();
+    }
+
+    /// The number of rows the view is showing: the ranked repository hits while
+    /// a search is on screen, the filter's own rows otherwise.
+    fn visible_count(&self) -> i32 {
+        let rows = self
+            .active_search
+            .as_ref()
+            .map_or(self.rows.len(), |search| search.hits.len());
+        i32::try_from(rows).unwrap_or(i32::MAX)
     }
 
     /// Recomputes `rows` and `count` in place, without resetting the model.
@@ -928,7 +951,7 @@ impl PackageModelRust {
     /// Drops the repository answer and shows the filter's rows again.
     fn clear_search_rows(&mut self) {
         if self.active_search.take().is_some() {
-            self.count = i32::try_from(self.rows.len()).unwrap_or(i32::MAX);
+            self.count = self.visible_count();
         }
     }
 
@@ -949,11 +972,7 @@ impl PackageModelRust {
             hits,
             error_key: key.to_owned(),
         });
-        let count = self
-            .active_search
-            .as_ref()
-            .map_or(0, |search| search.hits.len());
-        self.count = i32::try_from(count).unwrap_or(i32::MAX);
+        self.count = self.visible_count();
     }
 
     #[cfg(test)]
@@ -1147,9 +1166,11 @@ impl qobject::PackageModel {
             let data = Pin::get_mut(self.as_mut().rust_mut());
             data.clear_search_rows();
             data.searching = false;
+            data.search_loading = false;
             data.search_error = QString::from("");
             data.search_error_args = QStringList::default();
         }
+        self.as_mut().search_loading_changed();
         apply_change(self.as_mut(), |model| model.filter = value);
         // The rolling back to the filter's rows is a different set from the
         // search hits, so the view rebuilds; `apply_change` only resets when
@@ -1172,6 +1193,7 @@ impl qobject::PackageModel {
         if wants_repository_listing(&self.filter.to_string())
             && self.search.to_string().trim().is_empty()
         {
+            self.as_mut().mark_search_loading();
             self.as_mut().search_requested(QString::from(""));
         }
     }
@@ -1205,6 +1227,7 @@ impl qobject::PackageModel {
             }
             self.as_mut().search_changed();
             if wants_repository_listing(&self.filter.to_string()) {
+                self.as_mut().mark_search_loading();
                 self.as_mut().search_requested(QString::from(""));
             }
             return;
@@ -1220,6 +1243,7 @@ impl qobject::PackageModel {
         }
         self.as_mut().search_changed();
         if !answered {
+            self.as_mut().mark_search_loading();
             self.as_mut()
                 .search_requested(QString::from(pattern.as_str()));
         }
@@ -1231,6 +1255,16 @@ impl qobject::PackageModel {
         error_key: &cxx_qt_lib::QString,
         error_args: &cxx_qt_lib::QStringList,
     ) {
+        // An answer the window no longer asks for: the field is empty and the
+        // page is not the repository listing, so the read belongs to a page
+        // the user already left. Applying it would put repository rows under a
+        // filter that does not show them.
+        if self.search.to_string().trim().is_empty()
+            && !wants_repository_listing(&self.filter.to_string())
+        {
+            self.as_mut().mark_search_settled();
+            return;
+        }
         let hits: Vec<kxbps_core::SearchHit> =
             serde_json::from_str(&hits_json.to_string()).unwrap_or_default();
         let key = error_key.to_string();
@@ -1243,7 +1277,6 @@ impl qobject::PackageModel {
         } else {
             hits
         };
-        let count = hits.len();
         {
             let data = Pin::get_mut(self.as_mut().rust_mut());
             data.active_search = Some(ActiveSearch {
@@ -1251,8 +1284,9 @@ impl qobject::PackageModel {
                 hits,
                 error_key: key.clone(),
             });
-            data.count = i32::try_from(count).unwrap_or(i32::MAX);
+            data.count = data.visible_count();
             data.searching = true;
+            data.search_loading = false;
             data.search_error = QString::from(key.as_str());
             data.search_error_args = args
                 .iter()
@@ -1265,8 +1299,34 @@ impl qobject::PackageModel {
         qobject::model_end_reset(base(self.as_mut()));
         self.as_mut().count_changed();
         self.as_mut().searching_changed();
+        self.as_mut().search_loading_changed();
         self.as_mut().search_error_changed();
         self.as_mut().search_error_args_changed();
+    }
+
+    /// Marks a repository read as in flight, so the header says it is reading
+    /// instead of counting rows the answer is about to replace.
+    fn mark_search_loading(mut self: Pin<&mut Self>) {
+        if self.search_loading {
+            return;
+        }
+        {
+            let data = Pin::get_mut(self.as_mut().rust_mut());
+            data.search_loading = true;
+        }
+        self.as_mut().search_loading_changed();
+    }
+
+    /// Clears the in-flight mark without applying an answer.
+    fn mark_search_settled(mut self: Pin<&mut Self>) {
+        if !self.search_loading {
+            return;
+        }
+        {
+            let data = Pin::get_mut(self.as_mut().rust_mut());
+            data.search_loading = false;
+        }
+        self.as_mut().search_loading_changed();
     }
 
     fn set_sort(mut self: Pin<&mut Self>, value: cxx_qt_lib::QString) {
@@ -2460,6 +2520,27 @@ mod tests {
             Some("vim-".to_owned()),
             "a longer pattern is a new question"
         );
+    }
+
+    #[test]
+    fn a_snapshot_after_the_listing_answer_keeps_the_hit_count() {
+        let mut model = model();
+        set_filter(&mut model, "all");
+        model.apply_search_results(
+            &[
+                search_hit("ark", "25.08.0_1", false),
+                search_hit("vim", "9.2.1031_1", true),
+            ],
+            "",
+            &[],
+        );
+        assert_eq!(model.count, 2);
+
+        // The startup read lands after the listing: the header must keep
+        // counting what the view shows, not the filter's rows behind it.
+        install_records(&mut model, &installed(), records(), Vec::new(), Vec::new());
+        assert_eq!(model.count, 2, "the answer is still on screen");
+        assert_eq!(model.visible_names(), ["ark", "vim"]);
     }
 
     #[test]

@@ -23,7 +23,7 @@ use cxx_qt::casting::Upcast;
 use cxx_qt_lib::{QObjectMutPtr, QString, QStringList};
 use kxbps_core::{
     InstalledMap, Plan, PlanItem, QueueAction, QueueItem, Store, StoreError, effective_updates,
-    held_updates_in, not_installed, update_signature_of,
+    held_updates_in, installs_as_updates, not_installed, update_signature_of,
 };
 
 use crate::job_backend::JobPayload;
@@ -990,7 +990,15 @@ pub fn queue_payload(
     if !missing.is_empty() {
         return PlanPayload::from_error(&xbps_plan::PlanError::NotInstalled(missing));
     }
-    let payload = xbps_plan::queue_payload(installed, queue, invoke);
+    // `xbps-install` upgrades a package the machine already holds, so an
+    // install of one is the same command as an update; the plan and the log
+    // must say "update". The rows queue the right action themselves, and this
+    // relabels what an older build may have left behind.
+    let queue = installs_as_updates(queue, installed);
+    if queue.is_empty() {
+        return PlanPayload::notice(plan_keys::NOTICE_EMPTY_QUEUE);
+    }
+    let payload = xbps_plan::queue_payload(installed, &queue, invoke);
     let mut payload = payload;
     // The held note concerns the packages the queue actually updates; xbps
     // neither holds nor reports them, so it is added here.
@@ -1015,7 +1023,7 @@ pub fn queue_payload(
                 })
                 .collect::<Vec<_>>(),
             installed,
-            queue,
+            &queue,
         );
         if !held.is_empty() {
             payload.note_key = plan_keys::NOTE_HELD.to_string();
@@ -1485,6 +1493,36 @@ mod tests {
         let payload = queue_payload(&installed, &queue("ark", QueueAction::Install), &*invoke);
         assert_eq!(payload.notice_key, "emptyQueue");
         assert!(payload.items.is_empty());
+    }
+
+    #[test]
+    fn an_install_of_an_installed_package_is_a_notice_when_nothing_is_newer() {
+        let installed = installed_set();
+        let (invoke, seen) = one_answer(&ok_reply(""));
+        let payload = queue_payload(&installed, &queue("vim", QueueAction::Install), &*invoke);
+        assert_eq!(payload.notice_key, "emptyQueue");
+        assert!(payload.items.is_empty());
+        assert_eq!(
+            seen.lock().map(|seen| seen[0].clone()).unwrap(),
+            ["xbps-install", "-n", "vim"],
+            "the dry run is asked, so the plan says there is nothing to do"
+        );
+    }
+
+    #[test]
+    fn an_installed_install_is_planned_as_an_update() {
+        let installed = installed_set();
+        let (invoke, _) = one_answer(&ok_reply(
+            "vim-9.2.1032_1 update x86_64 https://r/current 4194304 1468006\n",
+        ));
+        let payload = queue_payload(&installed, &queue("vim", QueueAction::Install), &*invoke);
+        assert_eq!(payload.items.len(), 1);
+        assert_eq!(payload.items[0].name, "vim");
+        assert_eq!(
+            payload.items[0].action,
+            PlanAction::Update,
+            "an installed package is upgraded, never installed again"
+        );
     }
 
     #[test]

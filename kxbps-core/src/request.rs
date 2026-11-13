@@ -117,6 +117,30 @@ pub fn not_installed(queue: &[QueueItem], installed: &InstalledMap) -> Vec<Strin
         .collect()
 }
 
+/// The queue with every install of an installed package turned into an update.
+///
+/// `xbps-install` treats a name the machine already holds as an upgrade, so the
+/// two actions are the same command with a different label — but the label is
+/// what the plan and the log say. The rows queue an update directly; this is
+/// the second net, for a queue file written by an older build. A package with
+/// nothing newer answers "already installed", which the dry run turns into a
+/// notice instead of a password prompt.
+pub fn installs_as_updates(queue: &[QueueItem], installed: &InstalledMap) -> Vec<QueueItem> {
+    queue
+        .iter()
+        .map(|item| {
+            if item.action == QueueAction::Install && installed.contains_key(&item.name) {
+                QueueItem {
+                    name: item.name.clone(),
+                    action: QueueAction::Update,
+                }
+            } else {
+                item.clone()
+            }
+        })
+        .collect()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -174,5 +198,34 @@ mod tests {
             queue("ghost", QueueAction::Update),
         ];
         assert_eq!(not_installed(&queue, &installed), ["ghost"]);
+    }
+
+    #[test]
+    fn an_install_of_an_installed_package_becomes_an_update() {
+        let installed: InstalledMap = [(
+            "vim".to_owned(),
+            Inst {
+                version: "9.2_1".into(),
+                explicit: true,
+                held: false,
+                at: 0,
+            },
+        )]
+        .into_iter()
+        .collect();
+        let items = vec![
+            queue("vim", QueueAction::Install),
+            queue("git", QueueAction::Install),
+            queue("vim", QueueAction::Update),
+        ];
+        assert_eq!(
+            installs_as_updates(&items, &installed),
+            [
+                queue("vim", QueueAction::Update),
+                queue("git", QueueAction::Install),
+                queue("vim", QueueAction::Update)
+            ],
+            "the installed install is relabelled, the absent one is not"
+        );
     }
 }
