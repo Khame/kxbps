@@ -25,6 +25,17 @@
     </defaults>
   </action>
 
+  <!-- Repositories: the helper writes or removes one 20-kxbps-*.conf file. -->
+  <action id="io.github.khame.kxbps.repo">
+    <description>Add or remove a repository configuration</description>
+    <message>Authentication is required to change the system repositories</message>
+    <annotate key="org.freedesktop.policykit.exec.path">/usr/libexec/kxbps-repo-apply</annotate>
+    <defaults>
+      <allow_active>auth_admin</allow_active>
+      <allow_inactive>no</allow_inactive>
+    </defaults>
+  </action>
+
   <!-- Apply to system: the helper writes 00-repository-main.conf and reverts
        on failure, all under one authorization. -->
   <action id="io.github.khame.kxbps.mirror">

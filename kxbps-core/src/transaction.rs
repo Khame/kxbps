@@ -31,6 +31,12 @@ pub const XPBS_REMOVE_PATH: &str = "/usr/bin/xbps-remove";
 /// annotates this exact path, and it is the one binary that runs as root.
 pub const MIRROR_APPLY_PATH: &str = "/usr/libexec/kxbps-mirror-apply";
 
+/// The repository helper polkit runs as root.
+pub const REPO_APPLY_PATH: &str = "/usr/libexec/kxbps-repo-apply";
+
+/// The polkit action that authorizes the repository helper.
+pub const REPO_ACTION_ID: &str = "io.github.khame.kxbps.repo";
+
 /// The polkit action id of the mirror helper.
 pub const MIRROR_ACTION_ID: &str = "io.github.khame.kxbps.mirror";
 
@@ -116,6 +122,9 @@ pub enum Privileged {
     Package(Transaction),
     /// `pkexec /usr/libexec/kxbps-mirror-apply <base>`: one base URL.
     Mirror(String),
+    /// `pkexec /usr/libexec/kxbps-repo-apply <verb> <value>`: one repository
+    /// file, added or removed.
+    Repo { verb: String, value: String },
 }
 
 impl Privileged {
@@ -135,13 +144,19 @@ impl Privileged {
                 String::from(MIRROR_APPLY_PATH),
                 base.clone(),
             ],
+            Self::Repo { verb, value } => vec![
+                String::from(PKEXEC),
+                String::from(REPO_APPLY_PATH),
+                verb.clone(),
+                value.clone(),
+            ],
         }
     }
 
     /// The base URL of a mirror action; `None` for a package transaction.
     pub fn mirror_base(&self) -> Option<&str> {
         match self {
-            Self::Package(_) => None,
+            Self::Package(_) | Self::Repo { .. } => None,
             Self::Mirror(base) => Some(base),
         }
     }
@@ -151,6 +166,7 @@ impl Privileged {
         match self {
             Self::Package(transaction) => transaction.action_id(),
             Self::Mirror(_) => MIRROR_ACTION_ID,
+            Self::Repo { .. } => REPO_ACTION_ID,
         }
     }
 
@@ -167,6 +183,15 @@ impl Privileged {
 /// write.
 pub fn mirror_argv(base: &str) -> Vec<String> {
     Privileged::Mirror(base.to_owned()).argv()
+}
+
+/// The argv of one repository edit.
+pub fn repo_argv(verb: &str, value: &str) -> Vec<String> {
+    Privileged::Repo {
+        verb: verb.to_owned(),
+        value: value.to_owned(),
+    }
+    .argv()
 }
 
 /// The commands a plan runs, in order: `pkexec xbps-install` first, then

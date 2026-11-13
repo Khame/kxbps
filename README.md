@@ -30,6 +30,24 @@ QT_QPA_PLATFORM=offscreen timeout 5 ./target/debug/kxbps
 State lives in `~/.local/share/kxbps/` (`queue.json`, `prefs.json`,
 `mirror.json`), with mode 0700.
 
+## Install
+
+From a checkout, into `/usr`:
+
+```sh
+cargo build --release
+sudo DESTDIR= PREFIX=/usr sh packaging/install.sh
+```
+
+That installs the window, the two helpers (`kxbps-mirror-apply` and
+`kxbps-repo-apply`), the QML module, the desktop entry, the icon, the metainfo,
+the polkit policy and the translations. `PREFIX` and `DESTDIR` can point
+elsewhere, but the helpers always land in `/usr/libexec`: the polkit actions
+name that path.
+
+Adding or removing a repository, applying a mirror and every transaction ask
+for the password through polkit; nothing runs as root otherwise.
+
 ## License
 
 Copyright © 2026 Łukasz "Khame" Linhard.

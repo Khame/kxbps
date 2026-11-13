@@ -18,8 +18,9 @@ QQC2.ItemDelegate {
     // The row's own identity, as real properties: `model` is a context property
     // injected into this file's bindings only.
     readonly property string packageName: model.name === undefined ? "" : model.name
-    readonly property string packageQueuedAction: model.queuedAction === undefined ? ""
-                                                                                  : model.queuedAction
+    // The queue model's own role is `action`, not the package table's
+    // `queuedAction`: the two models describe the same store, not the same row.
+    readonly property string packageQueuedAction: model.action === undefined ? "" : model.action
     readonly property bool removal: row.packageQueuedAction === "remove"
     // The backend fills these from the read: the version the update would
     // install, or the installed one a removal takes away, and the bytes the

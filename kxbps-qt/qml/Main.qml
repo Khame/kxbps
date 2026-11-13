@@ -102,6 +102,18 @@ Kirigami.ApplicationWindow {
         // the dialog named a moment ago, so repeating it adds nothing.
         case "mirrorApplyDone":
             return i18nd("kxbps", "Mirror applied.")
+        case "repoAddDone":
+            return i18nd("kxbps", "Repository %1 added.", job.labelArg)
+        case "repoRemoveDone":
+            return i18nd("kxbps", "Repository %1 removed.", job.labelArg)
+        case "errorRepoUrl":
+            return i18nd("kxbps", "The helper refused the repository URL.")
+        case "errorRepoPresent":
+            return i18nd("kxbps", "A file for %1 already exists.", job.labelArg)
+        case "errorRepoNotManaged":
+            return i18nd("kxbps", "That file was not written by KXbps.")
+        case "errorRepoIo":
+            return i18nd("kxbps", "Could not write the repository configuration.")
         // The helper's failures. `labelArg` carries only the first verdict
         // argument, which for these keys is the helper's English sentence.
         case "errorMirrorUrlRefused":
@@ -211,7 +223,7 @@ Kirigami.ApplicationWindow {
         const sectionAt = Qt.application.arguments.indexOf("--section")
         if (sectionAt >= 0 && sectionAt + 1 < Qt.application.arguments.length) {
             const name = Qt.application.arguments[sectionAt + 1]
-            if (["packages", "query", "mirrors", "settings"].indexOf(name) >= 0) {
+            if (["packages", "query", "mirrors", "settings", "repositories"].indexOf(name) >= 0) {
                 root.section = name
             }
         }
@@ -287,6 +299,9 @@ Kirigami.ApplicationWindow {
         }
         if (section === "settings") {
             return i18nd("kxbps", "Settings")
+        }
+        if (section === "repositories") {
+            return i18nd("kxbps", "Repositories")
         }
         switch (installedBackend.packages.filter) {
         case "installed":
@@ -717,6 +732,14 @@ Kirigami.ApplicationWindow {
                         onClicked: root.section = "mirrors"
                     }
 
+                    NavItem {
+                        Layout.fillWidth: true
+                        label: i18nd("kxbps", "Repositories")
+                        iconName: "folder-remote"
+                        highlighted: root.section === "repositories"
+                        onClicked: root.section = "repositories"
+                    }
+
                     Kirigami.Separator {
                         Layout.fillWidth: true
                         Layout.topMargin: Kirigami.Units.smallSpacing
@@ -897,7 +920,7 @@ Kirigami.ApplicationWindow {
                     Layout.leftMargin: Kirigami.Units.largeSpacing
                     Layout.rightMargin: Kirigami.Units.largeSpacing
                     Layout.topMargin: Kirigami.Units.smallSpacing
-                    text: root.section === "packages"
+                    text: (root.section === "packages" || root.section === "repositories")
                           ? root.headerTitle()
                           : root.headerTitle() + " · " + root.headerSubtitle(installedBackend.packages.count)
                     font: Kirigami.Theme.smallFont
@@ -927,6 +950,8 @@ Kirigami.ApplicationWindow {
                             return 2
                         case "settings":
                             return 3
+                        case "repositories":
+                            return 4
                         }
                         return 0
                     }
@@ -952,6 +977,11 @@ Kirigami.ApplicationWindow {
                     SettingsView {
                         prefsBackend: prefsBackend
                         onAboutRequested: aboutDialog.open()
+                    }
+
+                    RepositoriesView {
+                        mirrorBackend: mirrorBackend
+                        onJobStarted: (started) => root.startJob(started)
                     }
                 }
 
@@ -986,6 +1016,12 @@ Kirigami.ApplicationWindow {
     // Mirrors page or a job changes what xbps reads.
     onVisibleChanged: {
         if (visible) {
+            mirrorBackend.refreshSystem()
+        }
+    }
+
+    onSectionChanged: {
+        if (section === "repositories") {
             mirrorBackend.refreshSystem()
         }
     }

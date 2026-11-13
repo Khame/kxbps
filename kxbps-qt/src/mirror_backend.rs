@@ -153,6 +153,10 @@ pub mod qobject {
         /// The `errorMirrorHelper*` key when `helperReady` is false; empty
         /// otherwise. QML turns it into the sentence next to the button.
         #[qproperty(QString, helper_error_key, READ, CONSTANT)]
+        /// The repository helper and its policy are both installed. The two
+        /// helpers ship together, but the check names the one the page runs.
+        #[qproperty(bool, repo_helper_ready, READ, CONSTANT)]
+        #[qproperty(QString, repo_helper_error_key, READ, CONSTANT)]
         type MirrorBackend = super::MirrorBackendRust;
 
         #[qinvokable]
@@ -172,6 +176,15 @@ pub mod qobject {
         /// is one the helper would refuse, or when an apply is already running.
         #[qinvokable]
         fn apply_system_mirror(self: Pin<&mut MirrorBackend>) -> QObjectMutPtr;
+
+        /// Adds one repository through the privileged helper. Answers with the
+        /// job, or null when the value is empty or another privileged job runs.
+        #[qinvokable]
+        fn add_repository(self: Pin<&mut MirrorBackend>, url: &QString) -> QObjectMutPtr;
+
+        /// Removes one repository file through the privileged helper.
+        #[qinvokable]
+        fn remove_repository(self: Pin<&mut MirrorBackend>, file: &QString) -> QObjectMutPtr;
 
         /// The apply this backend started has ended, whatever its outcome.
         ///
@@ -340,6 +353,10 @@ pub struct MirrorBackendRust {
     helper_ready: bool,
     /// The key for the reason `helper_ready` is false; empty when it is true.
     helper_error_key: QString,
+    /// The repository helper and the same policy; see [`helper_state`].
+    repo_helper_ready: bool,
+    /// The key for the reason `repo_helper_ready` is false.
+    repo_helper_error_key: QString,
     /// How many system reads were started; only the newest may write.
     system_generation: Arc<AtomicU64>,
     /// The transport the system read uses; tests install a fake.
@@ -352,6 +369,7 @@ impl Default for MirrorBackendRust {
     /// Only used before `initialize` runs; the model stays null until then.
     fn default() -> Self {
         let helper = helper_state(Path::new(HELPER_PATH), Path::new(POLICY_PATH));
+        let repo_helper = helper_state(Path::new(REPO_HELPER_PATH), Path::new(POLICY_PATH));
         Self {
             model: unsafe { QObjectMutPtr::from_raw(std::ptr::null_mut()) },
             owner: unsafe { QObjectMutPtr::from_raw(std::ptr::null_mut()) },
@@ -372,6 +390,8 @@ impl Default for MirrorBackendRust {
             apply_busy: false,
             helper_ready: helper.ready(),
             helper_error_key: QString::from(helper.key()),
+            repo_helper_ready: repo_helper.ready(),
+            repo_helper_error_key: QString::from(repo_helper.key()),
             system_generation: Arc::new(AtomicU64::new(0)),
             invoke: production_invoke(),
             config_path: std::path::PathBuf::from(SYSTEM_CONFIG),
@@ -715,6 +735,47 @@ impl qobject::MirrorBackend {
         job
     }
 
+    fn add_repository(mut self: Pin<&mut Self>, url: &cxx_qt_lib::QString) -> QObjectMutPtr {
+        let value = url.to_string();
+        self.as_mut().start_repo_job("add", &value)
+    }
+
+    fn remove_repository(mut self: Pin<&mut Self>, file: &cxx_qt_lib::QString) -> QObjectMutPtr {
+        let value = file.to_string();
+        self.as_mut().start_repo_job("remove", &value)
+    }
+
+    /// One privileged repository edit, through the same job slot as a mirror
+    /// apply: the helper writes `/etc/xbps.d`, so two of them must not run at
+    /// once, and the job's landing re-reads the system half either way.
+    fn start_repo_job(mut self: Pin<&mut Self>, verb: &str, value: &str) -> QObjectMutPtr {
+        let owner = self.owner;
+        if value.is_empty() || owner.as_ptr().is_null() {
+            return unsafe { QObjectMutPtr::from_raw(std::ptr::null_mut()) };
+        }
+        let payload = crate::job_backend::repo_payload_json(verb, value);
+        let job = qobject::start_mirror_job(owner, &QString::from(payload.as_str()));
+        let moved = {
+            let data = Pin::get_mut(self.as_mut().rust_mut());
+            let moved = data.apply_state.start(!job.as_ptr().is_null());
+            data.apply_busy = data.apply_state.is_busy();
+            moved
+        };
+        if moved {
+            self.as_mut().apply_busy_changed();
+        }
+        if job.as_ptr().is_null() {
+            return job;
+        }
+        let backend = unsafe {
+            QObjectMutPtr::from_raw(
+                <qobject::MirrorBackend as Upcast<cxx_qt::QObject>>::upcast_ptr(&*self).cast_mut(),
+            )
+        };
+        qobject::installed_watch_mirror_job(owner, backend);
+        job
+    }
+
     /// Clears the apply state and re-reads the system half.
     ///
     /// Called on the GUI thread when the job this backend started has ended, by
@@ -872,6 +933,9 @@ fn probe_url(handle: usize, url: &str) -> Option<ProbeOutcome> {
 /// fact about the system and the button has to say why it is disabled before
 /// `pkexec` fails with a code nobody can act on.
 pub const HELPER_PATH: &str = "/usr/libexec/kxbps-mirror-apply";
+
+/// The repository helper polkit runs for the Repositories page.
+pub const REPO_HELPER_PATH: &str = "/usr/libexec/kxbps-repo-apply";
 pub const POLICY_PATH: &str = "/usr/share/polkit-1/actions/io.github.khame.kxbps.policy";
 
 /// What the privileged half of "Apply to system" is missing.

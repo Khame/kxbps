@@ -326,6 +326,10 @@ pub mod keys {
     pub const MIRROR_APPLY_DONE: &str = "mirrorApplyDone";
     /// The mirror helper exited with a code it does not document for itself.
     pub const MIRROR_APPLY_FAILED: &str = "errorMirrorHelper";
+    /// The repository helper wrote one file (`%1` = the URL).
+    pub const REPO_ADD_DONE: &str = "repoAddDone";
+    /// The repository helper removed one file (`%1` = the file name).
+    pub const REPO_REMOVE_DONE: &str = "repoRemoveDone";
 }
 
 /// What the job thread needs: the plan the dialog was built from, or the one
@@ -344,6 +348,17 @@ pub struct JobPayload {
     /// The base URL of `kxbps-mirror-apply`; `None` for a package transaction.
     #[serde(default)]
     pub mirror: Option<String>,
+    /// One repository edit for `kxbps-repo-apply`; `None` for the other jobs.
+    #[serde(default)]
+    pub repo: Option<RepoRequest>,
+}
+
+/// One repository edit: the verb the helper takes and its value (a URL for
+/// `add`, a bare file name for `remove`).
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct RepoRequest {
+    pub verb: String,
+    pub value: String,
 }
 
 impl JobPayload {
@@ -357,6 +372,13 @@ impl JobPayload {
         if let Some(plan) = TransactionPlan::for_items(&self.items) {
             return plan.commands();
         }
+        if let Some(repo) = self
+            .repo
+            .as_ref()
+            .filter(|repo| (repo.verb == "add" || repo.verb == "remove") && !repo.value.is_empty())
+        {
+            return vec![kxbps_core::transaction::repo_argv(&repo.verb, &repo.value)];
+        }
         match &self.mirror {
             Some(base) if !base.is_empty() => vec![mirror_argv(base)],
             _ => Vec::new(),
@@ -364,6 +386,13 @@ impl JobPayload {
     }
 
     /// Whether this payload is a mirror apply, i.e. not a package transaction.
+    /// Whether this payload is one repository edit.
+    pub fn is_repo(&self) -> bool {
+        self.repo.as_ref().is_some_and(|repo| {
+            (repo.verb == "add" || repo.verb == "remove") && !repo.value.is_empty()
+        })
+    }
+
     pub fn is_mirror(&self) -> bool {
         TransactionPlan::for_items(&self.items).is_none()
             && self.mirror.as_deref().is_some_and(|base| !base.is_empty())
@@ -375,6 +404,20 @@ pub fn mirror_payload_json(base: &str) -> String {
     serde_json::to_string(&JobPayload {
         items: Vec::new(),
         mirror: Some(base.to_owned()),
+        repo: None,
+    })
+    .unwrap_or_else(|_| String::from("{}"))
+}
+
+/// The payload JSON of one repository edit, as `kxbps_start_job` takes it.
+pub fn repo_payload_json(verb: &str, value: &str) -> String {
+    serde_json::to_string(&JobPayload {
+        items: Vec::new(),
+        mirror: None,
+        repo: Some(RepoRequest {
+            verb: verb.to_owned(),
+            value: value.to_owned(),
+        }),
     })
     .unwrap_or_else(|_| String::from("{}"))
 }
@@ -425,12 +468,26 @@ pub enum JobKind {
     Plan,
     /// `pkexec /usr/libexec/kxbps-mirror-apply <base>`.
     MirrorApply,
+    /// `pkexec /usr/libexec/kxbps-repo-apply <verb> <value>`.
+    RepoApply { remove: bool },
 }
 
 impl JobKind {
+    /// Whether this job is one repository edit.
+    pub fn is_repo(self) -> bool {
+        matches!(self, Self::RepoApply { .. })
+    }
+
     /// The kind a payload describes; a package plan wins when both are present.
     pub fn of(payload: &JobPayload) -> Self {
-        if payload.is_mirror() {
+        if payload.is_repo() {
+            Self::RepoApply {
+                remove: payload
+                    .repo
+                    .as_ref()
+                    .is_some_and(|repo| repo.verb == "remove"),
+            }
+        } else if payload.is_mirror() {
             Self::MirrorApply
         } else {
             Self::Plan
@@ -446,7 +503,41 @@ impl JobKind {
         match self {
             Self::Plan => Verdict::of(End::of(code)),
             Self::MirrorApply => mirror_verdict(code, detail, url),
+            Self::RepoApply { remove } => repo_verdict(code, url, remove),
         }
+    }
+}
+
+/// The repository helper's verdict for one exit code.
+///
+/// `0` is the helper's own success; its documented refusals map to the key the
+/// page shows with the value the user asked for. 126/127/-1 stay pkexec's, the
+/// same as for the mirror helper.
+fn repo_verdict(code: i32, value: &str, remove: bool) -> Verdict {
+    if code == 0 {
+        return Verdict {
+            done: true,
+            failed: false,
+            cancelled: false,
+            exit_code: 0,
+            key: if remove {
+                keys::REPO_REMOVE_DONE
+            } else {
+                keys::REPO_ADD_DONE
+            },
+            args: vec![value.to_owned()],
+        };
+    }
+    match kxbps_core::repository_edit::RepoError::from_code(code) {
+        Some(error) => Verdict {
+            done: true,
+            failed: true,
+            cancelled: false,
+            exit_code: code,
+            key: error.key(),
+            args: vec![value.to_owned()],
+        },
+        None => Verdict::of(End::of(code)),
     }
 }
 
@@ -898,10 +989,16 @@ impl JobBackendRust {
     /// Builds the job from its payload; an empty plan has nothing to run.
     fn new(payload: &JobPayload) -> Self {
         let kind = JobKind::of(payload);
-        let mirror = payload
-            .mirror
-            .clone()
-            .filter(|base| kind == JobKind::MirrorApply && !base.is_empty());
+        // The value the verdict names: a mirror base URL, or the repository
+        // value the helper was given. Both refresh the system half afterwards.
+        let mirror = if kind.is_repo() {
+            payload.repo.as_ref().map(|repo| repo.value.clone())
+        } else {
+            payload
+                .mirror
+                .clone()
+                .filter(|base| kind == JobKind::MirrorApply && !base.is_empty())
+        };
         Self {
             commands: payload.commands(),
             kind,
@@ -1283,6 +1380,7 @@ mod tests {
         JobBackendRust::new(&JobPayload {
             items,
             mirror: None,
+            repo: None,
         })
         .commands()
         .to_vec()
@@ -1345,6 +1443,7 @@ mod tests {
         let payload = JobPayload {
             items: Vec::new(),
             mirror: Some(String::from("https://repo-default.voidlinux.org/")),
+            repo: None,
         };
         let job = JobBackendRust::new(&payload);
         assert_eq!(job.kind(), JobKind::MirrorApply);
@@ -1387,6 +1486,7 @@ mod tests {
         let payload = JobPayload {
             items: Vec::new(),
             mirror: Some(String::new()),
+            repo: None,
         };
         assert!(JobBackendRust::new(&payload).commands().is_empty());
         assert_eq!(
@@ -1397,6 +1497,7 @@ mod tests {
         let both = JobPayload {
             items: vec![item("vim", PlanAction::Install, None, Some("1_1"))],
             mirror: Some(String::from("https://a/")),
+            repo: None,
         };
         let job = JobBackendRust::new(&both);
         assert_eq!(job.kind(), JobKind::Plan, "a plan wins over a stray mirror");
@@ -1412,11 +1513,54 @@ mod tests {
             let payload = JobPayload {
                 items: Vec::new(),
                 mirror: Some(String::from(base)),
+                repo: None,
             };
             let job = JobBackendRust::new(&payload);
             assert_eq!(job.commands()[0].len(), 3, "{base}");
             assert_eq!(job.commands()[0][2], base, "{base} stays one argument");
         }
+    }
+
+    #[test]
+    fn a_repo_payload_runs_the_repository_helper() {
+        let payload: JobPayload =
+            serde_json::from_str(&repo_payload_json("add", "https://repo.example.org/"))
+                .expect("decodes");
+        assert!(payload.is_repo());
+        assert!(!payload.is_mirror());
+        assert_eq!(
+            payload.commands()[0],
+            [
+                "pkexec",
+                "/usr/libexec/kxbps-repo-apply",
+                "add",
+                "https://repo.example.org/"
+            ]
+        );
+        assert_eq!(JobKind::of(&payload), JobKind::RepoApply { remove: false });
+    }
+
+    #[test]
+    fn a_repo_exit_code_maps_to_its_key() {
+        let add = JobKind::RepoApply { remove: false };
+        let done = add.verdict(0, "", "https://repo.example.org/");
+        assert!(done.done && !done.failed);
+        assert_eq!(done.key, keys::REPO_ADD_DONE);
+        assert_eq!(done.args, vec!["https://repo.example.org/"]);
+
+        let refused = add.verdict(2, "", "http://x/");
+        assert!(refused.failed);
+        assert_eq!(refused.key, "errorRepoUrl");
+
+        let remove = JobKind::RepoApply { remove: true };
+        assert_eq!(
+            remove.verdict(0, "", "20-kxbps-x.conf").key,
+            keys::REPO_REMOVE_DONE
+        );
+        assert_eq!(
+            remove.verdict(4, "", "20-kxbps-x.conf").key,
+            "errorRepoNotManaged"
+        );
     }
 
     #[test]

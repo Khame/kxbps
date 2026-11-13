@@ -11,6 +11,12 @@ authors.workspace = true
 name = "kxbps-mirror-apply"
 path = "src/bin/kxbps-mirror-apply.rs"
 
+# The second privileged helper: add or remove one repository file under
+# `/etc/xbps.d`. polkit runs it as `/usr/libexec/kxbps-repo-apply`.
+[[bin]]
+name = "kxbps-repo-apply"
+path = "src/bin/kxbps-repo-apply.rs"
+
 [dependencies]
 serde = { workspace = true }
 serde_json = { workspace = true }

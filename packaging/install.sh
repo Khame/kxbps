@@ -92,6 +92,7 @@ printf 'Building release binaries in %s\n' "$repo"
 
 app_bin=$repo/target/release/kxbps
 helper_bin=$repo/target/release/kxbps-mirror-apply
+repo_helper_bin=$repo/target/release/kxbps-repo-apply
 qml_src=$repo/target/cxxqt/qml_modules/org/kde/kxbps
 icon=$here/io.github.khame.kxbps.svg
 desktop=$here/io.github.khame.kxbps.desktop
@@ -101,6 +102,7 @@ notifyrc=$here/io.github.khame.kxbps.notifyrc
 
 require_file "$app_bin"
 require_file "$helper_bin"
+require_file "$repo_helper_bin"
 require_dir "$qml_src"
 require_file "$icon"
 require_file "$desktop"
@@ -112,6 +114,7 @@ require_file "$notifyrc"
 
 install_file "$app_bin" 755 "$DESTDIR$PREFIX/bin/kxbps"
 install_file "$helper_bin" 755 "$DESTDIR$LIBEXECDIR/kxbps-mirror-apply"
+install_file "$repo_helper_bin" 755 "$DESTDIR$LIBEXECDIR/kxbps-repo-apply"
 
 # The module tree: the generated registration files plus every QML file the
 # `qmldir` declares, taken from the checkout. `target/cxxqt` keeps copies of

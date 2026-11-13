@@ -10,6 +10,7 @@ pub mod mirror_config;
 pub mod mirrors;
 pub mod plan;
 pub mod probe;
+pub mod repository_edit;
 pub mod request;
 pub mod search;
 pub mod store;
