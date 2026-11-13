@@ -24,6 +24,10 @@ Item {
 
     property var mirrorBackend
 
+    // The chosen mirror is applied to the system (pkexec, the helper, the log),
+    // so the window owns the job; this view only says when a choice was made.
+    signal systemApplyRequested()
+
     readonly property real selectionWidth: Kirigami.Units.gridUnit * 2
     readonly property real regionWidth: Kirigami.Units.gridUnit * 6
     // The heading is a word, the values are numbers: at five grid units
@@ -112,6 +116,9 @@ Item {
         anchors.left: parent.left
         anchors.right: parent.right
         anchors.top: parent.top
+        // The page's subtitle sits right above: without a gap the tab's
+        // underline reads as part of it.
+        anchors.topMargin: Kirigami.Units.smallSpacing
 
         QQC2.TabButton {
             text: i18nd("kxbps", "Mirrors")
@@ -135,8 +142,8 @@ Item {
                 Layout.fillWidth: true
                 Layout.leftMargin: Kirigami.Units.largeSpacing
                 Layout.rightMargin: Kirigami.Units.largeSpacing
-                Layout.topMargin: Kirigami.Units.smallSpacing
-                spacing: Kirigami.Units.smallSpacing
+                Layout.topMargin: Kirigami.Units.largeSpacing
+                spacing: Kirigami.Units.largeSpacing
 
                 QQC2.Label {
                     Layout.fillWidth: true
@@ -267,6 +274,13 @@ Item {
                     delegate: MirrorDelegate {
                         width: mirrorList.width - view.mirrorScrollBarSpace
                         mirrorBackend: view.mirrorBackend
+                        // The mirror already in use needs no transaction: only a
+                        // real change is worth a password prompt.
+                        onChosen: (url) => {
+                            if (url !== view.mirrorBackend.systemMirror) {
+                                view.systemApplyRequested()
+                            }
+                        }
                     }
                 }
 

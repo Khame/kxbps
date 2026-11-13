@@ -603,75 +603,18 @@ Kirigami.ApplicationWindow {
         version: appBackend.version()
     }
 
-    // Applying the selected mirror rewrites the file xbps reads.
-    //
-    // The confirmation names the URL and the backup the helper leaves behind,
-    // because this is the one action that changes the system from this page.
-    // Running the job needs root, so the dialog does not do it for the user: it
-    // hands the job to `startJob`, which shows it and the log.
-    Kirigami.Dialog {
-        id: mirrorApplyDialog
-
-        // The path the helper backs `00-repository-main.conf` up to before it
-        // writes. Named here so the user knows what to restore by hand.
-        readonly property string backupPath: "/etc/xbps.d/00-repository-main.conf.kxbps-bak"
-
-        title: i18nd("kxbps", "Use this mirror on the system?")
-        preferredWidth: Kirigami.Units.gridUnit * 40
-        padding: Kirigami.Units.largeSpacing
-
-        function apply() {
-            const started = mirrorBackend.applySystemMirror()
-            close()
-            // Null means nothing was applied: the slot already refused it. The
-            // backend clears `applyBusy` and re-reads the system half, so the
-            // footer follows without a second read here.
-            root.startJob(started)
-        }
-
-        ColumnLayout {
-            implicitWidth: Kirigami.Units.gridUnit * 38
-            spacing: Kirigami.Units.smallSpacing
-
-            Kirigami.Action {
-                id: mirrorCancelAction
-                text: i18nd("kxbps", "Cancel")
-                onTriggered: mirrorApplyDialog.reject()
-            }
-
-            Kirigami.Action {
-                id: mirrorUseAction
-                text: i18nd("kxbps", "Use on the system")
-                onTriggered: mirrorApplyDialog.apply()
-            }
-
-            QQC2.Label {
-                Layout.fillWidth: true
-                text: i18nd("kxbps", "xbps starts using %1.", mirrorBackend.currentMirror)
-                font.family: "monospace"
-                wrapMode: Text.WordWrap
-            }
-
-            QQC2.Label {
-                Layout.fillWidth: true
-                text: i18nd("kxbps", "The helper writes %1 and keeps the previous file as %2.",
-                            "/etc/xbps.d/00-repository-main.conf", mirrorApplyDialog.backupPath)
-                color: Kirigami.Theme.disabledTextColor
-                font: Kirigami.Theme.smallFont
-                wrapMode: Text.WordWrap
-            }
-
-            QQC2.Label {
-                Layout.fillWidth: true
-                text: i18nd("kxbps", "This changes the system for every user. It needs administrator authentication.")
-                color: Kirigami.Theme.negativeTextColor
-                font: Kirigami.Theme.smallFont
-                wrapMode: Text.WordWrap
-            }
-        }
-
-        customFooterActions: [mirrorCancelAction, mirrorUseAction]
+    // Applying the selected mirror rewrites the file xbps reads, for every user:
+    // the helper runs through pkexec, so the password prompt is the
+    // confirmation and the drawer carries the helper's own log. There is no
+    // second dialog to click through.
+    function applySystemMirror() {
+        const started = mirrorBackend.applySystemMirror()
+        // Null means nothing was applied: the slot already refused it. The
+        // backend clears `applyBusy` and re-reads the system half, so the footer
+        // follows without a second read here.
+        root.startJob(started)
     }
+
 
     // The sidebar's filter entries, in the order the tool reads them: the
     // installed set, what can move, the two states worth acting on, the queue,
@@ -1096,7 +1039,7 @@ Kirigami.ApplicationWindow {
                                      && !mirrorBackend.systemLoading
                                      && !mirrorBackend.applyBusy
                                      && mirrorBackend.helperReady
-                            onClicked: mirrorApplyDialog.open()
+                            onClicked: root.applySystemMirror()
                         }
                     }
                 }
@@ -1158,6 +1101,7 @@ Kirigami.ApplicationWindow {
 
                     MirrorsView {
                         mirrorBackend: mirrorBackend
+                        onSystemApplyRequested: root.applySystemMirror()
                     }
 
                     SettingsView {
