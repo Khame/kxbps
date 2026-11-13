@@ -1,66 +1,121 @@
 # KXbps
 
-A native KDE Plasma front end for xbps, the Void Linux package manager.
+A KDE Plasma front end for xbps, the package manager of Void Linux.
 
-KXbps runs the real tools (`xbps-query`, `xbps-install`, `xbps-remove`) and
-shows what they report. There is no bundled catalog and no fake state: a fresh
-install starts with an empty store, and every list is read from the system on
-demand. Privileged work goes through `pkexec` and the polkit actions in
-`packaging/io.github.khame.kxbps.policy`.
+KXbps runs the tools that are already on the system (`xbps-query`,
+`xbps-install`, `xbps-remove`) and shows what they report. There is no bundled
+catalog: a fresh install starts with an empty store, and every list is read from
+xbps when a screen asks for it. The one cache is the installed map from the last
+`xbps-query -l`.
 
-## Build
+## What the window has
 
-Requirements: Rust 1.99 or newer, Qt 6 base and declarative, KF6 Kirigami and
-KI18n. On Void:
+The sidebar filters the package table:
+
+| Filter | Read from |
+| --- | --- |
+| Installed | `xbps-query -l` |
+| Upgradable | `xbps-install -un` |
+| Available | `xbps-query -Rs ''`, and `xbps-query -Rs <text>` while you type |
+| Marked | the queue file, `~/.local/share/kxbps/queue.json` |
+| Explicit | `xbps-query -m` |
+| Orphans | `xbps-query -O` |
+| On hold | `xbps-query -H` |
+
+The tools below the filters open their own pages: Query (a search that does not
+touch the queue), Mirrors (the mirror list and the system mirror), Repositories
+(the files under `/etc/xbps.d`), Settings.
+
+A row adds a package to the queue or takes it out. The bar at the bottom of the window
+carries the queue size, the Apply button and the state of the last job. The
+`xbps log` button opens the raw output of every command that ran.
+
+## Privileges
+
+Reading needs no root. Every write goes through `pkexec` and one of four polkit
+actions:
+
+| Action | What it does |
+| --- | --- |
+| `io.github.khame.kxbps.install` | `xbps-install` for the queue |
+| `io.github.khame.kxbps.remove` | `xbps-remove` for the queue |
+| `io.github.khame.kxbps.mirror` | writes `/etc/xbps.d/00-repository-main.conf` and syncs the indexes |
+| `io.github.khame.kxbps.repo` | adds or removes one `20-kxbps-*.conf` file and syncs the indexes |
+
+The helpers behind the last two actions live in `/usr/libexec`. The window
+starts them; there is nothing to run by hand.
+
+## Requirements
+
+Runtime: Qt 6 base and declarative, KF6 Kirigami and KI18n, polkit, xbps.
+
+Build: Rust 1.99 or newer, and `lld`. cxx-qt asks the linker to use lld, and GNU
+ld drops the initializers the generated C++ needs, so without lld the link fails
+with undefined references to `cxx_qt_init_crate_*`.
+
+## Install
+
+Build it from a checkout: [INSTALL.md](INSTALL.md) has the dependencies, the
+install script and what it puts where. There is no package in the official Void
+repository.
+
+## Run
+
+```sh
+kxbps
+```
+
+`kxbps --section mirrors` opens one page directly (`packages`, `query`,
+`mirrors`, `repositories`, `settings`), and `kxbps --filter queued` opens the
+package table on one filter (`installed`, `updates`, `all`, `queued`,
+`explicit`, `orphans`, `held`).
+
+State lives in `~/.local/share/kxbps/` (`queue.json`, `prefs.json`,
+`mirror.json`), mode 0700.
+
+## Build and test
 
 ```sh
 sudo xbps-install rust cargo lld qt6-base-devel qt6-declarative-devel \
     kf6-kirigami-devel kf6-ki18n-devel
 cargo build
-./target/debug/kxbps
+cargo test --workspace
+cargo clippy --workspace --all-targets -- -D warnings
+cargo fmt --all --check
 ```
 
-`lld` is required: cxx-qt asks the linker to use it, and GNU ld drops the
-initializers the generated C++ needs, so the link fails with undefined
-references to `cxx_qt_init_crate_*`.
-
-`cargo test --workspace` runs the suite; the Qt side is tested through the
-CXX-Qt bridge without a display, and the UI smoke test is
+The UI smoke test needs no display:
 
 ```sh
 QT_QPA_PLATFORM=offscreen timeout 5 ./target/debug/kxbps
 ```
 
-State lives in `~/.local/share/kxbps/` (`queue.json`, `prefs.json`,
-`mirror.json`), with mode 0700.
+The timeout kills it after five seconds and nothing is written to stderr.
 
-## Install
+## Troubleshooting
 
-From a checkout, into `/usr`:
+A repository without a local index is skipped by `xbps-query` without a word, so
+every list comes back short. KXbps syncs the indexes after a mirror or
+repository change, and `sudo xbps-install -S` does the same by hand. `xbps-query
+-L` prints the package count of each repository, and `-1` means that repository
+has no index.
 
-```sh
-cargo build --release
-sudo DESTDIR= PREFIX=/usr sh packaging/install.sh
-```
+If the Repositories page says the helper is missing, the installation did not
+finish. `/usr/libexec/kxbps-repo-apply` and the policy file have to be on disk.
 
-That installs the window, the two helpers (`kxbps-mirror-apply` and
-`kxbps-repo-apply`), the desktop entry, the icon, the metainfo, the polkit
-policy and the translations. The QML is compiled into the binary, so there is
-no module directory to install. `PREFIX` and `DESTDIR` can point
-elsewhere, but the helpers always land in `/usr/libexec`: the polkit actions
-name that path.
+## Documentation
 
-Adding or removing a repository, applying a mirror and every transaction ask
-for the password through polkit; nothing runs as root otherwise.
+[docs/xbps-integration.md](docs/xbps-integration.md) lists which xbps command
+feeds which screen and what is parsed from its output.
 
 ## License
 
 Copyright © 2026 Łukasz "Khame" Linhard.
 
-KXbps is free software: you can redistribute it and/or modify it under the
-terms of the GNU General Public License as published by the Free Software
-Foundation, either version 3 of the License, or (at your option) any later
-version. See [LICENSE](LICENSE) for the full text.
+KXbps is free software: you can redistribute it and/or modify it under the terms
+of the GNU General Public License as published by the Free Software Foundation,
+either version 3 of the License, or (at your option) any later version. See
+[LICENSE](LICENSE) for the full text.
 
 The program links Qt 6 and KF6 (LGPL) and uses Rust crates under MIT and
 Apache-2.0 licenses; their notices travel with the binary.

@@ -232,7 +232,7 @@ Kirigami.ApplicationWindow {
             root.selectFilter(Qt.application.arguments[at + 1])
         }
         // `--section <name>` opens on a page, for screenshots and for a launcher
-        // that points at one: packages, query, mirrors or settings.
+        // that points at one: packages, query, mirrors, repositories, settings.
         const sectionAt = Qt.application.arguments.indexOf("--section")
         if (sectionAt >= 0 && sectionAt + 1 < Qt.application.arguments.length) {
             const name = Qt.application.arguments[sectionAt + 1]
