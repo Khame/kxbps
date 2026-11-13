@@ -113,14 +113,25 @@ require_file "$notifyrc"
 install_file "$app_bin" 755 "$DESTDIR$PREFIX/bin/kxbps"
 install_file "$helper_bin" 755 "$DESTDIR$LIBEXECDIR/kxbps-mirror-apply"
 
-# The whole module tree: qmldir, plugin.qmltypes and qml/**/*.qml.
+# The module tree: the generated registration files plus every QML file the
+# `qmldir` declares, taken from the checkout. `target/cxxqt` keeps copies of
+# components that have since been deleted (`cxx-qt-build` copies the
+# `.qml_file` list and never removes a file that leaves it), so the build tree
+# is not the source of truth for what gets installed.
 qml_dest=$DESTDIR$qml_dir/org/kde/kxbps
 rm -rf "$qml_dest"
 mkdir -p "$qml_dest"
-(cd "$qml_src" && find . -type d -exec mkdir -p "$qml_dest/{}" \;)
-(cd "$qml_src" && find . -type f -exec install -Dm644 {} "$qml_dest/{}" \;)
+install -Dm644 "$qml_src/qmldir" "$qml_dest/qmldir"
+install -Dm644 "$qml_src/plugin.qmltypes" "$qml_dest/plugin.qmltypes"
+install -Dm644 "$qml_src/plugin_init.o" "$qml_dest/plugin_init.o"
+qml_files=$(awk '$3 ~ /\.qml$/ { print $3 }' "$qml_src/qmldir")
+[ -n "$qml_files" ] || die "no QML files listed in $qml_src/qmldir"
+for qml_file in $qml_files; do
+    require_file "$repo/kxbps-qt/$qml_file"
+    install -Dm644 "$repo/kxbps-qt/$qml_file" "$qml_dest/$qml_file"
+done
 installed="${installed}
-$((installed_count + 1)). $qml_dest/ (QML module org.kde.kxbps)"
+$((installed_count + 1)). $qml_dest/ (QML module org.kde.kxbps, $(printf '%s\n' $qml_files | wc -l) QML files)"
 installed_count=$((installed_count + 1))
 install_file "$icon" 644 \
     "$DESTDIR$PREFIX/share/icons/hicolor/scalable/apps/io.github.khame.kxbps.svg"
