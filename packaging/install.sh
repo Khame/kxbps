@@ -12,7 +12,6 @@
 # Environment overrides:
 #   PREFIX   installation prefix for bin/, share/ and the QML module (default /usr)
 #   DESTDIR  staging root prepended to every destination (default empty)
-#   QMLDIR   directory that holds `org/kde/kxbps`; otherwise asked from qmake6
 #   PO_DIR   directory holding the gettext catalogs (default <repo>/po)
 #   CARGO    cargo executable (default `cargo` from PATH)
 
@@ -65,26 +64,6 @@ command -v "$CARGO" >/dev/null 2>&1 || die "cargo not found (set CARGO=/path/to/
 command -v msgfmt >/dev/null 2>&1 ||
     die "msgfmt not found: install the gettext package, otherwise the translations would be skipped"
 
-# Qt's own QML import path, which is where the module has to land for
-# `import org.kde.kxbps` to resolve. Void's qmake6 is not on PATH, so prefer
-# the value .cargo/config.toml uses.
-qml_dir=${QMLDIR:-}
-if [ -z "$qml_dir" ]; then
-    qmake=${QMAKE:-}
-    if [ -z "$qmake" ]; then
-        for candidate in /usr/lib/qt6/bin/qmake6 /usr/lib64/qt6/bin/qmake6 qmake6; do
-            if command -v "$candidate" >/dev/null 2>&1; then
-                qmake=$candidate
-                break
-            fi
-        done
-    fi
-    if [ -n "$qmake" ]; then
-        qml_dir=$("$qmake" -query QT_INSTALL_QML 2>/dev/null) || qml_dir=
-    fi
-fi
-[ -n "${qml_dir:-}" ] || qml_dir=$PREFIX/lib/qt6/qml
-
 # --- build ----------------------------------------------------------------
 
 printf 'Building release binaries in %s\n' "$repo"
@@ -93,7 +72,6 @@ printf 'Building release binaries in %s\n' "$repo"
 app_bin=$repo/target/release/kxbps
 helper_bin=$repo/target/release/kxbps-mirror-apply
 repo_helper_bin=$repo/target/release/kxbps-repo-apply
-qml_src=$repo/target/cxxqt/qml_modules/org/kde/kxbps
 icon=$here/io.github.khame.kxbps.svg
 desktop=$here/io.github.khame.kxbps.desktop
 metainfo=$here/io.github.khame.kxbps.metainfo.xml
@@ -103,7 +81,6 @@ notifyrc=$here/io.github.khame.kxbps.notifyrc
 require_file "$app_bin"
 require_file "$helper_bin"
 require_file "$repo_helper_bin"
-require_dir "$qml_src"
 require_file "$icon"
 require_file "$desktop"
 require_file "$metainfo"
@@ -116,26 +93,12 @@ install_file "$app_bin" 755 "$DESTDIR$PREFIX/bin/kxbps"
 install_file "$helper_bin" 755 "$DESTDIR$LIBEXECDIR/kxbps-mirror-apply"
 install_file "$repo_helper_bin" 755 "$DESTDIR$LIBEXECDIR/kxbps-repo-apply"
 
-# The module tree: the generated registration files plus every QML file the
-# `qmldir` declares, taken from the checkout. `target/cxxqt` keeps copies of
-# components that have since been deleted (`cxx-qt-build` copies the
-# `.qml_file` list and never removes a file that leaves it), so the build tree
-# is not the source of truth for what gets installed.
-qml_dest=$DESTDIR$qml_dir/org/kde/kxbps
-rm -rf "$qml_dest"
-mkdir -p "$qml_dest"
-install -Dm644 "$qml_src/qmldir" "$qml_dest/qmldir"
-install -Dm644 "$qml_src/plugin.qmltypes" "$qml_dest/plugin.qmltypes"
-install -Dm644 "$qml_src/plugin_init.o" "$qml_dest/plugin_init.o"
-qml_files=$(awk '$3 ~ /\.qml$/ { print $3 }' "$qml_src/qmldir")
-[ -n "$qml_files" ] || die "no QML files listed in $qml_src/qmldir"
-for qml_file in $qml_files; do
-    require_file "$repo/kxbps-qt/$qml_file"
-    install -Dm644 "$repo/kxbps-qt/$qml_file" "$qml_dest/$qml_file"
-done
-installed="${installed}
-$((installed_count + 1)). $qml_dest/ (QML module org.kde.kxbps, $(printf '%s\n' $qml_files | wc -l) QML files)"
-installed_count=$((installed_count + 1))
+# No QML module is installed. `cxx-qt-build` embeds every QML file in the
+# binary's resource, and the generated `qmldir` prefers that copy
+# (`prefer :/qt/qml/org/kde/kxbps/`) and names a plugin that is never built as
+# a shared object: the types are registered in the executable. A copy under
+# `QT_INSTALL_QML` would be read by nothing.
+
 install_file "$icon" 644 \
     "$DESTDIR$PREFIX/share/icons/hicolor/scalable/apps/io.github.khame.kxbps.svg"
 install_file "$desktop" 644 \
@@ -167,7 +130,6 @@ fi
 # --- summary --------------------------------------------------------------
 
 printf '\nInstalled %d items:\n%s\n' "$installed_count" "$installed"
-printf '\nQML import path: %s\n' "$qml_dir"
 if [ -n "$DESTDIR" ]; then
     printf 'Staged under DESTDIR=%s\n' "$DESTDIR"
 fi

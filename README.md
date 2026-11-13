@@ -40,8 +40,9 @@ sudo DESTDIR= PREFIX=/usr sh packaging/install.sh
 ```
 
 That installs the window, the two helpers (`kxbps-mirror-apply` and
-`kxbps-repo-apply`), the QML module, the desktop entry, the icon, the metainfo,
-the polkit policy and the translations. `PREFIX` and `DESTDIR` can point
+`kxbps-repo-apply`), the desktop entry, the icon, the metainfo, the polkit
+policy and the translations. The QML is compiled into the binary, so there is
+no module directory to install. `PREFIX` and `DESTDIR` can point
 elsewhere, but the helpers always land in `/usr/libexec`: the polkit actions
 name that path.
 
