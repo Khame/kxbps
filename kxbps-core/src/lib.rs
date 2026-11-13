@@ -11,6 +11,7 @@ pub mod mirrors;
 pub mod plan;
 pub mod probe;
 pub mod request;
+pub mod search;
 pub mod store;
 pub mod transaction;
 pub mod types;
@@ -37,6 +38,7 @@ pub use plan::{
 };
 pub use probe::{PROBE_TIMEOUT, PROBE_TIMEOUT_MS, ProbeError, check_probe_url, measure};
 pub use request::{DryRun, PlanRequest, install_names, not_installed, remove_names};
+pub use search::rank_search_hits;
 pub use store::{Store, StoreError, data_dir, installed_map};
 pub use transaction::{
     MIRROR_ACTION_ID, MIRROR_APPLY_PATH, Outcome, PKEXEC, Privileged, Transaction, TransactionPlan,
