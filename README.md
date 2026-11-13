@@ -103,6 +103,29 @@ has no index.
 If the Repositories page says the helper is missing, the installation did not
 finish. `/usr/libexec/kxbps-repo-apply` and the policy file have to be on disk.
 
+## Translations
+
+The interface follows the system locale (`LANGUAGE`, `LC_*`). There is no
+language switch inside the application.
+
+| Language | Catalog |
+| --- | --- |
+| German | `po/de.po` |
+| Spanish | `po/es.po` |
+| French | `po/fr.po` |
+| Italian | `po/it.po` |
+| Dutch | `po/nl.po` |
+| Polish | `po/pl.po` |
+| Brazilian Portuguese | `po/pt_BR.po` |
+
+`scripts/extract-i18n.sh` rebuilds `po/kxbps.pot` from the QML and Rust sources
+and checks every catalog for missing, empty, fuzzy and untranslated entries and
+for placeholder mismatches. `--write` also merges the template into `po/pl.po`;
+the other catalogs are merged with `msgmerge` by hand.
+
+A new language needs one `po/<lang>.po` with its own `Plural-Forms` header. The
+build installs every catalog it finds, so nothing else changes.
+
 ## Documentation
 
 [docs/xbps-integration.md](docs/xbps-integration.md) lists which xbps command

@@ -35,7 +35,8 @@ The script builds the release binaries itself. `CARGO` points it at another
 cargo, and `CARGO=true` skips the build when `target/release` is already
 current.
 
-It installs eight files:
+It installs these files, plus one catalog per language under
+`/usr/share/locale`:
 
 | Path | What |
 | --- | --- |
@@ -46,7 +47,7 @@ It installs eight files:
 | `/usr/share/icons/hicolor/scalable/apps/io.github.khame.kxbps.svg` | icon |
 | `/usr/share/metainfo/io.github.khame.kxbps.metainfo.xml` | AppStream data |
 | `/usr/share/polkit-1/actions/io.github.khame.kxbps.policy` | the four actions |
-| `/usr/share/locale/pl/LC_MESSAGES/kxbps.mo` | Polish translation |
+| `/usr/share/locale/<lang>/LC_MESSAGES/kxbps.mo` | translations: `de`, `es`, `fr`, `it`, `nl`, `pl`, `pt_BR` |
 
 `PREFIX` and `DESTDIR` move `bin/` and `share/`. The two helpers always land in
 `/usr/libexec`, because the policy names that path and polkit resolves it as

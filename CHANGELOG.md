@@ -20,12 +20,15 @@ First release.
 - Repositories page that lists the files under `/etc/xbps.d` and adds or removes
   the `20-kxbps-*.conf` files KXbps owns.
 - Search across the configured repositories, separate from the installed set.
-- Polish translation, Kirigami theme colours throughout, and a window that fits
-  the screen at any scale factor.
+- Translations into German, Spanish, French, Italian, Dutch, Polish and
+  Brazilian Portuguese, Kirigami theme colours throughout, and a window that
+  fits the screen at any scale factor.
 - Tray icon and an optional notification when updates are available.
 
 ### Notes
 
+- The catalogs other than Polish are a first pass and have not been reviewed by
+  native speakers; corrections belong in `po/<lang>.po`.
 - The mirror and repository helpers run `xbps-install -S` after writing a file,
   because `xbps-query` skips a repository without an index without a word. A
   failed sync leaves the configuration in place and reports a warning.
