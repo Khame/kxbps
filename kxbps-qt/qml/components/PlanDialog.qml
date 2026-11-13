@@ -164,11 +164,18 @@ Kirigami.Dialog {
                                         : i18nd("kxbps", "Transaction plan")
     }
 
+    // The sentences are built from a plan the caller passes in, so the window
+    // can reuse them for the status strip when a silent dry run ends without a
+    // transaction. `noticeText()`/`errorText()` keep reading the open plan.
     function noticeText() {
-        if (plan === null) {
+        return dialog.noticeTextFor(dialog.plan)
+    }
+
+    function noticeTextFor(value) {
+        if (value === null) {
             return ""
         }
-        switch (plan.noticeKey) {
+        switch (value.noticeKey) {
         case "emptyQueue":
             return i18nd("kxbps", "The queue does not change the system.")
         case "emptyInstall":
@@ -178,33 +185,37 @@ Kirigami.Dialog {
         case "emptyRemove":
             return i18nd("kxbps", "Nothing to remove.")
         }
-        return plan.noticeKey
+        return value.noticeKey
     }
 
     function errorText() {
-        if (plan === null) {
+        return dialog.errorTextFor(dialog.plan)
+    }
+
+    function errorTextFor(value) {
+        if (value === null) {
             return ""
         }
-        switch (plan.errorKey) {
+        switch (value.errorKey) {
         case "errorUnknownPackage":
-            return i18nd("kxbps", "xbps does not know %1.", plan.errorArgs[0] || "")
+            return i18nd("kxbps", "xbps does not know %1.", value.errorArgs[0] || "")
         case "errorNotInstalled":
-            return i18nd("kxbps", "Not installed: %1", plan.errorArgs[0] || "")
+            return i18nd("kxbps", "Not installed: %1", value.errorArgs[0] || "")
         case "errorXbpsStart":
-            return i18nd("kxbps", "%1 could not be started: %2", plan.errorArgs[0] || "",
-                         plan.errorArgs[1] || "")
+            return i18nd("kxbps", "%1 could not be started: %2", value.errorArgs[0] || "",
+                         value.errorArgs[1] || "")
         case "errorXbpsTimeout":
-            return i18nd("kxbps", "%1 did not answer within %2 s.", plan.errorArgs[0] || "",
-                         plan.errorArgs[1] || "")
+            return i18nd("kxbps", "%1 did not answer within %2 s.", value.errorArgs[0] || "",
+                         value.errorArgs[1] || "")
         case "errorXbpsExit":
-            return i18nd("kxbps", "%1 exited with %2: %3", plan.errorArgs[0] || "",
-                         plan.errorArgs[1] || "", plan.errorArgs[2] || "")
+            return i18nd("kxbps", "%1 exited with %2: %3", value.errorArgs[0] || "",
+                         value.errorArgs[1] || "", value.errorArgs[2] || "")
         case "errorXbpsOutput":
             return i18nd("kxbps", "%1 printed a line xbps cannot be read from: %3 (line %2)",
-                         plan.errorArgs[0] || "", plan.errorArgs[1] || "",
-                         plan.errorArgs[2] || "")
+                         value.errorArgs[0] || "", value.errorArgs[1] || "",
+                         value.errorArgs[2] || "")
         }
-        return plan.errorKey
+        return value.errorKey
     }
 
     function noteText() {

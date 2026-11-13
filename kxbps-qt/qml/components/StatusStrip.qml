@@ -20,6 +20,11 @@ Rectangle {
     // False once the queue is used again: the last transaction's result must
     // not outlive the state it describes.
     property bool showResult: false
+    // Why a transaction never started: a dry run xbps refused, or one that
+    // found nothing to do. The strip is the only place the silent queue path
+    // can say it.
+    property string message: ""
+    property bool messageIsError: false
     property string currentMirror
     // The counts of the whole system, not of the visible filter: the strip is a
     // fact about the machine, and a filter is a view of it.
@@ -98,6 +103,18 @@ Rectangle {
             text: strip.summaryText()
             font: Kirigami.Theme.smallFont
             color: Kirigami.Theme.disabledTextColor
+            elide: Text.ElideRight
+        }
+
+        // Why a click on Apply started nothing. A refusal is not a count, so
+        // it reads in the warning colour instead of the muted one.
+        QQC2.Label {
+            visible: !strip.running && strip.message.length > 0
+            Layout.maximumWidth: Kirigami.Units.gridUnit * 30
+            text: strip.message
+            font: Kirigami.Theme.smallFont
+            color: strip.messageIsError ? Kirigami.Theme.negativeTextColor
+                                        : Kirigami.Theme.disabledTextColor
             elide: Text.ElideRight
         }
 

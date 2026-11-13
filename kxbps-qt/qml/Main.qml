@@ -29,25 +29,19 @@ Kirigami.ApplicationWindow {
     // their own.
     property string section: "packages"
 
-    // The selected row, as the whole tuple the menu bar acts on. It reaches the
-    // window through `PackagesView.selectionChanged`; an empty `selectedName`
-    // means nothing is selected and every Package item is disabled.
-    property string selectedName: ""
-    property string selectedPkgver: ""
-    property bool selectedInstalled: false
-    property bool selectedIsUpdate: false
-    property bool selectedHeld: false
-    property string selectedQueuedAction: ""
-
-    // True once a row is selected: the one condition every Package item needs.
-    readonly property bool hasSelection: selectedName.length > 0
-
     // The current or last finished job. It is kept until the next transaction
     // starts, so the status strip and the log drawer stay readable afterwards.
     // There is no transaction window: the strip carries the progress and the
     // drawer carries the output, which is where the user watches xbps anyway.
     property var job: null
     property bool showJobResult: false
+
+    // The one sentence the status strip carries when a transaction never
+    // started: the direct queue path runs its dry run without a dialog, so a
+    // refusal or an empty answer has nowhere else to appear. Empty means the
+    // strip says nothing beyond its counts.
+    property string stripMessage: ""
+    property bool stripMessageIsError: false
 
     // Milliseconds since the job was handed over; the backend turns it into the
     // bar. The 250 ms pass is also what makes the log live: the worker queues
@@ -416,26 +410,6 @@ Kirigami.ApplicationWindow {
         planPending = installedBackend.openRemoveNames(names, false)
     }
 
-    // One queue gesture for the menu bar, the same rule `PackageDelegate` uses:
-    // take a queued row out, otherwise queue the token the row would send.
-    function toggleSelectedQueue() {
-        if (!hasSelection) {
-            return
-        }
-        if (selectedQueuedAction !== "") {
-            installedBackend.removeQueued(selectedName)
-            return
-        }
-        const token = selectedIsUpdate ? "update" : (selectedInstalled ? "" : "install")
-        // An installed package has nothing to queue; the row disables its
-        // checkbox for the same reason, and a menu that could still install it
-        // would ask for the password to do nothing.
-        if (token.length === 0) {
-            return
-        }
-        installedBackend.toggleQueue(selectedName, token)
-    }
-
     function startJob(started) {
         if (started === null) {
             return
@@ -445,6 +419,9 @@ Kirigami.ApplicationWindow {
         job = started
         jobElapsed = 0
         showJobResult = false
+        // The sentence about the last dry run described a queue that has now
+        // turned into a transaction.
+        root.stripMessage = ""
         // The drawer scrolls itself: its list follows the last line.
         logDrawer.expand()
     }
@@ -457,6 +434,8 @@ Kirigami.ApplicationWindow {
             // The pending request goes too: its answer describes the queue the
             // user just changed and must not reopen the dialog.
             root.planPending = 0
+            // The sentence described the queue the user just changed.
+            root.stripMessage = ""
             if (planDialog.opened) {
                 planDialog.close()
             }
@@ -565,20 +544,6 @@ Kirigami.ApplicationWindow {
         }
     }
 
-    // The selection reaches the window as one tuple, so no menu item can pair a
-    // name with a stale flag.
-    Connections {
-        function onSelectionChanged(name, pkgver, installed, isUpdate, held, queuedAction) {
-            root.selectedName = name
-            root.selectedPkgver = pkgver
-            root.selectedInstalled = installed
-            root.selectedIsUpdate = isUpdate
-            root.selectedHeld = held
-            root.selectedQueuedAction = queuedAction
-        }
-        target: packagesView
-    }
-
     // The dry run answered: build the plan object the backend described and
     // hand it to the dialog, which owns and releases it from then on.
     Connections {
@@ -592,10 +557,27 @@ Kirigami.ApplicationWindow {
             const plan = installedBackend.makePlan(payloadJson)
             if (plan === null) {
                 root.applyDirectly = false
+                root.showPlanMessage(null)
                 return
             }
             if (root.applyDirectly) {
                 root.applyDirectly = false
+                // A blocked transaction cannot run at all, and the dialog is
+                // the only surface that names what still needs the packages.
+                if (plan.isBlocked) {
+                    planDialog.showPlan(plan)
+                    return
+                }
+                // Nothing to apply means no job. xbps either refused the dry
+                // run or found the queue already done; the strip is where the
+                // silent path says so, because a click that does nothing reads
+                // as a broken button.
+                if (plan.errorKey.length > 0 || plan.noticeKey.length > 0
+                        || plan.count === 0) {
+                    root.showPlanMessage(plan)
+                    installedBackend.release(plan)
+                    return
+                }
                 const started = installedBackend.applyPlan(plan)
                 installedBackend.release(plan)
                 root.startJob(started)
@@ -733,8 +715,27 @@ Kirigami.ApplicationWindow {
         if (installedBackend.queueCount === 0) {
             return
         }
+        root.stripMessage = ""
         root.applyDirectly = true
         root.planPending = installedBackend.openQueuePlan()
+    }
+
+    // A dry run that ends without a transaction still has to say why. The
+    // sentence comes from the same mapping the plan dialog uses, so the strip
+    // and the dialog never word the same answer differently. A null plan means
+    // the payload could not be built at all.
+    function showPlanMessage(plan) {
+        let text = ""
+        let failed = true
+        if (plan !== null && plan.errorKey.length > 0) {
+            text = planDialog.errorTextFor(plan)
+        } else if (plan !== null && plan.noticeKey.length > 0) {
+            text = planDialog.noticeTextFor(plan)
+            failed = false
+        }
+        root.stripMessageIsError = failed
+        root.stripMessage = text.length > 0 ? text
+                                            : i18nd("kxbps", "The dry run returned nothing that could be applied.")
     }
 
     pageStack.initialPage: Kirigami.Page {
@@ -1129,6 +1130,8 @@ Kirigami.ApplicationWindow {
                     job: root.job
                     jobLabel: root.jobLabel
                     showResult: root.showJobResult
+                    message: root.stripMessage
+                    messageIsError: root.stripMessageIsError
                     currentMirror: mirrorBackend.systemMirror.length > 0
                                    ? mirrorBackend.systemMirror
                                    : mirrorBackend.currentMirror

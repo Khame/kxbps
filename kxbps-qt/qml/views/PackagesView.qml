@@ -35,12 +35,6 @@ Item {
     // job, so the list only forwards the name and what the user meant.
     signal planRequested(string name, string token)
 
-    // The whole selection in one go: a name alone would let the window read
-    // `held`/`queued` from a row that has moved on. `pkgver` is the xbps form
-    // `name-version_revision`; the flags are what the row shows.
-    signal selectionChanged(string name, string pkgver, bool installed, bool isUpdate,
-                            bool held, string queuedAction)
-
     // The selected row, as the `name-version_revision` xbps prints.
     property string selectedName: ""
     property string selectedPkgver: ""
@@ -183,29 +177,10 @@ Item {
         }
     }
 
-    // Emits the current row's tuple. `currentItem` is null while the delegate
-    // that just became current is still being created, so the values come from
-    // the delegate's own properties, never from its `model` context property:
-    // that one is undefined outside the delegate's own file.
-    function announceSelection(item) {
-        if (item === null || item === undefined) {
-            view.selectionChanged("", "", false, false, false, "")
-            return
-        }
-        // A delegate that is being destroyed has already lost its row: the name
-        // it reports is empty, and there is nothing to announce.
-        if (item.packageName === undefined || item.packageName.length === 0) {
-            return
-        }
-        view.selectionChanged(item.packageName, item.packagePkgver,
-                              item.installed, item.packageIsUpdate, item.packageHeld,
-                              item.packageQueuedAction)
-    }
-
+    // Drops the selection, so the details area closes with the row it described.
     function clearSelection() {
         view.selectedName = ""
         view.selectedPkgver = ""
-        view.selectionChanged("", "", false, false, false, "")
     }
 
     // The header's drag handles call this: one place clamps and assigns, so a
@@ -743,17 +718,6 @@ Item {
                     clip: true
                     model: view.packages
                     currentIndex: -1
-                    // Keyboard navigation and a click both land here; the selection
-                    // tuple then follows the current row.
-                    onCurrentItemChanged: view.announceSelection(currentItem)
-                    // The row's flags live in the model, so a hold or queue change moves
-                    // no current index yet must refresh the tuple the window acts on.
-                    Connections {
-                        target: view.installedBackend
-                        function onStateRevisionChanged() {
-                            view.announceSelection(list.currentItem)
-                        }
-                    }
                     // A model reset (filter or search change) drops the current row: the
                     // window must not keep acting on a row that is no longer on screen.
                     onCountChanged: {
@@ -786,10 +750,6 @@ Item {
                             view.selectedName = packageName
                             view.selectedPkgver = packagePkgver
                             list.currentIndex = index
-                            // Emitted here as well as from the list: a click on the
-                            // already-current row moves no index, and the row's flags
-                            // may have changed since.
-                            view.announceSelection(this)
                         }
                     }
 
@@ -915,7 +875,6 @@ Item {
             if (!view.medium) {
                 view.selectedName = ""
                 view.selectedPkgver = ""
-                view.selectionChanged("", "", false, false, false, "")
             }
         }
 

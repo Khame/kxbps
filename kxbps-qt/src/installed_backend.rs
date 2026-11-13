@@ -1495,6 +1495,34 @@ mod tests {
         assert!(payload.items.is_empty());
     }
 
+    /// The queue's Apply runs the dry run without a dialog, so a payload with
+    /// no steps must always carry the reason. QML shows a key it does not get
+    /// as nothing at all, and Apply would then look like a dead button.
+    #[test]
+    fn a_payload_without_steps_always_names_why() {
+        let installed = installed_set();
+        let cases = [
+            // xbps answered, and the transaction is already done.
+            (ok_reply(""), "emptyQueue"),
+            // xbps refused the name.
+            (
+                exit_reply(2, "", "ERROR: Package 'nope' not found in repository pool."),
+                "errorUnknownPackage",
+            ),
+        ];
+        for (reply, expected) in cases {
+            let (invoke, _) = one_answer(&reply);
+            let payload = queue_payload(&installed, &queue("nope", QueueAction::Install), &*invoke);
+            assert!(payload.items.is_empty(), "{expected} carries no steps");
+            let key = if payload.notice_key.is_empty() {
+                &payload.error_key
+            } else {
+                &payload.notice_key
+            };
+            assert_eq!(key, expected, "a payload with no steps names why");
+        }
+    }
+
     #[test]
     fn an_install_of_an_installed_package_is_a_notice_when_nothing_is_newer() {
         let installed = installed_set();
