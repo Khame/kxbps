@@ -24,7 +24,6 @@ Item {
 
     property var mirrorBackend
 
-    readonly property real selectionWidth: Kirigami.Units.gridUnit * 2
     readonly property real regionWidth: Kirigami.Units.gridUnit * 6
     // The heading is a word, the values are numbers: at five grid units
     // the Polish "Opóźnienie" was cut in half and the column drifted
@@ -260,12 +259,6 @@ Item {
                         anchors.rightMargin: Kirigami.Units.largeSpacing
                                                      + view.mirrorScrollBarSpace
                         spacing: Kirigami.Units.largeSpacing
-
-                        Item {
-                            Layout.preferredWidth: view.selectionWidth
-                            Layout.minimumWidth: view.selectionWidth
-                            Layout.maximumWidth: view.selectionWidth
-                        }
 
                         QQC2.Label {
                             Layout.fillWidth: true

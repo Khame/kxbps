@@ -1095,13 +1095,57 @@ fn push_query_state(
     }
 }
 
+/// The queue as the model reads it: the action plus the version and the bytes
+/// the read knows about. A queued install of a package the machine does not
+/// hold has neither, and the row shows a dash instead of a guess.
+fn queue_rows(store: &Store, snapshot: Option<&Snapshot>) -> Vec<crate::queue_model::QueueRow> {
+    store
+        .queue
+        .iter()
+        .map(|item| {
+            let installed = store.installed.get(&item.name);
+            let version = match item.action {
+                QueueAction::Update => snapshot
+                    .and_then(|snapshot| snapshot.update_of(&item.name))
+                    .map(str::to_owned)
+                    .or_else(|| installed.map(|inst| inst.version.clone())),
+                _ => installed.map(|inst| inst.version.clone()),
+            }
+            .unwrap_or_default();
+            let bytes = match item.action {
+                QueueAction::Remove => {
+                    snapshot.and_then(|snapshot| size_in(&snapshot.installed_sizes, &item.name))
+                }
+                _ => {
+                    snapshot.and_then(|snapshot| size_in(&snapshot.repo_download_sizes, &item.name))
+                }
+            };
+            crate::queue_model::QueueRow {
+                name: item.name.clone(),
+                action: item.action,
+                version,
+                size: bytes
+                    .map(crate::package_model::format_size)
+                    .unwrap_or_default(),
+            }
+        })
+        .collect()
+}
+
+fn size_in(entries: &[kxbps_core::SizeEntry], name: &str) -> Option<u64> {
+    entries
+        .iter()
+        .find(|entry| entry.name == name)
+        .map(|entry| entry.bytes)
+}
+
 /// The installed set, queue, updates and orphans as the shims read them.
 fn state_json(store: &Store, snapshot: Option<&Snapshot>) -> (QString, QString, QString, QString) {
     let updates = snapshot.map_or_else(Vec::new, |snapshot| snapshot.updates.clone());
     let orphans = snapshot.map_or_else(Vec::new, |snapshot| snapshot.orphans.clone());
     (
         json_of(&store.installed),
-        json_of(&store.queue),
+        json_of(&queue_rows(store, snapshot)),
         json_of(&updates),
         json_of(&orphans),
     )

@@ -49,6 +49,12 @@ Item {
     // into. Three boundaries, the ones the plan fixed: every column, the
     // description folded under the name, and the narrow form.
     readonly property real tableWidth: Math.max(0, list.width - view.listScrollBarSpace)
+    // The queue is a list of changes, not a table of packages: the action, the
+    // version and the size are the whole row. A search inside the queue falls
+    // back to the table, which is the only form that can rank an answer.
+    readonly property bool queueMode: view.packages !== null
+                                      && view.packages.filter === "queued"
+                                      && view.packages.search.length === 0
     // The header row's height. The bars sit on it, so both read one number.
     readonly property real headerHeight: Kirigami.Units.gridUnit * 2
     // The thresholds are the window sizes the acceptance test names, carried
@@ -503,6 +509,12 @@ Item {
         if (view.packages === null) {
             return ""
         }
+        // The queue page reads the store's own list, which also holds queued
+        // installs the package table cannot show.
+        if (view.queueMode) {
+            return i18ndp("kxbps", "%1 queued package", "%1 queued packages",
+                          view.installedBackend.queueModel.count)
+        }
         const count = view.packages.count
         // A read in flight: the rows on screen are the previous answer, so a
         // number would describe a list that is about to change.
@@ -597,6 +609,46 @@ Item {
             wrapMode: Text.WordWrap
         }
 
+        // The queue in its own form: one change per row, with the gesture that
+        // takes it back out. The table's columns would say the same thing in
+        // more words.
+        Item {
+            Layout.fillWidth: true
+            Layout.fillHeight: true
+            Layout.minimumHeight: 0
+            visible: view.queueMode
+
+            ColumnLayout {
+                anchors.fill: parent
+                spacing: 0
+
+                Kirigami.Separator {
+                    Layout.fillWidth: true
+                }
+
+                ListView {
+                    id: queueList
+                    Layout.fillWidth: true
+                    Layout.fillHeight: true
+                    clip: true
+                    // The queue is the store's own list, so a queued install of
+                    // a package the machine does not hold is on it: the package
+                    // table only knows installed rows.
+                    model: view.installedBackend.queueModel
+                    currentIndex: -1
+
+                    QQC2.ScrollBar.vertical: QQC2.ScrollBar {
+                        policy: QQC2.ScrollBar.AsNeeded
+                    }
+
+                    delegate: QueueDelegate {
+                        width: queueList.width - view.listScrollBarSpace
+                        installedBackend: view.installedBackend
+                    }
+                }
+            }
+        }
+
         // The table is one box so a resize bar can run its whole height: the
         // header is a fixed row, the list scrolls under it, and the bars sit
         // over both.
@@ -604,6 +656,7 @@ Item {
             Layout.fillWidth: true
             Layout.fillHeight: true
             Layout.minimumHeight: 0
+            visible: !view.queueMode
 
             ColumnLayout {
                 anchors.fill: parent

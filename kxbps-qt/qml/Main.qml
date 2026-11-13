@@ -206,6 +206,15 @@ Kirigami.ApplicationWindow {
         if (at >= 0 && at + 1 < Qt.application.arguments.length) {
             root.selectFilter(Qt.application.arguments[at + 1])
         }
+        // `--section <name>` opens on a page, for screenshots and for a launcher
+        // that points at one: packages, query, mirrors or settings.
+        const sectionAt = Qt.application.arguments.indexOf("--section")
+        if (sectionAt >= 0 && sectionAt + 1 < Qt.application.arguments.length) {
+            const name = Qt.application.arguments[sectionAt + 1]
+            if (["packages", "query", "mirrors", "settings"].indexOf(name) >= 0) {
+                root.section = name
+            }
+        }
     }
 
     // Whether closing the window should hand it to the tray. Bound, not copied:

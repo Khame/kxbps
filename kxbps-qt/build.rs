@@ -15,6 +15,7 @@ fn main() {
             .qml_file("qml/components/NavItem.qml")
             .qml_file("qml/components/PackageDelegate.qml")
             .qml_file("qml/components/QueryDelegate.qml")
+            .qml_file("qml/components/QueueDelegate.qml")
             .qml_file("qml/components/MirrorDelegate.qml")
             .qml_file("qml/components/DetailsPane.qml")
             .qml_file("qml/components/StatusStrip.qml")

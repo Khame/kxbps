@@ -9,8 +9,9 @@ use std::pin::Pin;
 use cxx_qt::CxxQtType;
 use cxx_qt::casting::Upcast;
 use cxx_qt_lib::{QByteArray, QString, QVariant};
-use kxbps_core::QueueItem;
+use kxbps_core::QueueAction;
 use qobject::{QHash_i32_QByteArray, QObjectMutPtr};
+use serde::{Deserialize, Serialize};
 
 #[cxx_qt::bridge]
 pub mod qobject {
@@ -103,25 +104,55 @@ pub mod role {
 
     pub const NAME: i32 = USER_ROLE;
     pub const ACTION: i32 = USER_ROLE + 1;
+    pub const VERSION: i32 = USER_ROLE + 2;
+    pub const SIZE: i32 = USER_ROLE + 3;
 }
 
 /// Role ids and the names QML sees, in declaration order.
-pub const ROLES: [(i32, &str); 2] = [(role::NAME, "name"), (role::ACTION, "action")];
+pub const ROLES: [(i32, &str); 4] = [
+    (role::NAME, "name"),
+    (role::ACTION, "action"),
+    (role::VERSION, "version"),
+    (role::SIZE, "size"),
+];
+
+/// One queue row as the backend writes it: the action plus what the read knows
+/// about the version and the bytes it moves. A queued install of a package the
+/// machine does not hold has neither, and the row shows a dash.
+#[derive(Clone, Debug, Deserialize, Serialize, PartialEq, Eq)]
+#[serde(default)]
+pub struct QueueRow {
+    pub name: String,
+    pub action: QueueAction,
+    pub version: String,
+    pub size: String,
+}
+
+impl Default for QueueRow {
+    fn default() -> Self {
+        Self {
+            name: String::new(),
+            action: QueueAction::Install,
+            version: String::new(),
+            size: String::new(),
+        }
+    }
+}
 
 /// Rust side of [`qobject::QueueModel`].
 pub struct QueueModelRust {
-    entries: Vec<QueueItem>,
+    entries: Vec<QueueRow>,
     count: i32,
 }
 
 impl QueueModelRust {
     /// Parses the queue JSON written by [`kxbps_core::Store`].
     fn new(queue_json: &str) -> Self {
-        let entries: Vec<QueueItem> = serde_json::from_str(queue_json).unwrap_or_default();
+        let entries: Vec<QueueRow> = serde_json::from_str(queue_json).unwrap_or_default();
         Self::with_entries(entries)
     }
 
-    fn with_entries(entries: Vec<QueueItem>) -> Self {
+    fn with_entries(entries: Vec<QueueRow>) -> Self {
         Self {
             count: i32::try_from(entries.len()).unwrap_or(i32::MAX),
             entries,
@@ -129,17 +160,17 @@ impl QueueModelRust {
     }
 
     /// Whether `entries` would change the rows.
-    fn changed(&self, entries: &[QueueItem]) -> bool {
+    fn changed(&self, entries: &[QueueRow]) -> bool {
         self.entries != entries
     }
 
     /// Commits a new queue, keeping `count` in step.
-    fn assign(&mut self, entries: Vec<QueueItem>) {
+    fn assign(&mut self, entries: Vec<QueueRow>) {
         self.count = i32::try_from(entries.len()).unwrap_or(i32::MAX);
         self.entries = entries;
     }
 
-    fn entry_at(&self, row: i32) -> Option<&QueueItem> {
+    fn entry_at(&self, row: i32) -> Option<&QueueRow> {
         usize::try_from(row)
             .ok()
             .and_then(|row| self.entries.get(row))
@@ -185,6 +216,8 @@ impl qobject::QueueModel {
             role::ACTION => QVariant::from(&QString::from(crate::package_model::queue_key(
                 entry.action,
             ))),
+            role::VERSION => QVariant::from(&QString::from(entry.version.as_str())),
+            role::SIZE => QVariant::from(&QString::from(entry.size.as_str())),
             _ => QVariant::default(),
         }
     }
@@ -214,7 +247,7 @@ impl qobject::QueueModel {
     }
 
     fn set_state(mut self: Pin<&mut Self>, queue_json: &cxx_qt_lib::QString) {
-        let entries: Vec<QueueItem> =
+        let entries: Vec<QueueRow> =
             serde_json::from_str(&queue_json.to_string()).unwrap_or_default();
         let changed = {
             let data = Pin::get_mut(self.as_mut().rust_mut());
@@ -242,15 +275,19 @@ mod tests {
     use super::*;
     use kxbps_core::QueueAction;
 
-    fn entries() -> Vec<QueueItem> {
+    fn entries() -> Vec<QueueRow> {
         vec![
-            QueueItem {
+            QueueRow {
                 name: "vim".into(),
                 action: QueueAction::Install,
+                version: String::new(),
+                size: String::new(),
             },
-            QueueItem {
+            QueueRow {
                 name: "ark".into(),
                 action: QueueAction::Remove,
+                version: "1.0_1".into(),
+                size: "1.2 MiB".into(),
             },
         ]
     }
@@ -269,8 +306,30 @@ mod tests {
     }
 
     #[test]
-    fn role_table_covers_name_and_action() {
-        assert_eq!(ROLES, [(256, "name"), (257, "action")]);
+    fn role_table_covers_the_row() {
+        assert_eq!(
+            ROLES,
+            [
+                (256, "name"),
+                (257, "action"),
+                (258, "version"),
+                (259, "size")
+            ]
+        );
+    }
+
+    /// A plain `Vec<QueueItem>` JSON (the store's own shape) still parses: the
+    /// version and size default to empty, so an older file cannot break the
+    /// list.
+    #[test]
+    fn a_queue_without_versions_still_parses() {
+        let model = QueueModelRust::new(r#"[{"name":"vim","action":"update"}]"#);
+        assert_eq!(model.count, 1);
+        let entry = model.entry_at(0).expect("one row");
+        assert_eq!(entry.name, "vim");
+        assert_eq!(entry.action, QueueAction::Update);
+        assert_eq!(entry.version, "");
+        assert_eq!(entry.size, "");
     }
 
     #[test]

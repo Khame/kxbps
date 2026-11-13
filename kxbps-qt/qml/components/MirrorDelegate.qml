@@ -87,33 +87,6 @@ QQC2.ItemDelegate {
     contentItem: RowLayout {
         spacing: Kirigami.Units.largeSpacing
 
-        // The dot pictures the selection; the row click is what changes it.
-        Item {
-            Layout.preferredWidth: Kirigami.Units.gridUnit * 2
-            Layout.minimumWidth: Kirigami.Units.gridUnit * 2
-            Layout.maximumWidth: Kirigami.Units.gridUnit * 2
-            Layout.fillHeight: true
-
-            Rectangle {
-                anchors.centerIn: parent
-                width: Kirigami.Units.gridUnit * 0.8
-                height: width
-                radius: width / 2
-                color: Kirigami.Theme.backgroundColor
-                border.width: 1
-                border.color: delegate.selected ? Kirigami.Theme.highlightColor : Kirigami.Theme.disabledTextColor
-
-                Rectangle {
-                    anchors.centerIn: parent
-                    width: parent.width / 2
-                    height: width
-                    radius: width / 2
-                    visible: delegate.selected
-                    color: Kirigami.Theme.highlightColor
-                }
-            }
-        }
-
         ColumnLayout {
             Layout.fillWidth: true
             Layout.minimumWidth: 0
@@ -201,6 +174,18 @@ QQC2.ItemDelegate {
                     }
                 }
             }
+        }
+
+        // The mockup makes the choice a named button: a row that only reacts
+        // to a click reads as text, and "Choose" says what the click does.
+        QQC2.Button {
+            text: delegate.inUse ? i18nd("kxbps", "In use") : i18nd("kxbps", "Choose")
+            font: Kirigami.Theme.smallFont
+            enabled: !delegate.inUse
+            Accessible.name: delegate.inUse
+                             ? i18nd("kxbps", "%1 is in use", model.name)
+                             : i18nd("kxbps", "Use %1", model.name)
+            onClicked: delegate.mirrorBackend.currentMirror = model.url
         }
     }
 }
