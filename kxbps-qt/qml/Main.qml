@@ -1101,7 +1101,6 @@ Kirigami.ApplicationWindow {
 
                     MirrorsView {
                         mirrorBackend: mirrorBackend
-                        onSystemApplyRequested: root.applySystemMirror()
                     }
 
                     SettingsView {

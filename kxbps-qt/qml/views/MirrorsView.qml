@@ -24,10 +24,6 @@ Item {
 
     property var mirrorBackend
 
-    // The chosen mirror is applied to the system (pkexec, the helper, the log),
-    // so the window owns the job; this view only says when a choice was made.
-    signal systemApplyRequested()
-
     readonly property real selectionWidth: Kirigami.Units.gridUnit * 2
     readonly property real regionWidth: Kirigami.Units.gridUnit * 6
     // The heading is a word, the values are numbers: at five grid units
@@ -61,6 +57,67 @@ Item {
             return Array.isArray(parsed) ? parsed : []
         } catch (error) {
             return []
+        }
+    }
+
+    // The region codes the model knows, as the JSON array it publishes.
+    readonly property var regionCodes: {
+        try {
+            return JSON.parse(view.mirrorBackend.model.regionCodes)
+        } catch (error) {
+            return []
+        }
+    }
+
+    // Region codes are data; the words are UI copy.
+    function regionLabel(code) {
+        switch (code) {
+        case "EU":
+            return i18nd("kxbps", "Europe")
+        case "NA":
+            return i18nd("kxbps", "North America")
+        case "AS":
+            return i18nd("kxbps", "Asia")
+        case "OC":
+            return i18nd("kxbps", "Oceania")
+        case "SA":
+            return i18nd("kxbps", "South America")
+        case "World":
+            return i18nd("kxbps", "Worldwide")
+        }
+        return code
+    }
+
+    // One list, two kinds of filter: the three state words first, then one entry
+    // per region. Picking a region is what keeps a user in Europe from probing
+    // every mirror in Asia and the Americas.
+    function filterEntries() {
+        const entries = view.filterLabels.slice()
+        const codes = view.regionCodes
+        for (let i = 0; i < codes.length; ++i) {
+            entries.push(view.regionLabel(codes[i]))
+        }
+        return entries
+    }
+
+    // The index of the entry the model currently describes.
+    readonly property int filterIndex: {
+        const model = view.mirrorBackend.model
+        if (model.regionFilter.length > 0) {
+            const at = view.regionCodes.indexOf(model.regionFilter)
+            return at >= 0 ? 3 + at : 0
+        }
+        return model.filter
+    }
+
+    function applyFilter(index) {
+        const model = view.mirrorBackend.model
+        if (index < 3) {
+            model.regionFilter = ""
+            model.filter = index
+        } else {
+            model.filter = 0
+            model.regionFilter = view.regionCodes[index - 3]
         }
     }
 
@@ -143,6 +200,7 @@ Item {
                 Layout.leftMargin: Kirigami.Units.largeSpacing
                 Layout.rightMargin: Kirigami.Units.largeSpacing
                 Layout.topMargin: Kirigami.Units.largeSpacing
+                Layout.bottomMargin: Kirigami.Units.smallSpacing
                 spacing: Kirigami.Units.largeSpacing
 
                 QQC2.Label {
@@ -160,13 +218,13 @@ Item {
 
                 QQC2.ComboBox {
                     id: filterCombo
-                    model: view.filterLabels
-                    // The model's `filter` is the truth; the combo only writes
-                    // it and reads the refusal back, so a value the model
-                    // clamps to `0` moves the combo with it.
-                    currentIndex: view.mirrorBackend.model.filter
-                    Accessible.name: i18nd("kxbps", "Mirror state filter")
-                    onActivated: view.mirrorBackend.model.filter = currentIndex
+                    model: view.filterEntries()
+                    // The model is the truth; the combo only writes it and reads
+                    // the refusal back, so a value the model clamps moves the
+                    // combo with it.
+                    currentIndex: view.filterIndex
+                    Accessible.name: i18nd("kxbps", "Mirror filter")
+                    onActivated: view.applyFilter(currentIndex)
                 }
             }
 
@@ -274,13 +332,6 @@ Item {
                     delegate: MirrorDelegate {
                         width: mirrorList.width - view.mirrorScrollBarSpace
                         mirrorBackend: view.mirrorBackend
-                        // The mirror already in use needs no transaction: only a
-                        // real change is worth a password prompt.
-                        onChosen: (url) => {
-                            if (url !== view.mirrorBackend.systemMirror) {
-                                view.systemApplyRequested()
-                            }
-                        }
                     }
                 }
 
@@ -305,43 +356,6 @@ Item {
                 text: messageText(view.mirrorBackend.currentMirrorError, [])
                 color: Kirigami.Theme.negativeTextColor
                 font: Kirigami.Theme.smallFont
-                wrapMode: Text.WordWrap
-            }
-
-            QQC2.Label {
-                Layout.fillWidth: true
-                Layout.leftMargin: Kirigami.Units.largeSpacing
-                Layout.rightMargin: Kirigami.Units.largeSpacing
-                text: i18nd("kxbps", "Saved in %1", "~/.local/share/kxbps/mirror.json")
-                font: Kirigami.Theme.smallFont
-                color: Kirigami.Theme.disabledTextColor
-                elide: Text.ElideRight
-            }
-
-            // What xbps actually uses. The sentence is only the "in use" claim
-            // while the saved selection and the system agree and no read is in
-            // flight; in every other state the truth is that the selection is
-            // local only, and the footer says that with the host it will be
-            // applied to.
-            QQC2.Label {
-                Layout.fillWidth: true
-                Layout.leftMargin: Kirigami.Units.largeSpacing
-                Layout.rightMargin: Kirigami.Units.largeSpacing
-                Layout.bottomMargin: Kirigami.Units.smallSpacing
-                visible: view.mirrorBackend.systemMirrorError.length === 0
-                text: {
-                    const backend = view.mirrorBackend
-                    if (!backend.pending && !backend.systemLoading && backend.systemMirror.length > 0) {
-                        return i18nd("kxbps", "xbps uses %1, from %2.",
-                                     backend.systemMirror, "/etc/xbps.d/00-repository-main.conf")
-                    }
-                    return i18nd("kxbps", "The selection is saved for KXbps only; xbps uses %1.",
-                                 view.hostOf(backend.systemMirror.length > 0
-                                             ? backend.systemMirror
-                                             : backend.currentMirror))
-                }
-                font: Kirigami.Theme.smallFont
-                color: Kirigami.Theme.disabledTextColor
                 wrapMode: Text.WordWrap
             }
 

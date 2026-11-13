@@ -8,7 +8,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: kxbps 0.1.0\n"
 "Report-Msgid-Bugs-To: \n"
-"POT-Creation-Date: 2026-11-13 16:05+0000\n"
+"POT-Creation-Date: 2026-11-13 16:17+0000\n"
 "PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\n"
 "Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
 "Language-Team: English\n"
@@ -147,11 +147,11 @@ msgid_plural "%1 mirrors"
 msgstr[0] ""
 msgstr[1] ""
 
-#: kxbps-qt/qml/components/MirrorDelegate.qml:68
+#: kxbps-qt/qml/components/MirrorDelegate.qml:64
 msgid "%1 ms"
 msgstr ""
 
-#: kxbps-qt/qml/Main.qml:317 kxbps-qt/qml/views/MirrorsView.qml:151
+#: kxbps-qt/qml/Main.qml:317 kxbps-qt/qml/views/MirrorsView.qml:209
 msgid "%1 of %2 mirrors probed"
 msgstr ""
 
@@ -235,7 +235,7 @@ msgstr ""
 msgid "Add to queue"
 msgstr ""
 
-#: kxbps-qt/qml/views/MirrorsView.qml:92
+#: kxbps-qt/qml/views/MirrorsView.qml:149
 msgid "All"
 msgstr ""
 
@@ -271,6 +271,10 @@ msgstr ""
 
 #: kxbps-qt/qml/Main.qml:347
 msgid "Apply to system needs the installed helper: run packaging/install.sh."
+msgstr ""
+
+#: kxbps-qt/qml/views/MirrorsView.qml:80
+msgid "Asia"
 msgstr ""
 
 #: kxbps-qt/qml/Main.qml:366 kxbps-qt/qml/Main.qml:373
@@ -322,11 +326,11 @@ msgstr ""
 msgid "Could not read the package: %1"
 msgstr ""
 
-#: kxbps-qt/qml/views/MirrorsView.qml:565
+#: kxbps-qt/qml/views/MirrorsView.qml:579
 msgid "Could not read the xbps configuration."
 msgstr ""
 
-#: kxbps-qt/qml/views/MirrorsView.qml:564
+#: kxbps-qt/qml/views/MirrorsView.qml:578
 msgid "Could not read the xbps configuration: %1."
 msgstr ""
 
@@ -343,7 +347,7 @@ msgstr ""
 msgid "Could not save the system state."
 msgstr ""
 
-#: kxbps-qt/qml/views/MirrorsView.qml:569
+#: kxbps-qt/qml/views/MirrorsView.qml:583
 msgid "Could not write %1."
 msgstr ""
 
@@ -351,7 +355,7 @@ msgstr ""
 msgid "Could not write %1: %2"
 msgstr ""
 
-#: kxbps-qt/qml/views/MirrorsView.qml:570
+#: kxbps-qt/qml/views/MirrorsView.qml:584
 msgid "Could not write the xbps configuration."
 msgstr ""
 
@@ -413,6 +417,10 @@ msgstr ""
 msgid "Equivalent: %1"
 msgstr ""
 
+#: kxbps-qt/qml/views/MirrorsView.qml:76
+msgid "Europe"
+msgstr ""
+
 #: kxbps-qt/qml/views/PackagesView.qml:468
 msgid "Everything is up to date."
 msgstr ""
@@ -422,12 +430,12 @@ msgstr ""
 msgid "Explicit"
 msgstr ""
 
-#: kxbps-qt/qml/components/MirrorDelegate.qml:88
-#: kxbps-qt/qml/views/MirrorsView.qml:94
+#: kxbps-qt/qml/components/MirrorDelegate.qml:84
+#: kxbps-qt/qml/views/MirrorsView.qml:151
 msgid "Failed"
 msgstr ""
 
-#: kxbps-qt/qml/views/MirrorsView.qml:469
+#: kxbps-qt/qml/views/MirrorsView.qml:483
 msgid "File"
 msgstr ""
 
@@ -459,7 +467,7 @@ msgid "Hold"
 msgstr ""
 
 #: kxbps-qt/qml/Main.qml:826 kxbps-qt/qml/components/MirrorDelegate.qml:52
-#: kxbps-qt/qml/components/MirrorDelegate.qml:183
+#: kxbps-qt/qml/components/MirrorDelegate.qml:179
 msgid "In use"
 msgstr ""
 
@@ -494,15 +502,15 @@ msgstr ""
 msgid "KXbps is a native KDE package manager for Void Linux. It reads and changes the system through xbps."
 msgstr ""
 
-#: kxbps-qt/qml/views/MirrorsView.qml:239
+#: kxbps-qt/qml/views/MirrorsView.qml:297
 msgid "Latency"
 msgstr ""
 
-#: kxbps-qt/qml/views/MirrorsView.qml:245
+#: kxbps-qt/qml/views/MirrorsView.qml:303
 msgid "Latency, sorted fastest first"
 msgstr ""
 
-#: kxbps-qt/qml/views/MirrorsView.qml:244
+#: kxbps-qt/qml/views/MirrorsView.qml:302
 msgid "Latency, sorted slowest first"
 msgstr ""
 
@@ -526,12 +534,12 @@ msgstr ""
 msgid "Mirror applied."
 msgstr ""
 
-#: kxbps-qt/qml/views/MirrorsView.qml:168
-msgid "Mirror state filter"
+#: kxbps-qt/qml/views/MirrorsView.qml:226
+msgid "Mirror filter"
 msgstr ""
 
 #: kxbps-qt/qml/Main.qml:287 kxbps-qt/qml/Main.qml:876
-#: kxbps-qt/qml/views/MirrorsView.qml:124
+#: kxbps-qt/qml/views/MirrorsView.qml:181
 msgid "Mirrors"
 msgstr ""
 
@@ -546,7 +554,7 @@ msgstr ""
 
 #. `-1` is "xbps could not read this index",
 #. which a "0" would misreport as an empty repo.
-#: kxbps-qt/qml/views/MirrorsView.qml:508
+#: kxbps-qt/qml/views/MirrorsView.qml:522
 msgid "No index"
 msgstr ""
 
@@ -554,11 +562,11 @@ msgstr ""
 msgid "No matches."
 msgstr ""
 
-#: kxbps-qt/qml/views/MirrorsView.qml:292
+#: kxbps-qt/qml/views/MirrorsView.qml:343
 msgid "No mirror matches this filter."
 msgstr ""
 
-#: kxbps-qt/qml/views/MirrorsView.qml:291
+#: kxbps-qt/qml/views/MirrorsView.qml:342
 msgid "No mirrors."
 msgstr ""
 
@@ -582,7 +590,7 @@ msgstr ""
 msgid "No packages."
 msgstr ""
 
-#: kxbps-qt/qml/views/MirrorsView.qml:397
+#: kxbps-qt/qml/views/MirrorsView.qml:411
 msgid "No repositories."
 msgstr ""
 
@@ -590,8 +598,12 @@ msgstr ""
 msgid "No repository read yet"
 msgstr ""
 
-#: kxbps-qt/qml/components/MirrorDelegate.qml:86
+#: kxbps-qt/qml/components/MirrorDelegate.qml:82
 msgid "No response"
+msgstr ""
+
+#: kxbps-qt/qml/views/MirrorsView.qml:78
+msgid "North America"
 msgstr ""
 
 #: kxbps-qt/qml/components/DetailsPane.qml:241
@@ -608,11 +620,11 @@ msgstr ""
 msgid "Not installed: %1"
 msgstr ""
 
-#: kxbps-qt/qml/components/MirrorDelegate.qml:74
+#: kxbps-qt/qml/components/MirrorDelegate.qml:70
 msgid "Not probed"
 msgstr ""
 
-#: kxbps-qt/qml/views/MirrorsView.qml:523
+#: kxbps-qt/qml/views/MirrorsView.qml:537
 msgid "Not verified"
 msgstr ""
 
@@ -640,9 +652,13 @@ msgstr ""
 msgid "Notifications:"
 msgstr ""
 
-#: kxbps-qt/qml/components/MirrorDelegate.qml:78
-#: kxbps-qt/qml/views/MirrorsView.qml:93
+#: kxbps-qt/qml/components/MirrorDelegate.qml:74
+#: kxbps-qt/qml/views/MirrorsView.qml:150
 msgid "OK"
+msgstr ""
+
+#: kxbps-qt/qml/views/MirrorsView.qml:82
+msgid "Oceania"
 msgstr ""
 
 #: kxbps-qt/qml/Main.qml:631
@@ -676,11 +692,11 @@ msgstr ""
 msgid "Package information"
 msgstr ""
 
-#: kxbps-qt/qml/Main.qml:308 kxbps-qt/qml/views/MirrorsView.qml:451
+#: kxbps-qt/qml/Main.qml:308 kxbps-qt/qml/views/MirrorsView.qml:465
 msgid "Packages"
 msgstr ""
 
-#: kxbps-qt/qml/components/MirrorDelegate.qml:82
+#: kxbps-qt/qml/components/MirrorDelegate.qml:78
 msgid "Plain HTTP is not probed"
 msgstr ""
 
@@ -688,7 +704,7 @@ msgstr ""
 msgid "Probe all"
 msgstr ""
 
-#: kxbps-qt/qml/components/MirrorDelegate.qml:76
+#: kxbps-qt/qml/components/MirrorDelegate.qml:72
 msgid "Probing"
 msgstr ""
 
@@ -720,11 +736,11 @@ msgstr ""
 msgid "Quit"
 msgstr ""
 
-#: kxbps-qt/qml/views/MirrorsView.qml:549
+#: kxbps-qt/qml/views/MirrorsView.qml:563
 msgid "Read from xbps-query -L and the xbps.d files. Changing a repository is a later task."
 msgstr ""
 
-#: kxbps-qt/qml/views/MirrorsView.qml:376
+#: kxbps-qt/qml/views/MirrorsView.qml:390
 msgid "Reading repositories…"
 msgstr ""
 
@@ -732,7 +748,7 @@ msgstr ""
 msgid "Refresh"
 msgstr ""
 
-#: kxbps-qt/qml/views/MirrorsView.qml:224
+#: kxbps-qt/qml/views/MirrorsView.qml:282
 msgid "Region"
 msgstr ""
 
@@ -772,12 +788,12 @@ msgstr ""
 msgid "Removing %1…"
 msgstr ""
 
-#: kxbps-qt/qml/views/MirrorsView.qml:127
+#: kxbps-qt/qml/views/MirrorsView.qml:184
 msgid "Repositories"
 msgstr ""
 
 #: kxbps-qt/qml/Main.qml:809 kxbps-qt/qml/components/DetailsPane.qml:245
-#: kxbps-qt/qml/views/MirrorsView.qml:440
+#: kxbps-qt/qml/views/MirrorsView.qml:454
 msgid "Repository"
 msgstr ""
 
@@ -801,10 +817,6 @@ msgstr ""
 msgid "Running xbps…"
 msgstr ""
 
-#: kxbps-qt/qml/views/MirrorsView.qml:315
-msgid "Saved in %1"
-msgstr ""
-
 #: kxbps-qt/qml/Main.qml:977
 msgid "Search packages…"
 msgstr ""
@@ -814,11 +826,11 @@ msgid "Select a package to see its details."
 msgstr ""
 
 #: kxbps-qt/qml/components/MirrorDelegate.qml:49
-#: kxbps-qt/qml/components/MirrorDelegate.qml:176
+#: kxbps-qt/qml/components/MirrorDelegate.qml:172
 msgid "Selected"
 msgstr ""
 
-#: kxbps-qt/qml/views/MirrorsView.qml:214
+#: kxbps-qt/qml/views/MirrorsView.qml:272
 msgid "Server"
 msgstr ""
 
@@ -827,19 +839,19 @@ msgid "Settings"
 msgstr ""
 
 #: kxbps-qt/qml/components/LogDrawer.qml:99
-#: kxbps-qt/qml/views/MirrorsView.qml:157
+#: kxbps-qt/qml/views/MirrorsView.qml:215
 #: kxbps-qt/qml/views/PackagesView.qml:888
 msgid "Show"
 msgstr ""
 
-#: kxbps-qt/qml/views/MirrorsView.qml:460
+#: kxbps-qt/qml/views/MirrorsView.qml:474
 msgid "Signature"
 msgstr ""
 
 #. `signed` is "verified with a local key". A
 #. maybe-signed index parses as `false` in the
 #. core, so the label must not claim "unsigned".
-#: kxbps-qt/qml/views/MirrorsView.qml:522
+#: kxbps-qt/qml/views/MirrorsView.qml:536
 msgid "Signed"
 msgstr ""
 
@@ -852,6 +864,10 @@ msgstr ""
 msgid "Size statistics"
 msgstr ""
 
+#: kxbps-qt/qml/views/MirrorsView.qml:84
+msgid "South America"
+msgstr ""
+
 #: kxbps-qt/qml/views/SettingsView.qml:72
 msgid "Start with the session"
 msgstr ""
@@ -861,7 +877,7 @@ msgid "Startup:"
 msgstr ""
 
 #: kxbps-qt/qml/components/DetailsPane.qml:230
-#: kxbps-qt/qml/views/MirrorsView.qml:255
+#: kxbps-qt/qml/views/MirrorsView.qml:313
 msgid "State"
 msgstr ""
 
@@ -877,7 +893,7 @@ msgstr ""
 msgid "The data directory could not be located: neither XDG_DATA_HOME nor HOME is set."
 msgstr ""
 
-#: kxbps-qt/qml/views/MirrorsView.qml:572
+#: kxbps-qt/qml/views/MirrorsView.qml:586
 msgid "The helper refused the URL."
 msgstr ""
 
@@ -913,10 +929,6 @@ msgstr ""
 msgid "The queue does not change the system."
 msgstr ""
 
-#: kxbps-qt/qml/views/MirrorsView.qml:338
-msgid "The selection is saved for KXbps only; xbps uses %1."
-msgstr ""
-
 #: kxbps-qt/qml/views/SettingsView.qml:90
 msgid "The switches are saved to the application's state directory and survive a restart."
 msgstr ""
@@ -925,11 +937,11 @@ msgstr ""
 msgid "The system is up to date."
 msgstr ""
 
-#: kxbps-qt/qml/views/MirrorsView.qml:567
+#: kxbps-qt/qml/views/MirrorsView.qml:581
 msgid "The xbps configuration could not be parsed."
 msgstr ""
 
-#: kxbps-qt/qml/components/MirrorDelegate.qml:84
+#: kxbps-qt/qml/components/MirrorDelegate.qml:80
 msgid "Timed out"
 msgstr ""
 
@@ -1004,6 +1016,10 @@ msgstr ""
 msgid "Waiting for authentication…"
 msgstr ""
 
+#: kxbps-qt/qml/views/MirrorsView.qml:86
+msgid "Worldwide"
+msgstr ""
+
 #: kxbps-qt/qml/components/LogDrawer.qml:42
 msgid "cancelled"
 msgstr ""
@@ -1047,8 +1063,4 @@ msgstr ""
 #. The take answered nothing: say so, rather than a blank block.
 #: kxbps-qt/qml/views/QueryView.qml:101
 msgid "xbps printed nothing."
-msgstr ""
-
-#: kxbps-qt/qml/views/MirrorsView.qml:335
-msgid "xbps uses %1, from %2."
 msgstr ""

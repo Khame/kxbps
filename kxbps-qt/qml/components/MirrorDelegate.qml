@@ -55,14 +55,10 @@ QQC2.ItemDelegate {
         return parts.join(", ")
     }
 
-    // The row is the choice: picking a mirror is what the page is for, so the
-    // view applies it to the system instead of asking for a second click.
-    signal chosen(string url)
-
-    onClicked: {
-        mirrorBackend.currentMirror = model.url
-        delegate.chosen(model.url)
-    }
+    // A row is a selection, not a transaction: the toolbar's `Apply to system`
+    // is what changes the machine, so a stray click cannot point xbps at a
+    // mirror on the other side of the world.
+    onClicked: mirrorBackend.currentMirror = model.url
 
     function latencyText(state, ms) {
         return state === "ok" ? i18nd("kxbps", "%1 ms", ms) : ""

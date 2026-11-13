@@ -23,7 +23,7 @@ use std::pin::Pin;
 use cxx_qt::CxxQtType;
 use cxx_qt::casting::Upcast;
 use cxx_qt_lib::{QByteArray, QString, QVariant};
-use kxbps_core::{MIRRORS, MirrorInfo, ProbeState};
+use kxbps_core::{MIRRORS, MirrorInfo, ProbeState, Region};
 use qobject::{QHash_i32_QByteArray, QObjectMutPtr};
 
 #[cxx_qt::bridge]
@@ -86,6 +86,13 @@ pub mod qobject {
         /// State filter: `0` all (default), `1` answered (`ok`), `2` failed.
         /// An unknown value means all.
         #[qproperty(i32, filter, READ, WRITE = set_filter, NOTIFY)]
+        /// Region filter: empty for every region, otherwise one of the codes
+        /// `regionCodes` names. An unknown code means every region.
+        #[qproperty(QString, region_filter, READ, WRITE = set_region_filter, NOTIFY)]
+        /// The region codes the list knows, as a JSON array. A view builds its
+        /// filter from this instead of guessing the set from the rows it can
+        /// see.
+        #[qproperty(QString, region_codes, READ, NOTIFY)]
         type MirrorModel = super::MirrorModelRust;
 
         #[qinvokable]
@@ -129,6 +136,8 @@ pub mod qobject {
         fn set_sort_descending(self: Pin<&mut MirrorModel>, value: bool);
 
         fn set_filter(self: Pin<&mut MirrorModel>, value: i32);
+
+        fn set_region_filter(self: Pin<&mut MirrorModel>, value: &QString);
     }
 
     // QML never creates the model: `MirrorBackend` owns it and hands it out as a
@@ -177,6 +186,12 @@ pub const STATE_RUNNING: &str = "running";
 pub const STATE_OK: &str = "ok";
 pub const STATE_FAIL: &str = "fail";
 
+/// The region codes the list knows, as the JSON array the view reads.
+fn region_codes_json() -> QString {
+    let codes: Vec<&str> = Region::ALL.iter().map(|region| region.as_str()).collect();
+    QString::from(serde_json::to_string(&codes).unwrap_or_else(|_| String::from("[]")))
+}
+
 /// One mirror and the result of its last probe.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct MirrorRow {
@@ -216,6 +231,12 @@ pub const fn normalise_filter(filter: i32) -> i32 {
     }
 }
 
+/// Whether a row passes the region filter: an empty code takes every row, an
+/// unknown one does too, so a stale value can never empty the list.
+pub fn passes_region(region: Region, wanted: &str) -> bool {
+    wanted.is_empty() || region.as_str() == wanted
+}
+
 /// Whether a row passes `filter`.
 pub const fn passes_filter(state: &ProbeState, filter: i32) -> bool {
     match normalise_filter(filter) {
@@ -240,10 +261,16 @@ pub fn visible_order(
     mirrors: &[MirrorInfo],
     sort_descending: bool,
     filter: i32,
+    region: &str,
 ) -> Vec<usize> {
     let name_of = |row: usize| mirrors.get(row).map_or("", |info| info.name);
     let mut order: Vec<usize> = (0..states.len())
         .filter(|row| passes_filter(&states[*row], filter))
+        .filter(|row| {
+            mirrors
+                .get(*row)
+                .is_none_or(|info| passes_region(info.region, region))
+        })
         .collect();
     order.sort_by(|left, right| {
         let left_ms = latency_of(&states[*left]);
@@ -275,6 +302,10 @@ pub struct MirrorModelRust {
     display: Vec<usize>,
     sort_descending: bool,
     filter: i32,
+    /// Empty for every region, otherwise one of [`Region::ALL`]'s codes.
+    region_filter: QString,
+    /// The codes a view can filter by, as a JSON array.
+    region_codes: QString,
 }
 
 impl MirrorModelRust {
@@ -298,6 +329,8 @@ impl MirrorModelRust {
             display: Vec::new(),
             sort_descending: false,
             filter: FILTER_ALL,
+            region_filter: QString::from(""),
+            region_codes: region_codes_json(),
         };
         model.display = model.compute_display();
         model
@@ -311,7 +344,14 @@ impl MirrorModelRust {
     fn compute_display(&self) -> Vec<usize> {
         let states: Vec<ProbeState> = self.rows.iter().map(|row| row.state.clone()).collect();
         let mirrors: Vec<MirrorInfo> = self.rows.iter().map(|row| row.info).collect();
-        visible_order(&states, &mirrors, self.sort_descending, self.filter)
+        let region = self.region_filter.to_string();
+        visible_order(
+            &states,
+            &mirrors,
+            self.sort_descending,
+            self.filter,
+            &region,
+        )
     }
 
     /// Source rows in visible order, for the view and the tests.
@@ -360,6 +400,27 @@ impl MirrorModelRust {
         self.recompute_display()
     }
 
+    /// Sets the region filter; `true` when the visible order changed. A code
+    /// the list does not know is the same as no filter at all.
+    pub fn set_region_filter(&mut self, value: &str) -> bool {
+        let wanted =
+            if value.is_empty() || !Region::ALL.iter().any(|region| region.as_str() == value) {
+                String::new()
+            } else {
+                value.to_owned()
+            };
+        if self.region_filter.to_string() == wanted {
+            return false;
+        }
+        self.region_filter = QString::from(wanted.as_str());
+        self.recompute_display()
+    }
+
+    /// The region filter the model holds, for the tests.
+    pub fn region_filter_value(&self) -> String {
+        self.region_filter.to_string()
+    }
+
     fn recompute_display(&mut self) -> bool {
         let next = self.compute_display();
         if next == self.display {
@@ -387,7 +448,9 @@ impl MirrorModelRust {
         }
         let was_visible = self.visible_of_source(source).is_some();
         self.rows[source].state = state;
-        let passes = passes_filter(&self.rows[source].state, self.filter);
+        let region = self.region_filter.to_string();
+        let passes = passes_filter(&self.rows[source].state, self.filter)
+            && passes_region(self.rows[source].info.region, &region);
         let moved = self.recompute_display();
         if moved && was_visible != passes {
             // The row entered or left the filter: the visible list itself changed.
@@ -594,6 +657,17 @@ impl qobject::MirrorModel {
     }
 
     /// Changes the state filter and resets when the visible list moved.
+    fn set_region_filter(mut self: Pin<&mut Self>, value: &cxx_qt_lib::QString) {
+        let text = value.to_string();
+        let moved = {
+            let data = Pin::get_mut(self.as_mut().rust_mut());
+            data.set_region_filter(&text)
+        };
+        if moved {
+            self.as_mut().region_filter_changed();
+        }
+    }
+
     fn set_filter(mut self: Pin<&mut Self>, value: i32) {
         let (changed, moved, rows) = {
             let data = Pin::get_mut(self.as_mut().rust_mut());
@@ -702,6 +776,44 @@ mod tests {
                 country: "Denmark",
             },
         ]
+    }
+
+    #[test]
+    fn a_region_filter_keeps_only_that_region() {
+        let mut model = MirrorModelRust::with_mirrors(&mirrors());
+        assert_eq!(model.visible_rows(), [0, 1], "both rows at first");
+
+        assert!(model.set_region_filter("EU"));
+        assert_eq!(model.visible_rows(), [1], "only Denmark is in Europe");
+        assert_eq!(model.region_filter_value(), "EU");
+
+        // A code the list does not know is the same as no filter: the combo can
+        // only offer the codes the model publishes, so a stale one must not
+        // empty the list.
+        assert!(model.set_region_filter("Atlantis"));
+        assert_eq!(model.visible_rows(), [0, 1]);
+        assert_eq!(model.region_filter_value(), "");
+    }
+
+    #[test]
+    fn the_region_and_state_filters_apply_together() {
+        let mut model = MirrorModelRust::with_mirrors(&mirrors());
+        model.assign(
+            1,
+            ProbeState::Fail {
+                error: "timeout".into(),
+            },
+        );
+        model.set_region_filter("EU");
+        model.set_filter(FILTER_OK);
+        assert_eq!(
+            model.visible_rows(),
+            Vec::<usize>::new(),
+            "Denmark is the only European row and it failed"
+        );
+
+        model.set_filter(FILTER_FAILED);
+        assert_eq!(model.visible_rows(), [1]);
     }
 
     #[test]
@@ -1124,17 +1236,17 @@ mod tests {
             },
         ];
         assert_eq!(
-            visible_order(&states, &mirrors, false, FILTER_ALL),
+            visible_order(&states, &mirrors, false, FILTER_ALL, ""),
             [0, 1, 2]
         );
-        assert_eq!(visible_order(&states, &mirrors, false, FILTER_OK), [0]);
+        assert_eq!(visible_order(&states, &mirrors, false, FILTER_OK, ""), [0]);
         assert_eq!(
-            visible_order(&states, &mirrors, false, FILTER_FAILED),
+            visible_order(&states, &mirrors, false, FILTER_FAILED, ""),
             [2],
             "only the failed row passes; an idle row is not a failure"
         );
         assert_eq!(
-            visible_order(&states, &mirrors, true, FILTER_ALL),
+            visible_order(&states, &mirrors, true, FILTER_ALL, ""),
             [0, 1, 2],
             "one measured row, the two unmeasured ones by name"
         );
