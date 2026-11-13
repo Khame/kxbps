@@ -78,6 +78,17 @@ pub mod qobject {
         #[cxx_name = "kxbps_queue_model_set_state"]
         fn queue_model_set_state(model: QObjectMutPtr, queue_json: &QString);
 
+        /// Hands the list its repository answer. Called by the installed
+        /// backend when a `read_list_search` read lands, so the QML side never
+        /// has to copy hits between two objects itself.
+        #[cxx_name = "kxbps_package_model_set_search_results"]
+        fn package_model_set_search_results(
+            model: QObjectMutPtr,
+            hits_json: &QString,
+            error_key: &QString,
+            error_args: &QStringList,
+        );
+
         #[cxx_name = "kxbps_create_plan_backend"]
         fn create_plan_backend(parent: QObjectMutPtr, payload_json: &QString) -> QObjectMutPtr;
 
@@ -181,6 +192,20 @@ pub mod qobject {
             names: &QStringList,
             cascade: bool,
         ) -> u64;
+
+        /// Hands the package list the repository answer of its search field.
+        ///
+        /// QML calls this with what `QueryBackend.listSearchDone` carried; the
+        /// model is the only place the rows live, so the copy happens here
+        /// rather than in the view. A failed read passes an empty `hits_json`
+        /// and the failure key, and the list then shows no rows.
+        #[qinvokable]
+        fn apply_search_results(
+            self: &InstalledBackend,
+            hits_json: &QString,
+            error_key: &QString,
+            error_args: &QStringList,
+        );
 
         /// One plan finished: the payload as JSON, the request it belongs to
         /// and the title/blocked metadata the dialog needs to rebuild it.
@@ -461,6 +486,20 @@ impl qobject::InstalledBackend {
     ) -> u64 {
         self.as_mut()
             .start_plan(PlanTask::remove(strings_of(names), cascade))
+    }
+
+    /// Hands the package list the repository answer of its search field.
+    fn apply_search_results(
+        &self,
+        hits_json: &cxx_qt_lib::QString,
+        error_key: &cxx_qt_lib::QString,
+        error_args: &cxx_qt_lib::QStringList,
+    ) {
+        let packages = self.packages;
+        if packages.as_ptr().is_null() {
+            return;
+        }
+        qobject::package_model_set_search_results(packages, hits_json, error_key, error_args);
     }
 
     /// Starts the dry runs of one plan and answers with its request id.

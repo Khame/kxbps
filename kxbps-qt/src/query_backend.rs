@@ -95,6 +95,27 @@ pub mod qobject {
         #[qinvokable]
         fn version_of(self: &QueryBackend, pkgver: &QString) -> QString;
 
+        /// Reads the repository hits for the package list's search field and
+        /// answers through `listSearchDone` when the read lands.
+        ///
+        /// The list asks this, not the Query view: the pattern is always
+        /// searched against the repositories (`xbps-query -Rs`), whatever
+        /// filter the list shows, and the hits arrive ranked with the exact
+        /// name first. A pattern already on screen costs no second read.
+        #[qinvokable]
+        fn read_list_search(self: Pin<&mut QueryBackend>, pattern: &QString);
+
+        /// Whether the list already shows the answer for `pattern`; a
+        /// repeated Enter costs nothing.
+        #[qinvokable]
+        fn list_search_is_current(self: &QueryBackend, pattern: &QString) -> bool;
+
+        /// A repository answer for the package list: the request id, so a
+        /// stale answer is dropped, and the JSON of
+        /// `{"hits": [...], "errorKey": "…", "errorArgs": [...]}`.
+        #[qsignal]
+        fn list_search_done(self: Pin<&mut QueryBackend>, request: u64, json: QString);
+
         // Pushes the installed/queue snapshot; called by the installed backend
         // through `kxbps_query_backend_set_state`. `updates_json` and
         // `orphans_json` are the lists xbps reported, so a query hit answers
@@ -155,6 +176,13 @@ pub struct QueryBackendRust {
     facts_error_args: QStringList,
     facts_pkgver: QString,
     facts_revision: i32,
+    /// The trimmed pattern of the newest repository answer the list shows.
+    ///
+    /// The package list asks for a repository answer on every non-empty
+    /// search; a pattern that is already on screen costs no second
+    /// `xbps-query`, which is what keeps Enter from re-reading what typing
+    /// already found.
+    last_search_pattern: String,
 }
 
 /// What a search is asked for: a moved signature makes an answer stale.
@@ -231,6 +259,7 @@ impl Default for QueryBackendRust {
             facts_error_args: QStringList::default(),
             facts_pkgver: QString::from(""),
             facts_revision: 0,
+            last_search_pattern: String::new(),
         }
     }
 }
@@ -330,6 +359,62 @@ impl qobject::QueryBackend {
                 .map(|(_, version)| version.to_owned())
                 .unwrap_or_default(),
         })
+    }
+
+    /// Whether the list already shows the answer for `pattern`.
+    fn list_search_is_current(&self, pattern: &cxx_qt_lib::QString) -> bool {
+        !self.rust().needs_search(&pattern.to_string())
+    }
+
+    /// Reads the repository hits for the list's search field on a worker
+    /// thread; the answer arrives through `listSearchDone`.
+    ///
+    /// The read is skipped when the same pattern is already on screen, and an
+    /// empty one is never sent: an empty field shows the filter's rows, not a
+    /// repository listing xbps cannot even produce.
+    fn read_list_search(mut self: Pin<&mut Self>, pattern: &cxx_qt_lib::QString) {
+        let pattern = pattern.to_string().trim().to_owned();
+        if pattern.is_empty() {
+            return;
+        }
+        let generation = {
+            let data = Pin::get_mut(self.as_mut().rust_mut());
+            if !data.needs_search(&pattern) {
+                return;
+            }
+            data.begin_search_read()
+        };
+        let thread = self.qt_thread();
+        let invoke = self.invoke.clone();
+        std::thread::spawn(move || {
+            // A detached copy of the read state: `search_answer_json` only
+            // touches the transport, so the worker needs nothing else.
+            let reader = QueryBackendRust {
+                invoke,
+                ..QueryBackendRust::default()
+            };
+            let json = reader.search_answer_json(&pattern);
+            thread
+                .queue(move |backend| backend.deliver_list_search(generation, &pattern, json))
+                .ok();
+        });
+    }
+
+    /// Applies a landed repository answer unless a newer pattern started.
+    fn deliver_list_search(
+        mut self: Pin<&mut Self>,
+        generation: u64,
+        pattern: &str,
+        json: QString,
+    ) {
+        {
+            let data = Pin::get_mut(self.as_mut().rust_mut());
+            if !data.search_read_is_current(generation) {
+                return;
+            }
+            data.remember_search_answer(pattern);
+        }
+        self.as_mut().list_search_done(generation, json);
     }
 
     fn set_state(
@@ -518,6 +603,69 @@ impl QueryBackendRust {
             &QVariant::from(&QString::from(queued)),
         );
         map
+    }
+
+    /// Whether `pattern` needs a read: a new pattern, not the one on screen.
+    ///
+    /// The comparison is on the trimmed text, so the padding a search field
+    /// keeps around the words never costs a second `xbps-query`.
+    fn needs_search(&self, pattern: &str) -> bool {
+        pattern.trim() != self.last_search_pattern
+    }
+
+    /// Records that the list now shows the answer for `pattern`; an empty
+    /// pattern forgets it, so leaving the search field reads again.
+    fn remember_search_answer(&mut self, pattern: &str) {
+        self.last_search_pattern = pattern.trim().to_owned();
+    }
+
+    /// Starts a repository read and answers with the generation it owns.
+    ///
+    /// The package list reads synchronously on a worker thread; the generation
+    /// is what the delivery compares, so an answer for a pattern the user has
+    /// already typed past never reaches the window.
+    fn begin_search_read(&self) -> u64 {
+        self.search_generation.fetch_add(1, Ordering::SeqCst) + 1
+    }
+
+    /// Whether `generation` is still the newest search read.
+    fn search_read_is_current(&self, generation: u64) -> bool {
+        Self::generation_is_current(generation, &self.search_generation)
+    }
+
+    fn generation_is_current(generation: u64, current: &AtomicU64) -> bool {
+        current.load(Ordering::SeqCst) == generation
+    }
+
+    /// Runs one repository search for the package list and answers with the
+    /// hits as JSON: `{"hits": [...], "errorKey": "…", "errorArgs": [...]}`.
+    ///
+    /// This is the read behind the list's search field, not the Query view's:
+    /// it always asks the repositories (`xbps-query -Rs`), ranks the hits with
+    /// the core's exact-name-first rule, and reports a failure as a key rather
+    /// than rows. The caller runs it on a worker thread; nothing here touches
+    /// a `QObject`.
+    fn search_answer_json(&self, pattern: &str) -> QString {
+        let pattern = pattern.trim();
+        let (error, mut hits) = match read_search(&*self.invoke, SearchSource::Repository, pattern)
+        {
+            Ok(hits) => (None, hits),
+            Err(err) => (Some(err), Vec::new()),
+        };
+        kxbps_core::rank_search_hits(&mut hits, pattern);
+        let hits = hits_json(&hits);
+        let (error_key, error_args) = match &error {
+            Some(err) => (err.key(), err.args()),
+            None => ("", Vec::new()),
+        };
+        QString::from(
+            serde_json::json!({
+                "hits": hits,
+                "errorKey": error_key,
+                "errorArgs": error_args,
+            })
+            .to_string(),
+        )
     }
 
     /// The cached facts of one pkgver, if a read answered for it.
@@ -742,6 +890,17 @@ fn args_of(err: &SnapshotError) -> QStringList {
 /// A trimmed query; a field of blanks searches for nothing.
 fn trimmed(query: &cxx_qt_lib::QString) -> String {
     query.to_string().trim().to_owned()
+}
+
+/// The hits of one list-search answer, in the shape `SearchHit` serialises.
+///
+/// The model deserialises the same type on the other end, so the transport
+/// cannot drift from it: a hand-written `json!({...})` is how `short` once
+/// reached a reader that expected `description`.
+fn hits_json(hits: &[kxbps_core::SearchHit]) -> Vec<serde_json::Value> {
+    hits.iter()
+        .filter_map(|hit| serde_json::to_value(hit).ok())
+        .collect()
 }
 
 #[cfg(test)]
@@ -1346,5 +1505,135 @@ mod tests {
             "a cached pkgver never starts a second read"
         );
         assert_eq!(calls.load(Ordering::SeqCst), before);
+    }
+
+    /// The sorted names of a `read_search_now` reply, decoded the way QML's
+    /// list update will read it.
+    fn reply_names(json: &QString) -> Vec<String> {
+        let value: serde_json::Value = serde_json::from_str(&json.to_string()).expect("JSON");
+        value["hits"]
+            .as_array()
+            .expect("hits array")
+            .iter()
+            .map(|hit| hit["name"].as_str().expect("name").to_owned())
+            .collect()
+    }
+
+    fn reply_error(json: &QString) -> String {
+        let value: serde_json::Value = serde_json::from_str(&json.to_string()).expect("JSON");
+        value["errorKey"].as_str().unwrap_or_default().to_owned()
+    }
+
+    #[test]
+    fn a_read_search_now_ranks_the_exact_name_first() {
+        // The three lines xbps prints for "vim" in the order it prints them:
+        // the exact match is not first.
+        let backend = with_invoke(fake(vec![(
+            "-Rs",
+            reply(
+                0,
+                "[-] apvlv-0.5.0_1 Vim-like viewer\n\
+                 [-] vimb-4.0.0_1 WebKit browser\n\
+                 [-] vim-9.2.1031_1 Vim editor\n",
+                "",
+            ),
+        )]));
+        let json = backend.search_answer_json("vim");
+        assert_eq!(reply_names(&json), ["vim", "vimb", "apvlv"]);
+        assert_eq!(reply_error(&json), "", "a good read names no error");
+    }
+
+    #[test]
+    fn a_read_search_now_carries_the_error_key_instead_of_rows() {
+        let backend = with_invoke(fake(vec![("-Rs", reply(2, "", "broken index"))]));
+        let json = backend.search_answer_json("vim");
+        assert_eq!(reply_error(&json), "errorXbpsExit");
+        assert!(
+            reply_names(&json).is_empty(),
+            "a failed read never invents a row"
+        );
+    }
+
+    #[test]
+    fn a_trimmed_pattern_that_already_answered_is_not_read_again() {
+        let calls = Arc::new(AtomicU64::new(0));
+        let counted = calls.clone();
+        let invoke: SharedInvoke = Arc::new(move |_request: &str, _| {
+            counted.fetch_add(1, Ordering::SeqCst);
+            reply(0, "[-] vim-9.2.1031_1 Vim editor\n", "")
+        });
+        let mut backend = QueryBackendRust {
+            invoke,
+            ..QueryBackendRust::default()
+        };
+        assert!(backend.needs_search("vim"), "a new pattern is read");
+        backend.remember_search_answer("vim");
+        assert_eq!(calls.load(Ordering::SeqCst), 0, "remembering reads nothing");
+        assert!(
+            !backend.needs_search(" vim "),
+            "the same pattern, padded, is the answer already on screen"
+        );
+        assert!(
+            backend.needs_search("vim-"),
+            "a longer pattern is a new read"
+        );
+        backend.remember_search_answer("");
+        assert!(backend.needs_search("vim"), "an emptied field forgets");
+    }
+
+    #[test]
+    fn an_older_search_read_is_dropped_when_a_newer_pattern_started() {
+        let backend = QueryBackendRust::default();
+        let older = backend.begin_search_read();
+        assert!(
+            backend.search_read_is_current(older),
+            "a fresh read owns the window"
+        );
+        // The user typed on: a newer read bumps the generation.
+        let newer = backend.begin_search_read();
+        assert_ne!(older, newer, "each read is a new generation");
+        assert!(
+            backend.search_read_is_current(newer),
+            "the newest read owns the window"
+        );
+        assert!(
+            !backend.search_read_is_current(older),
+            "the older answer lost its turn and is dropped"
+        );
+    }
+
+    #[test]
+    fn a_list_search_answer_deserialises_as_the_model_reads_it() {
+        use kxbps_core::SearchHit;
+
+        let hits = vec![
+            SearchHit {
+                installed: false,
+                name: "vim".to_owned(),
+                version: "9.2.1031_1".to_owned(),
+                pkgver: "vim-9.2.1031_1".to_owned(),
+                description: "Vim editor (vi clone) without GUI".to_owned(),
+            },
+            SearchHit {
+                installed: true,
+                name: "vimb".to_owned(),
+                version: "4.0.0_1".to_owned(),
+                pkgver: "vimb-4.0.0_1".to_owned(),
+                description: "Vim-like browser".to_owned(),
+            },
+        ];
+        let answer = serde_json::json!({
+            "hits": hits_json(&hits),
+            "errorKey": "",
+            "errorArgs": [],
+        });
+        // What the package list does with `hits`: the model parses this very
+        // string, so the transport shape and its reader are one contract.
+        let parsed: Vec<SearchHit> =
+            serde_json::from_str(&answer["hits"].to_string()).expect("the model reads these hits");
+        assert_eq!(
+            parsed, hits,
+            "every field survives the trip, description included"
+        );
     }
 }

@@ -35,6 +35,14 @@ void kxbps_package_model_set_snapshot(QObject *model,
     static_cast<PackageModel *>(model)->setSnapshot(snapshotJson, queueJson);
 }
 
+void kxbps_package_model_set_search_results(QObject *model,
+                                              const QString &hitsJson,
+                                              const QString &errorKey,
+                                              const QStringList &errorArgs)
+{
+    static_cast<PackageModel *>(model)->setSearchResults(hitsJson, errorKey, errorArgs);
+}
+
 QObject *kxbps_create_queue_model(QObject *parent, const QString &queueJson)
 {
     return new QueueModel(queueJson, parent);

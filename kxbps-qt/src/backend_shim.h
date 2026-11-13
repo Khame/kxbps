@@ -29,6 +29,14 @@ void kxbps_package_model_set_snapshot(QObject *model,
                                         const QString &snapshotJson,
                                         const QString &queueJson);
 
+// Shows the ranked repository answer of the search field: the hits as JSON,
+// plus the failure the read reported (a key and its arguments, empty on
+// success). An empty `hitsJson` is an empty search or a failed one.
+void kxbps_package_model_set_search_results(QObject *model,
+                                              const QString &hitsJson,
+                                              const QString &errorKey,
+                                              const QStringList &errorArgs);
+
 // Queue model: one row per queued `{name, action}`.
 QObject *kxbps_create_queue_model(QObject *parent, const QString &queueJson);
 void kxbps_queue_model_set_state(QObject *model, const QString &queueJson);

@@ -14,7 +14,7 @@ use std::pin::Pin;
 
 use cxx_qt::CxxQtType;
 use cxx_qt::casting::Upcast;
-use cxx_qt_lib::{QByteArray, QObjectMutPtr, QString, QVariant};
+use cxx_qt_lib::{QByteArray, QObjectMutPtr, QString, QStringList, QVariant};
 use kxbps_core::{
     Inst, InstalledMap, InstalledPackage, QueueAction, QueueItem, UpdateEntry, byte_decimals,
     format_bytes,
@@ -38,6 +38,9 @@ pub mod qobject {
 
         include!("cxx-qt-lib/qstring.h");
         type QString = cxx_qt_lib::QString;
+
+        include!("cxx-qt-lib/qstringlist.h");
+        type QStringList = cxx_qt_lib::QStringList;
 
         include!("cxx-qt-lib/qvariant.h");
         type QVariant = cxx_qt_lib::QVariant;
@@ -76,6 +79,14 @@ pub mod qobject {
         #[qproperty(QString, sort, READ, WRITE = set_sort, NOTIFY)]
         #[qproperty(bool, sort_descending, READ, WRITE = set_sort_descending, NOTIFY)]
         #[qproperty(i32, count, READ, NOTIFY)]
+        // Whether the list is showing the ranked repository answer of a
+        // non-empty search field rather than the filter's own rows.
+        #[qproperty(bool, searching, READ, NOTIFY)]
+        // The failure the newest search read reported: an i18n key and its
+        // `%1…%3` arguments, empty when the read succeeded. A reader that does
+        // not know the key shows nothing rather than the raw text.
+        #[qproperty(QString, search_error, READ, NOTIFY)]
+        #[qproperty(QStringList, search_error_args, READ, NOTIFY)]
         type PackageModel = super::PackageModelRust;
 
         #[qinvokable]
@@ -106,6 +117,26 @@ pub mod qobject {
         fn set_search(self: Pin<&mut PackageModel>, value: QString);
         fn set_sort(self: Pin<&mut PackageModel>, value: QString);
         fn set_sort_descending(self: Pin<&mut PackageModel>, value: bool);
+
+        /// A non-empty search asked for the repository hits of `pattern`.
+        ///
+        /// The list cannot read xbps itself: it holds no transport. Whoever
+        /// owns it answers through `setSearchResults`.
+        #[qsignal]
+        fn search_requested(self: Pin<&mut PackageModel>, pattern: QString);
+
+        /// Applies the repository answer for the current pattern: the ranked
+        /// hits as JSON, plus the failure the read reported (a key and its
+        /// arguments), empty when it succeeded.
+        ///
+        /// Called by the installed backend with what `read_list_search`
+        /// returned; not invokable from QML.
+        fn set_search_results(
+            self: Pin<&mut PackageModel>,
+            hits_json: &QString,
+            error_key: &QString,
+            error_args: &QStringList,
+        );
 
         // Pushes a whole `Snapshot` (see `xbps_snapshot`) plus the queue; called
         // by the installed backend through `kxbps_package_model_set_snapshot`.
@@ -153,6 +184,10 @@ pub mod role {
     pub const UPDATE_SIZE_BYTES: i32 = USER_ROLE + 12;
     pub const DOWNLOAD: i32 = USER_ROLE + 13;
     pub const DOWNLOAD_BYTES: i32 = USER_ROLE + 14;
+    /// The `name-version_revision` xbps printed, for the details pane and the
+    /// selection tuple. A snapshot row derives it from its record, so it is
+    /// not in [`ROLES`]: only a search row carries it as data.
+    pub const PKGVER: i32 = USER_ROLE + 15;
 }
 
 /// Role ids and the names QML sees, in declaration order.
@@ -322,6 +357,91 @@ pub struct PackageModelRust {
     sort: QString,
     sort_descending: bool,
     count: i32,
+    /// Whether the list shows the repository answer of a non-empty search
+    /// field. Mirrors `active_search.is_some()`, kept as a field because a
+    /// `#[qproperty]` reads it directly.
+    searching: bool,
+    /// The failure the newest search read reported, as a key and its
+    /// arguments; both empty on success.
+    search_error: QString,
+    search_error_args: QStringList,
+    /// The repository answer the list is showing, when the search field holds a
+    /// pattern. `None` means the list shows the filter's own rows.
+    ///
+    /// A filter narrows the installed set; a search asks xbps a different
+    /// question — what the repositories have — so the two cannot share one
+    /// row list. While this is `Some`, `rows` is empty and the search rows are
+    /// what `data()` answers from.
+    active_search: Option<ActiveSearch>,
+}
+
+/// The ranked repository answer the list is showing.
+struct ActiveSearch {
+    /// The pattern the rows were read for, trimmed.
+    pattern: String,
+    /// The hits in the order `read_list_search` returned them: ranked, exact
+    /// name first.
+    hits: Vec<SearchRow>,
+    /// The failure the read reported, if it failed; a failed search has no
+    /// rows and still keeps the pattern, so the field is not silently emptied.
+    /// The arguments of its sentence live in the `searchErrorArgs` property.
+    error_key: String,
+}
+
+/// One repository hit as a row.
+struct SearchRow {
+    name: String,
+    version: String,
+    pkgver: String,
+    description: String,
+    /// The installed record the hit's own tag implies: `Some` when xbps
+    /// printed `[*]`, so the row reports an install even for a package the
+    /// store has not read yet.
+    tagged: Option<Inst>,
+}
+
+impl SearchRow {
+    fn of(hit: &kxbps_core::SearchHit) -> Self {
+        Self {
+            name: hit.name.clone(),
+            version: hit.version.clone(),
+            pkgver: hit.pkgver.clone(),
+            description: hit.description.clone(),
+            tagged: hit.installed.then(|| Inst {
+                version: hit.version.clone(),
+                explicit: false,
+                held: false,
+                at: 0,
+            }),
+        }
+    }
+
+    /// The `RowView` this hit renders as, read against the live store: the
+    /// installed set says whether it is installed (the tag only says what the
+    /// index held when the search ran), the queue says what a plan left behind.
+    ///
+    /// The one thing the tag decides: when the store does not know the name
+    /// but xbps tagged the hit `[*]`, the row reports the hit's own version as
+    /// installed rather than claiming the package is absent.
+    fn view<'a>(&'a self, model: &'a PackageModelRust) -> RowView<'a> {
+        let installed = model.installed.get(&self.name).or(self.tagged.as_ref());
+        RowView {
+            name: &self.name,
+            version: &self.version,
+            installed,
+            queued: model.queue.get(&self.name).copied(),
+            update_to: model.state.update_to(&self.name),
+            description: Some(&self.description),
+            // A `-Rs` line names no size, so the row borrows the repository's
+            // unpacked size for that name: it is what the package will take on
+            // disk, and it is the same number the installed list shows. An
+            // index that moved between the two reads could be one version off,
+            // which the row would show as the repository version anyway.
+            size: model.repo_installed_sizes.get(&self.name).copied(),
+            update_size: None,
+            download: model.repo_download_sizes.get(&self.name).copied(),
+        }
+    }
 }
 
 impl Default for PackageModelRust {
@@ -347,6 +467,10 @@ impl Default for PackageModelRust {
             sort: QString::from("name"),
             sort_descending: false,
             count: 0,
+            searching: false,
+            search_error: QString::from(""),
+            search_error_args: QStringList::default(),
+            active_search: None,
         }
     }
 }
@@ -492,7 +616,15 @@ impl PackageModelRust {
         let version = installed
             .map(|inst| inst.version.as_str())
             .unwrap_or(record.version.as_str());
-        let size = self.installed_sizes.get(name).copied();
+        // The size the package takes on disk: the installed one, or — for a
+        // package that is not installed — what the repository says its unpacked
+        // version weighs. Both are `xbps-query -p installed_size`; an unknown
+        // size stays empty rather than becoming a zero.
+        let size = self
+            .installed_sizes
+            .get(name)
+            .or_else(|| self.repo_installed_sizes.get(name))
+            .copied();
         // Only a pending update has a "new version" size: the exact one from
         // `xbps-install -un`. The repository archive size is what a queued
         // install would fetch, so it is reported even without an update; the
@@ -713,8 +845,112 @@ impl PackageModelRust {
     /// All visible names, for the tests.
     #[cfg(test)]
     pub(crate) fn visible_names(&self) -> Vec<&str> {
+        // While a search is active the visible rows are the repository hits,
+        // in the order the backend ranked them; the filter's rows are still
+        // `rows`, waiting for the pattern to be cleared.
+        if let Some(search) = &self.active_search {
+            return search.hits.iter().map(|hit| hit.name.as_str()).collect();
+        }
         self.rows.iter().map(|row| self.name_of(row)).collect()
     }
+
+    /// Sets the search text and answers with the pattern the list must read
+    /// from the repositories, if any.
+    ///
+    /// The search box is one box for packages, whatever filter the list shows:
+    /// a non-empty pattern always asks xbps about the repositories, because a
+    /// filter narrows the installed set while a search asks a different
+    /// question. An emptied pattern restores the filter's own rows from the
+    /// snapshot and reads nothing.
+    ///
+    /// `None` means nothing to read: an empty pattern (the rows come back) or
+    /// the answer already on screen.
+    #[cfg(test)]
+    fn set_search_and_report(&mut self, text: &str) -> Option<String> {
+        self.search = QString::from(text);
+        let pattern = text.trim().to_string();
+        if pattern.is_empty() {
+            self.clear_search_rows();
+            return None;
+        }
+        if self
+            .active_search
+            .as_ref()
+            .is_some_and(|search| search.pattern.eq_ignore_ascii_case(&pattern))
+        {
+            return None;
+        }
+        // The rows stay as they are until the answer lands: an empty list on
+        // every keystroke would flash.
+        Some(pattern)
+    }
+
+    /// Drops the repository answer and shows the filter's rows again.
+    fn clear_search_rows(&mut self) {
+        if self.active_search.take().is_some() {
+            self.count = i32::try_from(self.rows.len()).unwrap_or(i32::MAX);
+        }
+    }
+
+    /// Applies a repository answer; an empty `hits` with an error key is a
+    /// failed read that keeps the pattern and no rows.
+    #[cfg(test)]
+    fn apply_search_results(&mut self, hits: &[kxbps_core::SearchHit], key: &str, _args: &[&str]) {
+        self.active_search = Some(ActiveSearch {
+            pattern: self.search.to_string().trim().to_owned(),
+            hits: hits.iter().map(SearchRow::of).collect(),
+            error_key: key.to_owned(),
+        });
+        self.count = i32::try_from(hits.len()).unwrap_or(i32::MAX);
+    }
+
+    #[cfg(test)]
+    fn search_results_active(&self) -> bool {
+        self.active_search.is_some()
+    }
+
+    #[cfg(test)]
+    fn search_error_key(&self) -> String {
+        self.active_search
+            .as_ref()
+            .map_or_else(String::new, |search| search.error_key.clone())
+    }
+
+    /// The visible rows while a search is active: name, the tag, the version.
+    #[cfg(test)]
+    fn search_row_fingerprints(&self) -> Vec<(String, bool, String)> {
+        self.active_search.as_ref().map_or_else(Vec::new, |search| {
+            search
+                .hits
+                .iter()
+                .map(|row| (row.name.clone(), row.tagged.is_some(), row.version.clone()))
+                .collect()
+        })
+    }
+
+    /// The queue action each visible search row shows.
+    #[cfg(test)]
+    fn search_row_actions(&self) -> Vec<String> {
+        self.active_search.as_ref().map_or_else(Vec::new, |search| {
+            search
+                .hits
+                .iter()
+                .map(|row| {
+                    self.queue
+                        .get(&row.name)
+                        .map_or_else(String::new, |action| queue_key(*action).to_owned())
+                })
+                .collect()
+        })
+    }
+
+    /// Re-derives what a search row shows from the live store, without a new
+    /// read: a queue toggle or a finished plan must move the pill.
+    ///
+    /// Search rows read the store on demand (`data()` for an active search),
+    /// so nothing is copied here; the method keeps the call sites explicit.
+    #[cfg(test)]
+    fn refresh_search_rows(&mut self) {}
 
     fn matches(&self, row: &u32, filter: &str, search: &str) -> bool {
         let name = self.name_of(row);
@@ -780,6 +1016,24 @@ impl qobject::PackageModel {
     }
 
     fn data(&self, index: &cxx_qt_lib::QModelIndex, role: i32) -> cxx_qt_lib::QVariant {
+        // While a search is active the rows are the ranked repository hits,
+        // rendered against the live store so a queue toggle or a finished plan
+        // moves the pill without a second read.
+        if let Some(search) = &self.active_search {
+            let Some(hit) = usize::try_from(index.row())
+                .ok()
+                .and_then(|row| search.hits.get(row))
+            else {
+                return cxx_qt_lib::QVariant::default();
+            };
+            // `pkgver` is not a role of the snapshot rows, but the details pane
+            // and the selection tuple read it from every row: a search row
+            // carries the `name-version` xbps printed.
+            if role == role::PKGVER {
+                return QVariant::from(&QString::from(hit.pkgver.as_str()));
+            }
+            return role_value(role, &hit.view(self));
+        }
         let Some(row) = self.row_at(index.row()) else {
             return cxx_qt_lib::QVariant::default();
         };
@@ -787,9 +1041,14 @@ impl qobject::PackageModel {
     }
 
     fn role_names(&self) -> QHash_i32_QByteArray {
+        // `pkgver` rides with the other roles so a search row reads
+        // `model.pkgver`; a snapshot row answers it as an invalid variant and
+        // QML derives the same string from name and version.
         ROLES
             .iter()
-            .map(|(id, name)| (*id, QByteArray::from(*name)))
+            .copied()
+            .chain(std::iter::once((role::PKGVER, "pkgver")))
+            .map(|(id, name)| (id, QByteArray::from(name)))
             .collect()
     }
 
@@ -814,16 +1073,112 @@ impl qobject::PackageModel {
         if self.filter == value {
             return;
         }
+        // A filter chip narrows the installed set; a search asks xbps a
+        // different question, so picking a chip leaves the search and shows
+        // that filter's own rows.
+        let had_search = self.active_search.is_some();
+        {
+            let data = Pin::get_mut(self.as_mut().rust_mut());
+            data.clear_search_rows();
+            data.searching = false;
+            data.search_error = QString::from("");
+            data.search_error_args = QStringList::default();
+        }
         apply_change(self.as_mut(), |model| model.filter = value);
+        // The rolling back to the filter's rows is a different set from the
+        // search hits, so the view rebuilds; `apply_change` only resets when
+        // its own rows moved.
+        if had_search {
+            qobject::model_begin_reset(base(self.as_mut()));
+            qobject::model_end_reset(base(self.as_mut()));
+        }
         self.as_mut().filter_changed();
+        if had_search {
+            self.as_mut().count_changed();
+            self.as_mut().searching_changed();
+            self.as_mut().search_error_changed();
+            self.as_mut().search_error_args_changed();
+        }
     }
 
     fn set_search(mut self: Pin<&mut Self>, value: cxx_qt_lib::QString) {
         if self.search == value {
             return;
         }
-        apply_change(self.as_mut(), |model| model.search = value);
+        let pattern = value.to_string().trim().to_owned();
+        // An emptied field goes back to the filter's rows, with no read; a
+        // changed pattern asks the repositories and leaves the current rows in
+        // place until the answer lands.
+        if pattern.is_empty() {
+            let had_search = self.active_search.is_some();
+            {
+                let data = Pin::get_mut(self.as_mut().rust_mut());
+                data.search = value;
+                data.clear_search_rows();
+                data.searching = false;
+                data.search_error = QString::from("");
+                data.search_error_args = QStringList::default();
+            }
+            if had_search {
+                qobject::model_begin_reset(base(self.as_mut()));
+                qobject::model_end_reset(base(self.as_mut()));
+                self.as_mut().count_changed();
+                self.as_mut().searching_changed();
+                self.as_mut().search_error_changed();
+                self.as_mut().search_error_args_changed();
+            }
+            self.as_mut().search_changed();
+            return;
+        }
+        // The answer already on screen is not read again: padding and case are
+        // not a new question.
+        let answered = self.active_search.as_ref().is_some_and(|search| {
+            search.pattern.eq_ignore_ascii_case(&pattern) && search.error_key.is_empty()
+        });
+        {
+            let data = Pin::get_mut(self.as_mut().rust_mut());
+            data.search = value;
+        }
         self.as_mut().search_changed();
+        if !answered {
+            self.as_mut()
+                .search_requested(QString::from(pattern.as_str()));
+        }
+    }
+
+    fn set_search_results(
+        mut self: Pin<&mut Self>,
+        hits_json: &cxx_qt_lib::QString,
+        error_key: &cxx_qt_lib::QString,
+        error_args: &cxx_qt_lib::QStringList,
+    ) {
+        let hits: Vec<kxbps_core::SearchHit> =
+            serde_json::from_str(&hits_json.to_string()).unwrap_or_default();
+        let key = error_key.to_string();
+        let args: Vec<String> = error_args.iter().map(QString::to_string).collect();
+        {
+            let data = Pin::get_mut(self.as_mut().rust_mut());
+            data.active_search = Some(ActiveSearch {
+                pattern: data.search.to_string().trim().to_owned(),
+                hits: hits.iter().map(SearchRow::of).collect(),
+                error_key: key.clone(),
+            });
+            data.count = i32::try_from(hits.len()).unwrap_or(i32::MAX);
+            data.searching = true;
+            data.search_error = QString::from(key.as_str());
+            data.search_error_args = args
+                .iter()
+                .map(|arg| QString::from(arg.as_str()))
+                .collect::<QStringList>();
+        }
+        // The rows are a different set, not a re-read of the same one: this is
+        // a full reset, which is what tells the view to rebuild its delegates.
+        qobject::model_begin_reset(base(self.as_mut()));
+        qobject::model_end_reset(base(self.as_mut()));
+        self.as_mut().count_changed();
+        self.as_mut().searching_changed();
+        self.as_mut().search_error_changed();
+        self.as_mut().search_error_args_changed();
     }
 
     fn set_sort(mut self: Pin<&mut Self>, value: cxx_qt_lib::QString) {
@@ -1965,5 +2320,157 @@ mod tests {
             max < 200.0,
             "smoke bound (not a performance requirement): {max:.3} ms"
         );
+    }
+
+    /// A repository hit as the list receives it from `read_list_search`.
+    fn search_hit(name: &str, version: &str, installed: bool) -> kxbps_core::SearchHit {
+        kxbps_core::SearchHit {
+            installed,
+            name: name.to_owned(),
+            version: version.to_owned(),
+            pkgver: format!("{name}-{version}"),
+            description: format!("{name} description"),
+        }
+    }
+
+    #[test]
+    fn a_non_empty_search_asks_for_repository_hits_on_every_filter() {
+        // The search box is one box for packages: it does not matter which tab
+        // the user is on, typing asks xbps about the repositories.
+        for filter in ["installed", "all", "updates", "queued", "held", "orphans"] {
+            let mut model = model();
+            set_filter(&mut model, filter);
+            let asked = model.set_search_and_report("vim");
+            assert_eq!(
+                asked.as_deref(),
+                Some("vim"),
+                "filter {filter}: a non-empty search asks the repositories"
+            );
+        }
+    }
+
+    #[test]
+    fn a_pattern_already_asked_for_is_not_asked_again() {
+        let mut model = model();
+        assert_eq!(model.set_search_and_report("vim").as_deref(), Some("vim"));
+        model.apply_search_results(&[search_hit("vim", "9.2.1031_1", false)], "", &[]);
+        assert_eq!(
+            model.set_search_and_report("vim"),
+            None,
+            "the same pattern is the answer already on screen"
+        );
+        assert_eq!(
+            model.set_search_and_report(" VIM "),
+            None,
+            "padding and case are not a new question"
+        );
+        assert_eq!(
+            model.set_search_and_report("vim-"),
+            Some("vim-".to_owned()),
+            "a longer pattern is a new question"
+        );
+    }
+
+    #[test]
+    fn an_empty_search_restores_the_filters_rows_without_reading_xbps() {
+        let mut model = model();
+        set_filter(&mut model, "installed");
+        let installed_rows: Vec<String> = model
+            .visible_names()
+            .into_iter()
+            .map(str::to_owned)
+            .collect();
+        model.set_search_and_report("vim");
+        model.apply_search_results(&[search_hit("vim", "9.2.1031_1", false)], "", &[]);
+        assert_eq!(
+            model.visible_names(),
+            vec!["vim"],
+            "the hit replaces the list"
+        );
+        let asked = model.set_search_and_report("");
+        assert_eq!(asked, None, "an empty field asks xbps nothing");
+        assert_eq!(
+            model.visible_names(),
+            installed_rows,
+            "the filter's own rows come back from the snapshot"
+        );
+        assert!(
+            !model.search_results_active(),
+            "the search state is gone with the pattern"
+        );
+    }
+
+    #[test]
+    fn search_hit_rows_are_the_ranked_repository_answer_not_the_installed_set() {
+        let mut model = model();
+        set_filter(&mut model, "installed");
+        model.set_search_and_report("vim");
+        // Not installed: a filter over the installed set would hide it.
+        model.apply_search_results(
+            &[
+                search_hit("vim", "9.2.1031_1", false),
+                search_hit("vimb", "4.0.0_1", false),
+                search_hit("bash", "5.3_2", true),
+            ],
+            "",
+            &[],
+        );
+        // The order is the backend's: ranking happens before the list sees it.
+        assert_eq!(model.visible_names(), vec!["vim", "vimb", "bash"]);
+        assert_eq!(model.count, 3);
+    }
+
+    #[test]
+    fn a_search_hit_row_reports_its_own_installed_state() {
+        let mut model = model();
+        model.set_search_and_report("vim");
+        model.apply_search_results(
+            &[
+                search_hit("bash", "5.3_2", false),
+                search_hit("curl", "8.16.0_1", true),
+            ],
+            "",
+            &[],
+        );
+        let rows = model.search_row_fingerprints();
+        assert_eq!(
+            rows,
+            vec![
+                ("bash".to_owned(), false, "5.3_2".to_owned()),
+                ("curl".to_owned(), true, "8.16.0_1".to_owned()),
+            ],
+            "the hit's own tag decides installed, not the snapshot"
+        );
+    }
+
+    #[test]
+    fn a_search_failure_shows_no_rows_and_keeps_the_pattern() {
+        let mut model = model();
+        model.set_search_and_report("vim");
+        model.apply_search_results(&[], "errorXbpsExit", &["xbps-query", "2", "broken"]);
+        assert_eq!(model.count, 0, "a failed search invents no row");
+        assert_eq!(model.search_error_key(), "errorXbpsExit");
+        assert!(
+            model.search_results_active(),
+            "the field still holds the pattern"
+        );
+    }
+
+    #[test]
+    fn a_queue_change_moves_a_search_hit_row_without_a_new_read() {
+        let mut model = model();
+        model.set_search_and_report("retext");
+        model.apply_search_results(&[search_hit("retext", "8.0.2_1", false)], "", &[]);
+        // The row now shows the state a plan left behind: the same hits, read
+        // again against the live queue.
+        model.store_state(
+            InstalledMap::new(),
+            vec![QueueItem {
+                name: "retext".into(),
+                action: QueueAction::Install,
+            }],
+        );
+        model.refresh_search_rows();
+        assert_eq!(model.search_row_actions(), vec!["install".to_owned()]);
     }
 }
