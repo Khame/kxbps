@@ -27,6 +27,10 @@ Item {
 
     signal updateAllRequested()
 
+    // A row asked for a transaction. The window owns the plan dialog and the
+    // job, so the list only forwards the name and what the user meant.
+    signal planRequested(string name, string token)
+
     // The whole selection in one go: a name alone would let the menu read
     // `held`/`queued` from a row that has moved on. `pkgver` is the xbps form
     // `name-version_revision`; the flags are what the row shows.
@@ -57,24 +61,39 @@ Item {
         view.selectionChanged("", "", false, false, false, "")
     }
 
-    // Fixed column widths, shared by the header and the delegates. The actions
-    // are an overlay on the row's right edge, so they do not get a column.
-    // 8.5 gu (153 px) cannot hold "8.12.1_1 → 8.16.0_1" at this font: the two
-    // versions are 77 px each, the arrow 13 px and the two gaps 8 px. 10 gu
-    // (180 px) fits it; the name column still has 263 px for 141 px of text.
+    // The sidebar's `Available` entry: there is no list of everything a
+    // repository holds, so the entry puts the cursor where that list would come
+    // from — the search field — instead of pretending to show it.
+    function focusSearch() {
+        searchField.forceActiveFocus()
+    }
+
+    // A filter chip narrows the installed set, so it drops the repository
+    // search; the field has to drop the pattern with it, or the list would show
+    // installed rows under a pattern it no longer applies.
+    function clearSearch() {
+        searchField.text = ""
+    }
+
+    // Fixed column widths, shared by the header and the delegates. The action
+    // button owns the last column, so a row is four columns, not five.
+    // 10 gu (180 px) fits "8.12.1_1 → 8.16.0_1" at this font: the two versions
+    // are 77 px each, the arrow 13 px and the two gaps 8 px.
     readonly property real versionWidth: Kirigami.Units.gridUnit * 10
     readonly property real sizeWidth: Kirigami.Units.gridUnit * 4.5
-    readonly property real stateWidth: Kirigami.Units.gridUnit * 7
+    // Wide enough for the longest label ("Install", "Update", "Remove") plus its
+    // icon and the style's own padding.
+    readonly property real actionWidth: Kirigami.Units.gridUnit * 6
 
-    // At 14 gridUnits the fact label column (141 px) leaves only ~87 px for
-    // values, which cuts `20250812_1`. 16 gridUnits give the value column
-    // ~123 px, enough for the longest version and license xbps prints.
-    readonly property real paneWidth: Math.max(Kirigami.Units.gridUnit * 16, 288)
+    // At 17 gridUnits the fact label column (8.5 gu) fits "Available version"
+    // and the value column still holds the longest version xbps prints.
+    readonly property real paneWidth: Math.max(Kirigami.Units.gridUnit * 17, 300)
 
-    // The pane appears from 46 gridUnits of view width. The longest name needs
-    // ~47.5 gu with the pane open, so a window between 58.5 and 60 gu can elide
-    // it; the default (64) and minimum (48) sit outside that band.
-    readonly property bool wide: width >= Kirigami.Units.gridUnit * 46
+    // The pane appears from 50 gridUnits of view width: with the pane open the
+    // four fixed columns take 20.5 gu and the name column still needs ~12 gu to
+    // be readable. Below that the pane would squeeze the list to nothing, so it
+    // becomes the drawer instead.
+    readonly property bool wide: width >= Kirigami.Units.gridUnit * 50
 
     // The row as xbps names it: `installedVersion` is the version the system
     // has, `version` the repository's.
@@ -139,6 +158,28 @@ Item {
     ColumnLayout {
         anchors.fill: parent
         spacing: 0
+
+        // The list cannot read xbps itself: it holds no transport. A non-empty
+        // search asks the query façade, and the answer comes back as one JSON
+        // document the model turns into rows.
+        Connections {
+            target: view.packages
+            function onSearchRequested(pattern) {
+                view.catalogBackend.readListSearch(pattern)
+            }
+        }
+
+        Connections {
+            target: view.catalogBackend
+            function onListSearchDone(request, json) {
+                const answer = JSON.parse(json)
+                // `applySearchResults` takes the hits on their own: the model
+                // ranks rows, it does not parse the transport's envelope.
+                view.installedBackend.applySearchResults(JSON.stringify(answer.hits),
+                                                         answer.errorKey,
+                                                         answer.errorArgs)
+            }
+        }
 
         // A store that could not be loaded or saved keeps the session going in
         // memory; the reason is technical and wrapped here.
@@ -207,6 +248,19 @@ Item {
             }
         }
 
+        // A repository search that failed says so where the pattern was typed:
+        // an empty list otherwise reads like "no such package".
+        QQC2.Label {
+            Layout.fillWidth: true
+            Layout.leftMargin: Kirigami.Units.largeSpacing
+            Layout.rightMargin: Kirigami.Units.largeSpacing
+            visible: view.packages.searchError.length > 0
+            text: view.readErrorText(view.packages.searchError,
+                                     view.packages.searchErrorArgs)
+            color: Kirigami.Theme.negativeTextColor
+            wrapMode: Text.WordWrap
+        }
+
         Flow {
             Layout.fillWidth: true
             Layout.leftMargin: Kirigami.Units.largeSpacing
@@ -239,7 +293,10 @@ Item {
                     flat: true
                     text: modelData.label
                     QQC2.ButtonGroup.group: filterGroup
-                    onClicked: view.packages.filter = chip.modelData.token
+                    onClicked: {
+                        view.clearSearch()
+                        view.packages.filter = chip.modelData.token
+                    }
 
                     // A Binding rather than a plain `checked:` expression: the
                     // exclusive group assigns `checked` itself, which would
@@ -371,13 +428,12 @@ Item {
                                 }
                             }
 
-                            QQC2.Label {
-                                Layout.preferredWidth: view.stateWidth
-                                Layout.minimumWidth: view.stateWidth
-                                Layout.maximumWidth: view.stateWidth
-                                text: i18nd("kxbps", "State")
-                                font.bold: true
-                                color: Kirigami.Theme.disabledTextColor
+                            // The action column has no header: a label over a
+                            // per-row button would name nothing.
+                            Item {
+                                Layout.preferredWidth: view.actionWidth
+                                Layout.minimumWidth: view.actionWidth
+                                Layout.maximumWidth: view.actionWidth
                             }
                         }
                     }
@@ -387,9 +443,10 @@ Item {
                         installedBackend: view.installedBackend
                         versionWidth: view.versionWidth
                         sizeWidth: view.sizeWidth
-                        stateWidth: view.stateWidth
+                        actionWidth: view.actionWidth
                         selected: view.selectedName === model.name
                                   && view.selectedPkgver === view.pkgverOf(model, model.name)
+                        onPlanRequested: (name, token) => view.planRequested(name, token)
                         onClicked: {
                             view.selectedName = model.name
                             view.selectedPkgver = view.pkgverOf(model, model.name)
@@ -432,6 +489,8 @@ Item {
                 installedBackend: view.installedBackend
                 // The installed version when there is one, the list's otherwise.
                 packageName: view.selectedPkgver
+                packageLabel: view.selectedName
+                onPlanRequested: (name, token) => view.planRequested(name, token)
             }
         }
     }
@@ -464,6 +523,8 @@ Item {
             catalogBackend: view.catalogBackend
             installedBackend: view.installedBackend
             packageName: view.selectedPkgver
+            packageLabel: view.selectedName
+            onPlanRequested: (name, token) => view.planRequested(name, token)
         }
     }
 

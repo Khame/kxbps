@@ -30,7 +30,7 @@ Rectangle {
 
     readonly property bool running: job !== null && !job.done
 
-    implicitHeight: Kirigami.Units.gridUnit * 2
+    implicitHeight: Kirigami.Units.gridUnit * 2.5
     color: Kirigami.Theme.alternateBackgroundColor
 
     Rectangle {
@@ -53,8 +53,8 @@ Rectangle {
 
     RowLayout {
         anchors.fill: parent
-        anchors.leftMargin: Kirigami.Units.smallSpacing
-        anchors.rightMargin: Kirigami.Units.smallSpacing
+        anchors.leftMargin: Kirigami.Units.largeSpacing
+        anchors.rightMargin: Kirigami.Units.largeSpacing
         spacing: Kirigami.Units.largeSpacing
 
         // While a transaction runs, items 1-4 belong to the job.
@@ -78,6 +78,7 @@ Rectangle {
 
             QQC2.Button {
                 text: i18nd("kxbps", "Cancel")
+                icon.name: "dialog-cancel"
                 // A cancel is only possible before xbps exists; hiding the
                 // control once it runs avoids a click that would do nothing.
                 visible: strip.job === null || strip.job.cancellable
@@ -92,11 +93,14 @@ Rectangle {
 
             QQC2.Label {
                 text: strip.queueText()
+                color: strip.installedBackend.queueCount > 0 ? Kirigami.Theme.textColor
+                                                             : Kirigami.Theme.disabledTextColor
                 elide: Text.ElideRight
             }
 
             QQC2.Button {
                 text: i18nd("kxbps", "Review changes")
+                icon.name: "dialog-ok-apply"
                 enabled: strip.installedBackend.queueCount > 0
                 onClicked: strip.reviewRequested()
             }

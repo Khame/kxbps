@@ -1,12 +1,17 @@
-// Everything xbps reports about one package, with the two actions that make
-// sense from a list: queue a change and hold the package.
+// Everything xbps reports about one package, with the one action the user came
+// for: install it, update it or remove it.
 //
-// The pane reads `catalogBackend.get(pkgver)` instead of the model row, because
+// The page reads `catalogBackend.get(pkgver)` instead of the model row, because
 // QML cannot index a `QAbstractItemModel` by row number. The facts come from
 // xbps itself: the owner calls `requestFacts(pkgver)` when the selection moves,
 // and `factsRevision` says when the answer can be read. Both the dependencies
 // and the reverse dependencies are xbps' own lists (`-x` and `-X`), so nothing
 // here scans another list to guess them.
+//
+// The action is direct, not a queue toggle: it emits `planRequested` and the
+// window opens the dry-run plan, whose Apply runs through pkexec. The queue is
+// still there for the menu bar's batch gestures, but a package page is not a
+// place to put something in a list.
 //
 // Two placements, one file: a side pane on wide views, a drawer on narrow ones
 // (see `PackagesView`).
@@ -28,14 +33,19 @@ Flickable {
     property var installedBackend
     // The selected package as `name-version_revision`; empty closes the pane.
     property string packageName: ""
+    // The name without the version, for the title before the facts arrive: a
+    // `pkgver` cannot be split on "-", because names like `lib32-glibc` have
+    // hyphens of their own.
+    property string packageLabel: ""
 
     // Bumped when the store changes, so `info` re-reads the snapshot: the
     // backend hands out a copy and has no notify signal for `get()`.
     property int refreshToken: 0
-    property var blockedNames: []
-    // The selection the blocked names belong to, so re-reading a fact does not
-    // rebuild the plan.
-    property string blockedPkgver: ""
+
+    // The page asks for a transaction; the window owns the plan dialog and the
+    // job, so this file never calls `pkexec` itself. `token` is `install`,
+    // `update` or `remove`.
+    signal planRequested(string name, string token)
 
     readonly property var info: {
         pane.refreshToken
@@ -58,34 +68,35 @@ Flickable {
     readonly property string version: pane.catalogBackend.versionOf(pane.packageName)
     readonly property string name: pane.info.name !== undefined
                                   ? pane.info.name
-                                  : pane.packageName.split("-")[0]
+                                  : pane.packageLabel
     // The facts failed to load: say so rather than showing blanks.
+    readonly property string errorKey: pane.catalogBackend.factsError
+    readonly property var errorArgs: pane.catalogBackend.factsErrorArgs
     // The half of the read that mirrors `packageName`, so a check that needs
     // `info` waits for the facts instead of reading a map for another package.
     readonly property string factsPkgver: pane.catalogBackend.factsPkgver
-    readonly property string errorKey: pane.catalogBackend.factsError
-    readonly property var errorArgs: pane.catalogBackend.factsErrorArgs
+
+    // What the one button does. An update outranks "installed", because the
+    // reason the user opened the page is usually the new version.
+    readonly property string actionToken: pane.info.isUpdate ? "update"
+                                        : (pane.installed ? "remove" : "install")
+    readonly property string actionLabel: pane.info.isUpdate ? i18nd("kxbps", "Update")
+                                         : (pane.installed ? i18nd("kxbps", "Remove")
+                                                           : i18nd("kxbps", "Install"))
+    readonly property string actionIcon: pane.info.isUpdate ? "system-software-update"
+                                        : (pane.installed ? "edit-delete"
+                                                          : "document-save")
 
     clip: true
     contentWidth: width
-    contentHeight: content.implicitHeight + Kirigami.Units.smallSpacing * 2
+    contentHeight: pane.packageName.length > 0
+                   ? content.implicitHeight + Kirigami.Units.largeSpacing * 2 : 0
     boundsBehavior: Flickable.StopAtBounds
     QQC2.ScrollBar.vertical: QQC2.ScrollBar {}
 
     onPackageNameChanged: {
-        pane.blockedNames = []
-        pane.blockedPkgver = ""
         if (pane.packageName.length > 0 && pane.catalogBackend) {
             pane.catalogBackend.requestFacts(pane.packageName)
-        }
-        pane.refreshBlocked()
-    }
-    onRefreshTokenChanged: pane.refreshBlocked()
-
-    Connections {
-        target: pane.catalogBackend
-        function onFactsRevisionChanged() {
-            pane.refreshBlocked()
         }
     }
 
@@ -118,80 +129,66 @@ Flickable {
         return i18nd("kxbps", "Could not read the package: %1", a)
     }
 
-    // A queued removal that would break the system: the plan lists the
-    // dependents. Plan objects are C++-parented children of the backend, so the
-    // reference has to be released as soon as the names are copied out.
-    function refreshBlocked() {
-        pane.blockedNames = []
-        if (!pane.installedBackend || pane.packageName.length === 0 || !pane.installed) {
-            return
+    // One fact row: a muted label and the value. The value is monospace where
+    // it is a version, a size or a raw xbps token, so columns line up.
+    component Fact: RowLayout {
+        property string label: ""
+        property string value: ""
+        property bool mono: false
+        // A version reads from the right (`1.2.3_1`), a URL from both ends:
+        // the host alone does not say which repository it is.
+        property int elideMode: Text.ElideLeft
+
+        Layout.fillWidth: true
+        Layout.minimumWidth: 0
+        spacing: Kirigami.Units.largeSpacing
+
+        QQC2.Label {
+            Layout.preferredWidth: Kirigami.Units.gridUnit * 8.5
+            text: parent.label
+            color: Kirigami.Theme.disabledTextColor
+            elide: Text.ElideRight
         }
-        if (pane.factsPkgver !== pane.packageName || pane.info.queuedAction !== "remove") {
-            return
+        QQC2.Label {
+            Layout.fillWidth: true
+            Layout.minimumWidth: 0
+            horizontalAlignment: Text.AlignRight
+            text: parent.value
+            font.family: parent.mono ? "monospace" : Kirigami.Theme.defaultFont.family
+            elide: parent.elideMode
         }
-        pane.readBlocked()
     }
 
-    // Reads the plan for the current selection; the caller guarantees that the
-    // selection is installed, its facts answered and it is queued for removal.
-    function readBlocked() {
-        if (pane.blockedPkgver === pane.packageName) {
-            return
-        }
-        pane.blockedPkgver = pane.packageName
-        const names = []
-        const plan = pane.installedBackend.openRemove(pane.info.name, false)
-        if (plan) {
-            const blocked = plan.blocked
-            for (let i = 0; i < blocked.length; ++i) {
-                if (blocked[i].name !== pane.info.name) {
-                    continue
-                }
-                const neededBy = blocked[i].neededBy
-                for (let j = 0; j < neededBy.length; ++j) {
-                    names.push(neededBy[j])
-                }
-                break
-            }
-            pane.installedBackend.release(plan)
-        }
-        pane.blockedNames = names
-    }
-
-    function queueLabel() {
-        if (pane.info.queuedAction !== "") {
-            return i18nd("kxbps", "Remove from queue")
-        }
-        if (pane.info.isUpdate) {
-            return i18nd("kxbps", "Queue update")
-        }
-        if (pane.installed) {
-            return i18nd("kxbps", "Queue removal")
-        }
-        return i18nd("kxbps", "Add to queue")
-    }
-
-    function queueToken() {
-        if (pane.info.isUpdate) {
-            return "update"
-        }
-        return pane.installed ? "remove" : "install"
+    // Nothing selected: an empty fact grid with a dead button reads like a bug,
+    // so the pane says what it is waiting for. `y` rather than `anchors.centerIn`
+    // because a Flickable positions its children in content coordinates, and the
+    // content has no height while the placeholder is the only child.
+    QQC2.Label {
+        y: (pane.height - implicitHeight) / 2
+        width: pane.width - Kirigami.Units.largeSpacing * 2
+        x: Kirigami.Units.largeSpacing
+        visible: pane.packageName.length === 0
+        text: i18nd("kxbps", "Select a package to see its details.")
+        color: Kirigami.Theme.disabledTextColor
+        horizontalAlignment: Text.AlignHCenter
+        wrapMode: Text.WordWrap
     }
 
     ColumnLayout {
         id: content
         x: Kirigami.Units.largeSpacing
-        y: Kirigami.Units.smallSpacing
+        y: Kirigami.Units.largeSpacing
         width: pane.width - Kirigami.Units.largeSpacing * 2
         spacing: Kirigami.Units.smallSpacing
+        visible: pane.packageName.length > 0
 
-        // Name and description first: the row already showed the name, but the
-        // pane is what the user reads before deciding.
-        QQC2.Label {
+        // The title is the package name, at heading size: the row already
+        // showed it small, and this is the page the user is reading.
+        Kirigami.Heading {
             Layout.fillWidth: true
             Layout.minimumWidth: 0
+            level: 2
             text: pane.name
-            font.bold: true
             elide: Text.ElideRight
         }
 
@@ -214,23 +211,20 @@ Flickable {
             wrapMode: Text.WordWrap
         }
 
+        // The one action, full width: it is what the page is for. Hold stays
+        // beside it as the smaller, secondary choice.
         RowLayout {
             Layout.fillWidth: true
             Layout.minimumWidth: 0
             Layout.topMargin: Kirigami.Units.smallSpacing
+            spacing: Kirigami.Units.smallSpacing
 
             QQC2.Button {
-                text: pane.queueLabel()
-                icon.name: pane.info.queuedAction !== "" ? "list-remove"
-                      : (pane.info.isUpdate ? "view-refresh"
-                                            : (pane.installed ? "list-remove" : "list-add"))
-                onClicked: {
-                    if (pane.info.queuedAction !== "") {
-                        pane.installedBackend.removeQueued(pane.name)
-                    } else {
-                        pane.installedBackend.toggleQueue(pane.name, pane.queueToken())
-                    }
-                }
+                Layout.fillWidth: true
+                text: pane.actionLabel
+                icon.name: pane.actionIcon
+                enabled: pane.packageName.length > 0 && pane.factsPkgver === pane.packageName
+                onClicked: pane.planRequested(pane.name, pane.actionToken)
             }
 
             QQC2.Button {
@@ -239,129 +233,63 @@ Flickable {
                 icon.name: pane.info.held ? "object-unlocked" : "object-locked"
                 onClicked: pane.installedBackend.toggleHold(pane.name)
             }
-
-            Item {
-                Layout.fillWidth: true
-                Layout.minimumWidth: 0
-            }
         }
 
-        Rectangle {
+        Kirigami.Separator {
             Layout.fillWidth: true
-            Layout.minimumWidth: 0
-            height: 1
-            color: Kirigami.Theme.disabledTextColor
+            Layout.topMargin: Kirigami.Units.smallSpacing
         }
 
-        GridLayout {
-            Layout.fillWidth: true
-            Layout.minimumWidth: 0
-            columns: 2
-            columnSpacing: Kirigami.Units.largeSpacing
-            rowSpacing: Kirigami.Units.smallSpacing
-
-            QQC2.Label {
-                text: i18nd("kxbps", "Installed version")
-                color: Kirigami.Theme.disabledTextColor
-            }
-            QQC2.Label {
-                Layout.fillWidth: true
-                Layout.minimumWidth: 0
-                text: pane.installed ? pane.info.installedVersion : i18nd("kxbps", "Not installed")
-                font.family: "monospace"
-                elide: Text.ElideRight
-            }
-
-            QQC2.Label {
-                text: i18nd("kxbps", "Repository version")
-                color: Kirigami.Theme.disabledTextColor
-            }
-            QQC2.Label {
-                Layout.fillWidth: true
-                Layout.minimumWidth: 0
-                text: pane.version
-                font.family: "monospace"
-                elide: Text.ElideRight
-            }
-
-            QQC2.Label {
-                text: i18nd("kxbps", "Size")
-                color: Kirigami.Theme.disabledTextColor
-            }
-            QQC2.Label {
-                Layout.fillWidth: true
-                Layout.minimumWidth: 0
-                text: pane.info.size !== undefined ? pane.info.size : ""
-                font.family: "monospace"
-            }
-
-            QQC2.Label {
-                text: i18nd("kxbps", "Download")
-                color: Kirigami.Theme.disabledTextColor
-            }
-            QQC2.Label {
-                Layout.fillWidth: true
-                Layout.minimumWidth: 0
-                text: pane.info.download !== undefined ? pane.info.download : ""
-                font.family: "monospace"
-            }
-
-            QQC2.Label {
-                text: i18nd("kxbps", "License")
-                color: Kirigami.Theme.disabledTextColor
-            }
-            QQC2.Label {
-                Layout.fillWidth: true
-                Layout.minimumWidth: 0
-                text: pane.info.license !== undefined ? pane.info.license : ""
-                elide: Text.ElideRight
-            }
-
-            QQC2.Label {
-                text: i18nd("kxbps", "Repository")
-                color: Kirigami.Theme.disabledTextColor
-            }
-            QQC2.Label {
-                Layout.fillWidth: true
-                Layout.minimumWidth: 0
-                // Raw wire token, not UI copy.
-                text: pane.info.repo !== undefined ? pane.info.repo : ""
-                font.family: "monospace"
-            }
-
-            QQC2.Label {
-                text: i18nd("kxbps", "State")
-                color: Kirigami.Theme.disabledTextColor
-            }
-            QQC2.Label {
-                Layout.fillWidth: true
-                Layout.minimumWidth: 0
-                // A package that is not installed is neither explicit nor a
-                // dependency; `explicit` is simply false for it.
-                text: !pane.installed ? i18nd("kxbps", "Not installed")
-                      : (pane.orphan ? i18nd("kxbps", "Orphan")
-                                     : (pane.info.explicit ? i18nd("kxbps", "Explicit")
-                                                           : i18nd("kxbps", "Dependency")))
-                elide: Text.ElideRight
-            }
-
-            QQC2.Label {
-                text: i18nd("kxbps", "Held")
-                color: Kirigami.Theme.disabledTextColor
-            }
-            QQC2.Label {
-                Layout.fillWidth: true
-                Layout.minimumWidth: 0
-                text: pane.info.held ? i18nd("kxbps", "Held") : i18nd("kxbps", "Not held")
-            }
+        Fact {
+            label: i18nd("kxbps", "Installed version")
+            value: pane.installed ? pane.info.installedVersion : i18nd("kxbps", "Not installed")
+            mono: true
+        }
+        Fact {
+            label: i18nd("kxbps", "Available version")
+            value: pane.version
+            mono: true
+        }
+        Fact {
+            label: i18nd("kxbps", "Size")
+            value: pane.info.size !== undefined ? pane.info.size : ""
+            mono: true
+        }
+        Fact {
+            label: i18nd("kxbps", "Download")
+            value: pane.info.download !== undefined ? pane.info.download : ""
+            mono: true
+        }
+        Fact {
+            label: i18nd("kxbps", "License")
+            value: pane.info.license !== undefined ? pane.info.license : ""
+        }
+        Fact {
+            label: i18nd("kxbps", "Repository")
+            value: pane.info.repo !== undefined ? pane.info.repo : ""
+            mono: true
+            elideMode: Text.ElideMiddle
+        }
+        Fact {
+            label: i18nd("kxbps", "State")
+            // A package that is not installed is neither explicit nor a
+            // dependency; `explicit` is simply false for it.
+            value: !pane.installed ? i18nd("kxbps", "Not installed")
+                 : (pane.orphan ? i18nd("kxbps", "Orphan")
+                                : (pane.info.explicit ? i18nd("kxbps", "Explicit")
+                                                      : i18nd("kxbps", "Dependency")))
+        }
+        Fact {
+            label: i18nd("kxbps", "Held")
+            value: pane.info.held ? i18nd("kxbps", "Held") : i18nd("kxbps", "Not held")
         }
 
-        QQC2.Label {
+        Kirigami.Heading {
             Layout.fillWidth: true
             Layout.minimumWidth: 0
             Layout.topMargin: Kirigami.Units.smallSpacing
+            level: 4
             text: i18nd("kxbps", "Depends")
-            font.bold: true
         }
         QQC2.Label {
             Layout.fillWidth: true
@@ -369,35 +297,27 @@ Flickable {
             text: pane.info.depends !== undefined && pane.info.depends.length > 0
                   ? pane.info.depends
                   : i18nd("kxbps", "No dependencies")
-            elide: Text.ElideRight
-
-            QQC2.ToolTip.visible: dependsHover.hovered && text.length > 0
-            QQC2.ToolTip.text: text
-
-            HoverHandler {
-                id: dependsHover
-            }
+            wrapMode: Text.WordWrap
+            font.family: "monospace"
+            color: pane.info.depends !== undefined && pane.info.depends.length > 0
+                   ? Kirigami.Theme.textColor : Kirigami.Theme.disabledTextColor
         }
 
-        QQC2.Label {
+        Kirigami.Heading {
             Layout.fillWidth: true
             Layout.minimumWidth: 0
             Layout.topMargin: Kirigami.Units.smallSpacing
+            level: 4
             text: i18nd("kxbps", "Required by")
-            font.bold: true
         }
         QQC2.Label {
             Layout.fillWidth: true
             Layout.minimumWidth: 0
             text: pane.dependents.length > 0 ? pane.dependents.join(", ") : i18nd("kxbps", "Nothing depends on it")
-            elide: Text.ElideRight
-
-            QQC2.ToolTip.visible: requiredByHover.hovered && text.length > 0
-            QQC2.ToolTip.text: text
-
-            HoverHandler {
-                id: requiredByHover
-            }
+            wrapMode: Text.WordWrap
+            font.family: "monospace"
+            color: pane.dependents.length > 0 ? Kirigami.Theme.textColor
+                                              : Kirigami.Theme.disabledTextColor
         }
 
         QQC2.Label {
@@ -416,18 +336,6 @@ Flickable {
             HoverHandler {
                 cursorShape: Qt.PointingHandCursor
             }
-        }
-
-        // The removal that the plan refuses: the names come from the core, not
-        // from a guess about the dependency graph.
-        QQC2.Label {
-            Layout.fillWidth: true
-            Layout.minimumWidth: 0
-            Layout.topMargin: Kirigami.Units.smallSpacing
-            visible: pane.blockedNames.length > 0
-            text: i18nd("kxbps", "Cannot be removed: %1 depends on it.", pane.blockedNames.join(", "))
-            color: Kirigami.Theme.negativeTextColor
-            wrapMode: Text.WordWrap
         }
     }
 }

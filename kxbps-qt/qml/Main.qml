@@ -225,6 +225,9 @@ Kirigami.ApplicationWindow {
 
     function selectFilter(token) {
         section = "packages"
+        // The filter narrows the installed set; a repository search belongs to
+        // the search field, so switching filters drops both.
+        packagesView.clearSearch()
         installedBackend.packages.filter = token
     }
 
@@ -279,10 +282,18 @@ Kirigami.ApplicationWindow {
         }
         const filter = installedBackend.packages.filter
         const count = installedBackend.packages.count
-        if (filter === "installed" || filter === "updates" || filter === "all") {
-            // The list is the installed set xbps reported; a repository count
-            // would need a second read this header does not make.
-            return i18ndp("kxbps", "%1 package", "%1 packages", count)
+        // A non-empty pattern asks the repositories, so the number is the size
+        // of the answer, not of the installed set.
+        if (installedBackend.packages.search.length > 0) {
+            return i18ndp("kxbps", "%1 search result", "%1 search results", count)
+        }
+        switch (filter) {
+        case "installed":
+            return i18ndp("kxbps", "%1 installed package", "%1 installed packages", count)
+        case "updates":
+            return i18ndp("kxbps", "%1 update", "%1 updates", count)
+        case "queued":
+            return i18ndp("kxbps", "%1 queued package", "%1 queued packages", count)
         }
         return i18ndp("kxbps", "%1 package", "%1 packages", count)
     }
@@ -308,6 +319,24 @@ Kirigami.ApplicationWindow {
         planDialog.loading = true
         planDialog.open()
         planPending = installedBackend.openSystemPlan()
+    }
+
+    // One row asked for its own transaction: `install` and `update` both plan
+    // installing that name (xbps resolves the version itself), `remove` plans
+    // the removal. Either way the dialog opens in its loading state and the dry
+    // run decides what is really going to happen.
+    function openPackagePlan(name, token) {
+        if (name.length === 0) {
+            return
+        }
+        planDialog.loadingText = i18nd("kxbps", "Asking xbps what it would do…")
+        planDialog.loading = true
+        planDialog.open()
+        if (token === "remove") {
+            planPending = installedBackend.openRemoveNames([name], false)
+        } else {
+            planPending = installedBackend.openNamedPlan([name], "planInstall")
+        }
     }
 
     // `Remove…` from the menu bar. The backend answers with a request id only,
@@ -651,7 +680,14 @@ Kirigami.ApplicationWindow {
                         label: i18nd("kxbps", "Available")
                         highlighted: root.section === "packages"
                                      && installedBackend.packages.filter === "all"
-                        onClicked: root.selectFilter("all")
+                        // Void has no catalogue to list here: the entry opens the
+                        // package view and puts the cursor in the search field,
+                        // because that is how a package that is not installed is
+                        // found.
+                        onClicked: {
+                            root.selectFilter("all")
+                            packagesView.focusSearch()
+                        }
                     }
 
                     NavItem {
@@ -765,35 +801,32 @@ Kirigami.ApplicationWindow {
                 }
 
                 // One title, one muted line with the live numbers, and the
-                // current view's actions on the right.
+                // current view's actions on the right. No app icon: the window
+                // title already carries the name, and a 32 px logo next to a
+                // 16 px heading only pushes the text down.
                 Rectangle {
                     Layout.fillWidth: true
-                    implicitHeight: toolbarLayout.implicitHeight + Kirigami.Units.largeSpacing * 2
+                    implicitHeight: toolbarLayout.implicitHeight
+                                    + Kirigami.Units.smallSpacing * 2
                     color: Kirigami.Theme.backgroundColor
 
                     RowLayout {
                         id: toolbarLayout
                         anchors.fill: parent
-                        anchors.margins: Kirigami.Units.largeSpacing
+                        anchors.leftMargin: Kirigami.Units.largeSpacing
+                        anchors.rightMargin: Kirigami.Units.largeSpacing
+                        anchors.topMargin: Kirigami.Units.smallSpacing
+                        anchors.bottomMargin: Kirigami.Units.smallSpacing
                         spacing: Kirigami.Units.largeSpacing
-
-                        // The app icon, the same file the desktop entry installs.
-                        Image {
-                            source: "qrc:/qt/qml/org/kde/kxbps/icons/kxbps.svg"
-                            sourceSize.width: Kirigami.Units.iconSizes.medium
-                            sourceSize.height: Kirigami.Units.iconSizes.medium
-                            Layout.preferredWidth: Kirigami.Units.iconSizes.medium
-                            Layout.preferredHeight: Kirigami.Units.iconSizes.medium
-                            fillMode: Image.PreserveAspectFit
-                            Accessible.name: i18nd("kxbps", "KXbps")
-                        }
 
                         ColumnLayout {
                             Layout.fillWidth: true
+                            Layout.minimumWidth: 0
                             spacing: 0
 
                             Kirigami.Heading {
                                 Layout.fillWidth: true
+                                Layout.minimumWidth: 0
                                 level: 3
                                 text: root.headerTitle()
                                 elide: Text.ElideRight
@@ -801,7 +834,9 @@ Kirigami.ApplicationWindow {
 
                             QQC2.Label {
                                 Layout.fillWidth: true
+                                Layout.minimumWidth: 0
                                 text: root.headerSubtitle()
+                                font: Kirigami.Theme.smallFont
                                 color: Kirigami.Theme.disabledTextColor
                                 elide: Text.ElideRight
                             }
@@ -854,6 +889,7 @@ Kirigami.ApplicationWindow {
                         catalogBackend: catalogBackend
                         job: root.job
                         onUpdateAllRequested: root.openSystemPlan()
+                        onPlanRequested: (name, token) => root.openPackagePlan(name, token)
                     }
 
                     QueryView {

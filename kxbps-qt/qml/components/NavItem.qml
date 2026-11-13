@@ -27,6 +27,18 @@ QQC2.ItemDelegate {
     Accessible.name: item.label
     Accessible.selected: item.highlighted
 
+    // The default delegate background is the style's button colour, which reads
+    // as a raised control; a navigation entry is a flat bar with an accent when
+    // current, like every Plasma sidebar.
+    background: Rectangle {
+        color: item.highlighted
+               ? Kirigami.Theme.highlightColor
+               : (item.hovered ? Qt.rgba(Kirigami.Theme.highlightColor.r,
+                                         Kirigami.Theme.highlightColor.g,
+                                         Kirigami.Theme.highlightColor.b, 0.15)
+                               : "transparent")
+    }
+
     contentItem: RowLayout {
         spacing: Kirigami.Units.smallSpacing
 
