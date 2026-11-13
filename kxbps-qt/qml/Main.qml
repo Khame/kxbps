@@ -10,10 +10,12 @@ import "views"
 Kirigami.ApplicationWindow {
     id: root
 
-    width: Kirigami.Units.gridUnit * 64
-    height: Kirigami.Units.gridUnit * 36
-    minimumWidth: Kirigami.Units.gridUnit * 48
-    minimumHeight: Kirigami.Units.gridUnit * 26
+    // 16:10, the shape the tool is laid out for, and a 600 px floor: the
+    // sidebar, the table and the status bar have to survive it unclipped.
+    width: Kirigami.Units.gridUnit * 72
+    height: Kirigami.Units.gridUnit * 42
+    minimumWidth: Kirigami.Units.gridUnit * 34
+    minimumHeight: Kirigami.Units.gridUnit * 28
     // QQmlApplicationEngine does not show the root window on its own.
     visible: true
     title: i18nd("kxbps", "KXbps")
@@ -86,19 +88,17 @@ Kirigami.ApplicationWindow {
         // The helper's success verdict carries no argument: the URL is the one
         // the dialog named a moment ago, so repeating it adds nothing.
         case "mirrorApplyDone":
-            return i18nd("kxbps", "Mirror applied and the index synchronised.")
+            return i18nd("kxbps", "Mirror applied.")
         // The helper's failures. `labelArg` carries only the first verdict
-        // argument, so a `%2` the key would like (the `-S` stderr tail) is not
-        // available to QML; the argument that is there is the one that names
-        // what went wrong.
+        // argument, which for these keys is the helper's English sentence.
         case "errorMirrorUrlRefused":
             return i18nd("kxbps", "The helper refused the mirror URL.")
         case "errorMirrorWrite":
             return i18nd("kxbps", "Could not write the xbps configuration: %1", job.labelArg)
-        case "errorMirrorSync":
-            return i18nd("kxbps", "The repository index could not be synchronised (exit %1)", job.labelArg)
+        case "errorMirrorVerify":
+            return i18nd("kxbps", "The new repository URL is not in effect: %1", job.labelArg)
         case "errorMirrorRevert":
-            return i18nd("kxbps", "Synchronisation failed and the previous configuration could not be restored.")
+            return i18nd("kxbps", "The previous configuration could not be restored: %1", job.labelArg)
         case "errorMirrorHelper":
             return job.labelArg.length > 0
                    ? i18nd("kxbps", "The mirror helper failed: %1", job.labelArg)
@@ -171,6 +171,7 @@ Kirigami.ApplicationWindow {
         onLoaded: {
             item.installedBackend = installedBackend
             item.prefsBackend = prefsBackend
+            item.appBackend = appBackend
             root.updateStartNotified()
         }
     }
@@ -186,6 +187,16 @@ Kirigami.ApplicationWindow {
         // catalog fills the first frame rather than an empty window.
         installedBackend.packages.filter = "installed"
         installedBackend.reload()
+        // `--filter <token>` opens on a given page, which is what a launcher
+        // entry or the tray's "show updates" needs without a second window.
+        const at = Qt.application.arguments.indexOf("--filter")
+        if (at >= 0 && at + 1 < Qt.application.arguments.length) {
+            root.selectFilter(Qt.application.arguments[at + 1])
+        }
+        // The sidebar lists the repositories xbps reads; the read is cheap
+        // (world-readable files plus `xbps-query -L`) and runs with the first
+        // frame so the group is not empty on start.
+        root.systemRepos = root.parseRepos(mirrorBackend.systemRepos)
     }
 
     // Whether closing the window should hand it to the tray. Bound, not copied:
@@ -223,12 +234,18 @@ Kirigami.ApplicationWindow {
         }
     }
 
+    // The sidebar is the only navigation, so every page change goes through
+    // this one function. A filter change also clears the repository pattern:
+    // carrying a search into another page would show rows the page does not own.
+    // `Available` has no list of its own — no xbps command lists what a
+    // repository holds — so it puts the cursor in the search field instead.
     function selectFilter(token) {
         section = "packages"
-        // The filter narrows the installed set; a repository search belongs to
-        // the search field, so switching filters drops both.
         packagesView.clearSearch()
         installedBackend.packages.filter = token
+        if (token === "all") {
+            packagesView.focusSearch()
+        }
     }
 
     // A re-check while the app sits in the tray: a long-running instance must
@@ -250,6 +267,9 @@ Kirigami.ApplicationWindow {
         if (section === "mirrors") {
             return i18nd("kxbps", "Mirrors")
         }
+        if (section === "settings") {
+            return i18nd("kxbps", "Settings")
+        }
         switch (installedBackend.packages.filter) {
         case "installed":
             return i18nd("kxbps", "Installed")
@@ -269,7 +289,7 @@ Kirigami.ApplicationWindow {
         return i18nd("kxbps", "Packages")
     }
 
-    function headerSubtitle() {
+    function headerSubtitle(count) {
         if (section === "query") {
             return i18ndp("kxbps", "%1 result", "%1 results", queryView.resultCount)
         }
@@ -280,8 +300,10 @@ Kirigami.ApplicationWindow {
             }
             return i18ndp("kxbps", "%1 mirror", "%1 mirrors", mirrorBackend.model.count)
         }
+        if (section === "settings") {
+            return i18nd("kxbps", "Notifications and startup")
+        }
         const filter = installedBackend.packages.filter
-        const count = installedBackend.packages.count
         // A non-empty pattern asks the repositories, so the number is the size
         // of the answer, not of the installed set.
         if (installedBackend.packages.search.length > 0) {
@@ -296,6 +318,20 @@ Kirigami.ApplicationWindow {
             return i18ndp("kxbps", "%1 queued package", "%1 queued packages", count)
         }
         return i18ndp("kxbps", "%1 package", "%1 packages", count)
+    }
+
+    // The one sentence for a missing privileged half, chosen by the key the
+    // backend sent. A disabled button with no reason is the bug this names.
+    function mirrorHelperText(key) {
+        switch (key) {
+        case "errorMirrorHelperMissing":
+            return i18nd("kxbps", "Apply to system needs the installed helper: run packaging/install.sh.")
+        case "errorMirrorHelperNotExecutable":
+            return i18nd("kxbps", "The mirror helper at %1 is not executable.", "/usr/libexec/kxbps-mirror-apply")
+        case "errorMirrorPolicyMissing":
+            return i18nd("kxbps", "The polkit policy is missing, so the system cannot ask for a password: run packaging/install.sh.")
+        }
+        return ""
     }
 
     // Plan and job objects are C++-parented children of the backend, so the
@@ -366,13 +402,6 @@ Kirigami.ApplicationWindow {
         }
         const token = selectedIsUpdate ? "update" : (selectedInstalled ? "remove" : "install")
         installedBackend.toggleQueue(selectedName, token)
-    }
-
-    // "Show installed in xbps-query -L" prints the repository list; the pattern
-    // is left alone because `-L` reads every configured repository.
-    function showInstalledInQuery() {
-        section = "query"
-        queryView.selectMode("L")
     }
 
     function startJob(started) {
@@ -449,9 +478,6 @@ Kirigami.ApplicationWindow {
 
     Connections {
         target: notifierLoader.item
-        function onOpenUpdatesRequested() {
-            root.showUpdates()
-        }
         function onDelivered(signature) {
             root.markDelivered(signature)
         }
@@ -545,15 +571,6 @@ Kirigami.ApplicationWindow {
         onCascadeRequested: (cascadePlan) => planDialog.showPlan(cascadePlan)
     }
 
-    ResetDialog {
-        id: resetDialog
-        installedBackend: installedBackend
-        // Restore rewrites the whole store, so the last transaction's result no
-        // longer describes it. Only an actual restore emits this signal; Cancel
-        // leaves the result alone.
-        onRestored: root.showJobResult = false
-    }
-
     AboutDialog {
         id: aboutDialog
         version: appBackend.version()
@@ -603,8 +620,7 @@ Kirigami.ApplicationWindow {
 
             QQC2.Label {
                 Layout.fillWidth: true
-                text: i18nd("kxbps", "xbps starts using %1, and the repository index is synchronised.",
-                            mirrorBackend.currentMirror)
+                text: i18nd("kxbps", "xbps starts using %1.", mirrorBackend.currentMirror)
                 font.family: "monospace"
                 wrapMode: Text.WordWrap
             }
@@ -630,96 +646,251 @@ Kirigami.ApplicationWindow {
         customFooterActions: [mirrorCancelAction, mirrorUseAction]
     }
 
+    // The sidebar's filter entries, in the order the tool reads them: the
+    // installed set, what can move, the two states worth acting on, the queue,
+    // and the repositories — which are only reachable through a search.
+    // Most used first: the installed set, the updates, the search for new
+    // packages, then the queue and the diagnostic filters.
+    readonly property var filterEntries: [
+        { token: "installed", label: i18nd("kxbps", "Installed"), icon: "package-installed-updated" },
+        { token: "updates", label: i18nd("kxbps", "Upgradable"), icon: "system-software-update", alert: true },
+        { token: "all", label: i18nd("kxbps", "Available"), icon: "system-search", focusSearch: true },
+        { token: "queued", label: i18nd("kxbps", "Marked"), icon: "view-task" },
+        { token: "explicit", label: i18nd("kxbps", "Explicit"), icon: "package-x-generic" },
+        { token: "orphans", label: i18nd("kxbps", "Orphans"), icon: "package-remove" },
+        { token: "held", label: i18nd("kxbps", "On hold"), icon: "object-locked" }
+    ]
+
+    // `xbps-query -L` plus the `.conf` files, as `{url, count, signed, file}`.
+    // The sidebar only reports them: a package's repository is known for search
+    // hits alone, so the rows must not pretend to filter the installed set.
+    property var systemRepos: []
+    function parseRepos(json) {
+        try {
+            const parsed = JSON.parse(json)
+            if (!Array.isArray(parsed)) {
+                return []
+            }
+            // `-L` and the `.conf` files can name the same repository more than
+            // once (a base URL and its `/current` form, or several files with
+            // the same value). The sidebar is a list of repositories, not of
+            // files, so one row per repository is the honest view.
+            const seen = []
+            return parsed.filter(repo => {
+                if (typeof repo.url !== "string" || repo.url.length === 0) {
+                    return false
+                }
+                const key = repo.url.replace(/\/+$/, "").replace(/\/current$/, "")
+                if (seen.indexOf(key) >= 0) {
+                    return false
+                }
+                seen.push(key)
+                return true
+            })
+        } catch (error) {
+            return []
+        }
+    }
+    // A repository URL as a sidebar row: the host, then the path that tells two
+    // repositories on one host apart. `https://repo-fi.voidlinux.org/current`
+    // reads as `repo-fi.voidlinux.org`. A third-party repository keeps its first
+    // path segment, because the host alone would name two of them the same.
+    function shortRepo(url) {
+        let rest = url.indexOf("://") >= 0 ? url.slice(url.indexOf("://") + 3) : url
+        if (rest.endsWith("/")) {
+            rest = rest.slice(0, -1)
+        }
+        const slash = rest.indexOf("/")
+        if (slash < 0) {
+            return rest
+        }
+        const host = rest.slice(0, slash)
+        const path = rest.slice(slash + 1)
+        // The official layout is `<base>/current[/<component>]`. The component
+        // after `current` is what tells multilib from nonfree; dropping it made
+        // three different repositories read as the same row.
+        const tail = path === "current" ? "" : path.replace(/^current\//, "")
+        return tail.length === 0 ? host : host + "/" + tail
+    }
+
+    // A repository is in use when its URL is the one the system half reports:
+    // `-L` lists `<base>current`, so both spellings match.
+    function repoInUse(url) {
+        const base = mirrorBackend.systemMirror
+        if (base.length === 0 || url.length === 0) {
+            return false
+        }
+        return url === base || url === base.replace(/\/+$/, "") + "/current"
+    }
+
+    // Counts for the status bar: what the filters show is not the machine's
+    // total, so the total is summed once here over the model's own filters.
+    property int upgradableBadge: installedBackend.updatesCount
+
+    // The repository rows open the Mirrors page on the repository they name.
+    function showRepository(url) {
+        section = "mirrors"
+        if (url.length > 0) {
+            mirrorBackend.currentMirror = url
+        }
+    }
+
+    // Refreshing xbps: the installed set and the repository list are two
+    // different reads, and the toolbar's button refreshes both.
+    function refreshAll() {
+        installedBackend.reload()
+        mirrorBackend.refreshSystem()
+    }
+
+    // The queue plan, opened from the toolbar's Apply button and the drawer's
+    // Review. Both describe the same queue, so they are one entry point.
+    function reviewQueue() {
+        root.openQueuePlan()
+    }
+
     pageStack.initialPage: Kirigami.Page {
         padding: 0
+        // The page carries no header of its own: the window draws one toolbar
+        // for the whole window, and a second title above the table would say
+        // what the selected sidebar row already says.
 
         RowLayout {
             anchors.fill: parent
             spacing: 0
 
-            // Navigation. The mockup's sidebar, with the counters the tool can
-            // actually keep: installed, updates, the full catalog and the queue.
+            // The persistent sidebar. Navigation, not decoration: its rows
+            // change what the table shows and nothing else.
             Rectangle {
-                Layout.preferredWidth: Kirigami.Units.gridUnit * 12.5
+                Layout.preferredWidth: Kirigami.Units.gridUnit * (root.narrow ? 10 : 12.5)
+                Layout.minimumWidth: Kirigami.Units.gridUnit * (root.narrow ? 10 : 12.5)
+                Layout.maximumWidth: Kirigami.Units.gridUnit * (root.narrow ? 10 : 12.5)
                 Layout.fillHeight: true
                 color: Kirigami.Theme.alternateBackgroundColor
 
+                // The sidebar's right edge: a vertical hairline, drawn as a
+                // themed rectangle because a Separator is horizontal.
                 Rectangle {
                     anchors.right: parent.right
                     anchors.top: parent.top
                     anchors.bottom: parent.bottom
-                    width: 1
+                    width: Kirigami.Units.smallSpacing / 2
                     color: Kirigami.Theme.disabledTextColor
                 }
 
                 ColumnLayout {
                     anchors.fill: parent
+                    anchors.leftMargin: Kirigami.Units.smallSpacing
+                    anchors.rightMargin: Kirigami.Units.smallSpacing
                     anchors.topMargin: Kirigami.Units.smallSpacing
                     spacing: 0
 
-                    NavItem {
+                    QQC2.Label {
                         Layout.fillWidth: true
-                        label: i18nd("kxbps", "Installed")
-                        highlighted: root.section === "packages"
-                                     && installedBackend.packages.filter === "installed"
-                        onClicked: root.selectFilter("installed")
+                        Layout.leftMargin: Kirigami.Units.smallSpacing
+                        Layout.bottomMargin: Kirigami.Units.smallSpacing
+                        text: i18nd("kxbps", "Filter")
+                        font.family: Kirigami.Theme.smallFont.family
+                        font.pixelSize: Kirigami.Theme.smallFont.pixelSize
+                        font.capitalization: Font.AllUppercase
+                        color: Kirigami.Theme.disabledTextColor
+                        elide: Text.ElideRight
                     }
 
-                    NavItem {
-                        Layout.fillWidth: true
-                        label: i18nd("kxbps", "Updates")
-                        badgeText: installedBackend.updatesCount > 0 ? String(installedBackend.updatesCount) : ""
-                        badgeAlert: true
-                        highlighted: root.section === "packages"
-                                     && installedBackend.packages.filter === "updates"
-                        onClicked: root.selectFilter("updates")
-                    }
+                    Repeater {
+                        model: root.filterEntries
 
-                    NavItem {
-                        Layout.fillWidth: true
-                        label: i18nd("kxbps", "Available")
-                        highlighted: root.section === "packages"
-                                     && installedBackend.packages.filter === "all"
-                        // Void has no catalogue to list here: the entry opens the
-                        // package view and puts the cursor in the search field,
-                        // because that is how a package that is not installed is
-                        // found.
-                        onClicked: {
-                            root.selectFilter("all")
-                            packagesView.focusSearch()
+                        NavItem {
+                            required property var modelData
+                            Layout.fillWidth: true
+                            label: modelData.label
+                            iconName: modelData.icon
+                            badgeText: modelData.token === "updates" && installedBackend.updatesCount > 0
+                                       ? String(installedBackend.updatesCount)
+                                       : (modelData.token === "queued" && installedBackend.queueCount > 0
+                                          ? String(installedBackend.queueCount) : "")
+                            badgeAlert: modelData.alert === true
+                            highlighted: root.section === "packages"
+                                         && installedBackend.packages.filter === modelData.token
+                            onClicked: {
+                                root.selectFilter(modelData.token)
+                                if (modelData.focusSearch === true) {
+                                    packagesView.focusSearch()
+                                }
+                            }
                         }
                     }
 
-                    NavItem {
-                        Layout.fillWidth: true
-                        label: i18nd("kxbps", "Queue")
-                        badgeText: installedBackend.queueCount > 0 ? String(installedBackend.queueCount) : ""
-                        highlighted: root.section === "packages"
-                                     && installedBackend.packages.filter === "queued"
-                        onClicked: root.selectFilter("queued")
-                    }
-
-                    Rectangle {
+                    Kirigami.Separator {
                         Layout.fillWidth: true
                         Layout.topMargin: Kirigami.Units.smallSpacing
                         Layout.bottomMargin: Kirigami.Units.smallSpacing
-                        Layout.leftMargin: Kirigami.Units.smallSpacing
-                        Layout.rightMargin: Kirigami.Units.smallSpacing
-                        height: 1
-                        color: Kirigami.Theme.disabledTextColor
                     }
 
                     QQC2.Label {
                         Layout.fillWidth: true
-                        Layout.leftMargin: Kirigami.Units.largeSpacing
-                        text: i18nd("kxbps", "Manage")
+                        Layout.leftMargin: Kirigami.Units.smallSpacing
+                        Layout.bottomMargin: Kirigami.Units.smallSpacing
+                        text: i18nd("kxbps", "Repository")
+                        font.family: Kirigami.Theme.smallFont.family
+                        font.pixelSize: Kirigami.Theme.smallFont.pixelSize
+                        font.capitalization: Font.AllUppercase
+                        color: Kirigami.Theme.disabledTextColor
+                        elide: Text.ElideRight
+                    }
+
+                    Repeater {
+                        model: root.systemRepos
+
+                        NavItem {
+                            required property var modelData
+                            Layout.fillWidth: true
+                            compact: true
+                            muted: true
+                            label: root.shortRepo(modelData.url)
+                            badgeText: root.repoInUse(modelData.url) ? i18nd("kxbps", "In use") : ""
+                            Accessible.name: modelData.url
+                            QQC2.ToolTip.visible: hovered
+                            QQC2.ToolTip.text: modelData.url
+                            onClicked: root.showRepository(modelData.url)
+                        }
+                    }
+
+                    QQC2.Label {
+                        Layout.fillWidth: true
+                        Layout.leftMargin: Kirigami.Units.smallSpacing
+                        visible: root.systemRepos.length === 0
+                        text: i18nd("kxbps", "No repository read yet")
                         font: Kirigami.Theme.smallFont
                         color: Kirigami.Theme.disabledTextColor
+                        elide: Text.ElideRight
+                    }
+
+                    Item {
+                        Layout.fillHeight: true
+                    }
+
+                    Kirigami.Separator {
+                        Layout.fillWidth: true
+                        Layout.topMargin: Kirigami.Units.smallSpacing
+                        Layout.bottomMargin: Kirigami.Units.smallSpacing
+                    }
+
+                    QQC2.Label {
+                        Layout.fillWidth: true
+                        Layout.leftMargin: Kirigami.Units.smallSpacing
+                        Layout.bottomMargin: Kirigami.Units.smallSpacing
+                        text: i18nd("kxbps", "Tools")
+                        font.family: Kirigami.Theme.smallFont.family
+                        font.pixelSize: Kirigami.Theme.smallFont.pixelSize
+                        font.capitalization: Font.AllUppercase
+                        color: Kirigami.Theme.disabledTextColor
+                        elide: Text.ElideRight
                     }
 
                     NavItem {
                         Layout.fillWidth: true
                         label: i18nd("kxbps", "Query")
+                        iconName: "utilities-terminal"
                         highlighted: root.section === "query"
                         onClicked: root.section = "query"
                     }
@@ -727,32 +898,46 @@ Kirigami.ApplicationWindow {
                     NavItem {
                         Layout.fillWidth: true
                         label: i18nd("kxbps", "Mirrors")
+                        iconName: "network-server"
                         highlighted: root.section === "mirrors"
                         onClicked: root.section = "mirrors"
                     }
 
-                    Item {
-                        Layout.fillHeight: true
+                    Kirigami.Separator {
+                        Layout.fillWidth: true
+                        Layout.topMargin: Kirigami.Units.smallSpacing
                     }
 
-                    // The architecture is not exposed by any backend yet;
-                    // claiming `x86_64` here would be a guess, so the foot only
-                    // names the system it manages.
+                    // Settings sits at the bottom, the place a desktop
+                    // application keeps it.
+                    NavItem {
+                        Layout.fillWidth: true
+                        label: i18nd("kxbps", "Settings")
+                        iconName: "settings-configure"
+                        highlighted: root.section === "settings"
+                        onClicked: root.section = "settings"
+                    }
+
+                    // The architecture is not exposed by any backend, so the
+                    // foot names the system it manages and colours the dot by
+                    // whether the last read failed.
                     RowLayout {
                         Layout.fillWidth: true
+                        Layout.leftMargin: Kirigami.Units.smallSpacing
                         Layout.margins: Kirigami.Units.smallSpacing
                         spacing: Kirigami.Units.smallSpacing
 
                         Rectangle {
-                            width: Kirigami.Units.gridUnit * 0.5
-                            height: width
-                            radius: width / 2
+                            Layout.preferredWidth: Kirigami.Units.smallSpacing * 1.5
+                            Layout.preferredHeight: Kirigami.Units.smallSpacing * 1.5
+                            radius: Layout.preferredWidth / 2
                             color: installedBackend.error.length > 0 ? Kirigami.Theme.negativeTextColor
                                                                      : Kirigami.Theme.positiveTextColor
                         }
 
                         QQC2.Label {
                             Layout.fillWidth: true
+                            Layout.minimumWidth: 0
                             text: i18nd("kxbps", "Void Linux")
                             font: Kirigami.Theme.smallFont
                             color: Kirigami.Theme.disabledTextColor
@@ -762,84 +947,101 @@ Kirigami.ApplicationWindow {
                 }
             }
 
+            // The page column: one toolbar, the page, the xbps log strip, the
+            // status bar. Nothing above the toolbar repeats what it says.
             ColumnLayout {
                 Layout.fillWidth: true
                 Layout.fillHeight: true
                 spacing: 0
 
-                // The menu bar. `Kirigami.ApplicationWindow` has no `menuBar`
-                // property, so this is an in-window bar in the right column, not
-                // an entry in the Plasma global menu. It sits above the header
-                // and sizes itself from the style (no pixel height, or scaling
-                // breaks).
-                AppMenuBar {
-                    id: appMenuBar
-                    Layout.fillWidth: true
-
-                    packageName: root.selectedName
-                    packagePkgver: root.selectedPkgver
-                    packageInstalled: root.selectedInstalled
-                    packageIsUpdate: root.selectedIsUpdate
-                    packageHeld: root.selectedHeld
-                    packageQueuedAction: root.selectedQueuedAction
-
-                    prefsBackend: prefsBackend
-                    storeReady: installedBackend !== null
-
-                    updatesCount: installedBackend.updatesCount
-                    section: root.section
-                    filter: installedBackend.packages.filter
-                    onResetRequested: resetDialog.open()
-                    onAboutRequested: aboutDialog.open()
-                    onQueueToggleRequested: root.toggleSelectedQueue()
-                    onHoldToggleRequested: installedBackend.toggleHold(root.selectedName)
-                    onRemoveRequested: root.openRemoveName(root.selectedName)
-                    onUpdateAllRequested: root.openSystemPlan()
-                    onFilterSelected: (token) => root.selectFilter(token)
-                    onSectionSelected: (token) => root.section = token
-                    onShowInstalledInQueryRequested: root.showInstalledInQuery()
-                }
-
-                // One title, one muted line with the live numbers, and the
-                // current view's actions on the right. No app icon: the window
-                // title already carries the name, and a 32 px logo next to a
-                // 16 px heading only pushes the text down.
                 Rectangle {
                     Layout.fillWidth: true
                     implicitHeight: toolbarLayout.implicitHeight
                                     + Kirigami.Units.smallSpacing * 2
                     color: Kirigami.Theme.backgroundColor
 
+                    Kirigami.Separator {
+                        anchors.left: parent.left
+                        anchors.right: parent.right
+                        anchors.bottom: parent.bottom
+                    }
+
                     RowLayout {
                         id: toolbarLayout
                         anchors.fill: parent
-                        anchors.leftMargin: Kirigami.Units.largeSpacing
+                        anchors.leftMargin: Kirigami.Units.smallSpacing
                         anchors.rightMargin: Kirigami.Units.largeSpacing
                         anchors.topMargin: Kirigami.Units.smallSpacing
                         anchors.bottomMargin: Kirigami.Units.smallSpacing
-                        spacing: Kirigami.Units.largeSpacing
+                        spacing: Kirigami.Units.smallSpacing
 
-                        ColumnLayout {
+                        // No menu button: navigation is the sidebar, and every
+                        // page action is a control on this one toolbar. A
+                        // hamburger would repeat both.
+                        //
+                        // A button, not a tool button: the row is buttons, and
+                        // a flat icon among bordered ones reads as disabled.
+                        QQC2.Button {
+                            icon.name: "view-refresh"
+                            text: i18nd("kxbps", "Refresh")
+                            Accessible.name: i18nd("kxbps", "Refresh")
+                            font: Kirigami.Theme.smallFont
+                            enabled: !installedBackend.loading
+                            onClicked: root.refreshAll()
+                        }
+
+                        Kirigami.SearchField {
+                            id: toolbarSearch
                             Layout.fillWidth: true
-                            Layout.minimumWidth: 0
-                            spacing: 0
+                            Layout.minimumWidth: Kirigami.Units.gridUnit * 6
+                            // The repository query belongs to the package page;
+                            // a pattern typed elsewhere would also change what
+                            // that page shows when it comes back.
+                            enabled: root.section === "packages"
+                            placeholderText: i18nd("kxbps", "Search packages…")
+                            text: packagesView.searchText
+                            onTextChanged: packagesView.searchText = text
+                            onAccepted: packagesView.submitSearch()
+                        }
 
-                            Kirigami.Heading {
-                                Layout.fillWidth: true
-                                Layout.minimumWidth: 0
-                                level: 3
-                                text: root.headerTitle()
-                                elide: Text.ElideRight
-                            }
+                        // The two bulk gestures. Below 60 gu they keep their
+                        // icons and drop the words, so the toolbar stays one row
+                        // without losing an action.
+                        QQC2.Button {
+                            visible: root.section === "packages"
+                            text: i18nd("kxbps", "Mark all upgrades")
+                            display: root.narrow ? QQC2.AbstractButton.IconOnly
+                                                 : QQC2.AbstractButton.TextBesideIcon
+                            Accessible.name: i18nd("kxbps", "Mark all upgrades")
+                            icon.name: "checkmark"
+                            font: Kirigami.Theme.smallFont
+                            enabled: installedBackend.updatesCount > 0
+                            onClicked: installedBackend.queueAllUpdates()
+                        }
 
-                            QQC2.Label {
-                                Layout.fillWidth: true
-                                Layout.minimumWidth: 0
-                                text: root.headerSubtitle()
-                                font: Kirigami.Theme.smallFont
-                                color: Kirigami.Theme.disabledTextColor
-                                elide: Text.ElideRight
-                            }
+                        QQC2.Button {
+                            visible: root.section === "packages"
+                            text: i18nd("kxbps", "Unmark all")
+                            display: root.narrow ? QQC2.AbstractButton.IconOnly
+                                                 : QQC2.AbstractButton.TextBesideIcon
+                            Accessible.name: i18nd("kxbps", "Unmark all")
+                            icon.name: "edit-clear"
+                            font: Kirigami.Theme.smallFont
+                            enabled: installedBackend.queueCount > 0
+                            onClicked: installedBackend.clearQueue()
+                        }
+
+                        // The one accent action of the window: it opens the dry
+                        // run, which is the only step that can change the system.
+                        QQC2.Button {
+                            visible: root.section === "packages"
+                            text: installedBackend.queueCount > 0
+                                  ? i18ndp("kxbps", "Apply (%1)", "Apply (%1)", installedBackend.queueCount)
+                                  : i18nd("kxbps", "Apply")
+                            icon.name: "dialog-ok-apply"
+                            highlighted: installedBackend.queueCount > 0
+                            enabled: installedBackend.queueCount > 0
+                            onClicked: root.reviewQueue()
                         }
 
                         QQC2.Button {
@@ -852,10 +1054,6 @@ Kirigami.ApplicationWindow {
 
                         // Writing `/etc/xbps.d` needs root, so the button only
                         // opens a confirmation; the job dialog carries progress.
-                        // Every guard is its own property: a probe, a system
-                        // read or a running apply each make the write unsafe or
-                        // pointless, and `pending` keeps it from offering to
-                        // write what xbps already uses.
                         QQC2.Button {
                             visible: root.section === "mirrors"
                             text: i18nd("kxbps", "Apply to system")
@@ -864,23 +1062,50 @@ Kirigami.ApplicationWindow {
                                      && !mirrorBackend.probing
                                      && !mirrorBackend.systemLoading
                                      && !mirrorBackend.applyBusy
+                                     && mirrorBackend.helperReady
                             onClicked: mirrorApplyDialog.open()
                         }
                     }
+                }
 
-                    Rectangle {
-                        anchors.left: parent.left
-                        anchors.right: parent.right
-                        anchors.bottom: parent.bottom
-                        height: 1
-                        color: Kirigami.Theme.disabledTextColor
-                    }
+                // The page's own title, kept as a single muted line so the
+                // toolbar stays one row and the table starts as high as it can.
+                QQC2.Label {
+                    Layout.fillWidth: true
+                    Layout.leftMargin: Kirigami.Units.largeSpacing
+                    Layout.rightMargin: Kirigami.Units.largeSpacing
+                    Layout.topMargin: Kirigami.Units.smallSpacing
+                    text: root.headerTitle() + " · " + root.headerSubtitle(installedBackend.packages.count)
+                    font: Kirigami.Theme.smallFont
+                    color: Kirigami.Theme.disabledTextColor
+                    elide: Text.ElideRight
+                }
+
+                QQC2.Label {
+                    Layout.fillWidth: true
+                    Layout.leftMargin: Kirigami.Units.largeSpacing
+                    Layout.rightMargin: Kirigami.Units.largeSpacing
+                    visible: root.section === "mirrors" && mirrorBackend.helperErrorKey.length > 0
+                    text: visible ? root.mirrorHelperText(mirrorBackend.helperErrorKey) : ""
+                    font: Kirigami.Theme.smallFont
+                    color: Kirigami.Theme.negativeTextColor
+                    wrapMode: Text.WordWrap
                 }
 
                 StackLayout {
                     Layout.fillWidth: true
                     Layout.fillHeight: true
-                    currentIndex: root.section === "packages" ? 0 : (root.section === "query" ? 1 : 2)
+                    currentIndex: {
+                        switch (root.section) {
+                        case "query":
+                            return 1
+                        case "mirrors":
+                            return 2
+                        case "settings":
+                            return 3
+                        }
+                        return 0
+                    }
 
                     PackagesView {
                         id: packagesView
@@ -890,6 +1115,7 @@ Kirigami.ApplicationWindow {
                         job: root.job
                         onUpdateAllRequested: root.openSystemPlan()
                         onPlanRequested: (name, token) => root.openPackagePlan(name, token)
+                        onSearchFieldRequested: toolbarSearch.forceActiveFocus()
                     }
 
                     QueryView {
@@ -900,16 +1126,25 @@ Kirigami.ApplicationWindow {
                     MirrorsView {
                         mirrorBackend: mirrorBackend
                     }
+
+                    SettingsView {
+                        prefsBackend: prefsBackend
+                        onAboutRequested: aboutDialog.open()
+                    }
                 }
 
                 StatusStrip {
                     Layout.fillWidth: true
+                    implicitHeight: Kirigami.Units.gridUnit * 2
                     installedBackend: installedBackend
                     job: root.job
                     jobLabel: root.jobLabel
                     showResult: root.showJobResult
-                    currentMirror: mirrorBackend.currentMirror
-                    onReviewRequested: root.openQueuePlan()
+                    currentMirror: mirrorBackend.systemMirror.length > 0
+                                   ? mirrorBackend.systemMirror
+                                   : mirrorBackend.currentMirror
+                    totalCount: installedBackend.packages.count
+                    installedCount: installedBackend.installedCount
                     onCancelRequested: {
                         if (root.job !== null) {
                             root.job.cancel()
@@ -923,6 +1158,23 @@ Kirigami.ApplicationWindow {
                     job: root.job
                 }
             }
+        }
+    }
+
+    // The repository list is read once at start, and again whenever the
+    // Mirrors page or a job changes what xbps reads.
+    Connections {
+        target: mirrorBackend
+        function onSystemReposChanged() {
+            root.systemRepos = root.parseRepos(mirrorBackend.systemRepos)
+        }
+    }
+
+    // The sidebar's repository rows and the Mirrors page share one read, so
+    // the first frame does not sit on an empty list.
+    onVisibleChanged: {
+        if (visible) {
+            mirrorBackend.refreshSystem()
         }
     }
 }

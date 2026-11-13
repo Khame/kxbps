@@ -222,6 +222,9 @@ pub mod qobject {
         #[qproperty(i32, progress, READ, NOTIFY)]
         #[qproperty(QString, label_key, READ, NOTIFY)]
         #[qproperty(QString, label_arg, READ, NOTIFY)]
+        /// One line naming the commands this job will run, for the dialog. The
+        /// label says which step; this says what is being executed.
+        #[qproperty(QString, command_text, READ, NOTIFY)]
         #[qproperty(bool, done, READ, NOTIFY)]
         #[qproperty(bool, cancelled, READ, NOTIFY)]
         #[qproperty(bool, failed, READ, NOTIFY)]
@@ -861,6 +864,7 @@ pub struct JobBackendRust {
     progress: i32,
     label_key: QString,
     label_arg: QString,
+    command_text: QString,
     cancelled: bool,
     failed: bool,
     exit_code: i32,
@@ -907,6 +911,7 @@ impl JobBackendRust {
             progress: 0,
             label_key: QString::from(""),
             label_arg: QString::from(""),
+            command_text: QString::from(""),
             cancelled: false,
             failed: false,
             exit_code: 0,
@@ -1178,6 +1183,11 @@ impl qobject::JobBackend {
         };
 
         set_label(self.as_mut(), keys::START, "");
+        {
+            let data = Pin::get_mut(self.as_mut().rust_mut());
+            data.command_text = QString::from(command_text(&commands));
+        }
+        self.as_mut().command_text_changed();
         self.as_mut().progress_changed();
 
         let thread = self.qt_thread();
@@ -1195,6 +1205,16 @@ impl qobject::JobBackend {
             pump(job, &commands, crate::xbps_bridge::run_streaming);
         });
     }
+}
+
+/// One line naming the commands the worker will run, in order. Empty for an
+/// empty plan, which is what the dialog's hidden line means.
+pub fn command_text(commands: &[Vec<String>]) -> String {
+    commands
+        .iter()
+        .map(|argv| argv.join(" "))
+        .collect::<Vec<_>>()
+        .join(" ; ")
 }
 
 /// Writes the job's label from a key and one argument.
@@ -1734,5 +1754,28 @@ mod tests {
         let (seen, runs, _) = run_commands(&commands, &[19, 0]);
         assert_eq!(runs, 1, "the removal never runs after a failed install");
         assert_eq!(seen, commands[..1].to_vec());
+    }
+
+    #[test]
+    fn the_command_text_names_every_argv_in_order() {
+        let commands = vec![
+            vec![
+                String::from("pkexec"),
+                String::from("/usr/bin/xbps-install"),
+                String::from("-y"),
+                String::from("vim"),
+            ],
+            vec![
+                String::from("pkexec"),
+                String::from("/usr/bin/xbps-remove"),
+                String::from("-y"),
+                String::from("nano"),
+            ],
+        ];
+        assert_eq!(
+            command_text(&commands),
+            "pkexec /usr/bin/xbps-install -y vim ; pkexec /usr/bin/xbps-remove -y nano"
+        );
+        assert_eq!(command_text(&[]), "", "an empty plan has no command");
     }
 }

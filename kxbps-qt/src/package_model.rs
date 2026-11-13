@@ -118,10 +118,12 @@ pub mod qobject {
         fn set_sort(self: Pin<&mut PackageModel>, value: QString);
         fn set_sort_descending(self: Pin<&mut PackageModel>, value: bool);
 
-        /// A non-empty search asked for the repository hits of `pattern`.
+        /// A search asked for the repository hits of `pattern`.
         ///
         /// The list cannot read xbps itself: it holds no transport. Whoever
-        /// owns it answers through `setSearchResults`.
+        /// owns it answers through `setSearchResults`. The empty pattern is the
+        /// whole repository listing, which is what the Available page shows
+        /// when its search box is empty.
         #[qsignal]
         fn search_requested(self: Pin<&mut PackageModel>, pattern: QString);
 
@@ -280,6 +282,15 @@ impl InstalledState {
     pub(crate) fn is_orphan(&self, name: &str) -> bool {
         self.orphans.contains(name)
     }
+}
+
+/// Whether an empty search box on `filter` means the whole repository listing.
+///
+/// Available is the one page that reads the repositories with no pattern: the
+/// user asked to see what can be installed, not what is installed. Every other
+/// filter narrows the installed set and shows it while the box is empty.
+fn wants_repository_listing(filter: &str) -> bool {
+    filter == "all"
 }
 
 /// Whether one repository hit takes a row while the list filters by `filter`.
@@ -900,7 +911,7 @@ impl PackageModelRust {
         let pattern = text.trim().to_string();
         if pattern.is_empty() {
             self.clear_search_rows();
-            return None;
+            return wants_repository_listing(&self.filter.to_string()).then(String::new);
         }
         if self
             .active_search
@@ -1154,6 +1165,15 @@ impl qobject::PackageModel {
             self.as_mut().search_error_changed();
             self.as_mut().search_error_args_changed();
         }
+        // Available is the repository listing, not a view of the installed set:
+        // with an empty search box it asks for every hit, the same read a
+        // typed pattern asks for. Without this the page showed the installed
+        // packages under a name that promises the repositories.
+        if wants_repository_listing(&self.filter.to_string())
+            && self.search.to_string().trim().is_empty()
+        {
+            self.as_mut().search_requested(QString::from(""));
+        }
     }
 
     fn set_search(mut self: Pin<&mut Self>, value: cxx_qt_lib::QString) {
@@ -1163,7 +1183,8 @@ impl qobject::PackageModel {
         let pattern = value.to_string().trim().to_owned();
         // An emptied field goes back to the filter's rows, with no read; a
         // changed pattern asks the repositories and leaves the current rows in
-        // place until the answer lands.
+        // place until the answer lands. On Available the emptied field means
+        // "the whole repository", which is a read of its own.
         if pattern.is_empty() {
             let had_search = self.active_search.is_some();
             {
@@ -1183,6 +1204,9 @@ impl qobject::PackageModel {
                 self.as_mut().search_error_args_changed();
             }
             self.as_mut().search_changed();
+            if wants_repository_listing(&self.filter.to_string()) {
+                self.as_mut().search_requested(QString::from(""));
+            }
             return;
         }
         // The answer already on screen is not read again: padding and case are
@@ -2465,6 +2489,23 @@ mod tests {
             !model.search_results_active(),
             "the search state is gone with the pattern"
         );
+    }
+
+    #[test]
+    fn an_empty_search_on_available_asks_for_the_whole_repository_listing() {
+        // Available is not a view of the installed set: an empty box there means
+        // "everything the repositories have", which is a read of its own.
+        let mut model = model();
+        set_filter(&mut model, "all");
+        assert_eq!(
+            model.set_search_and_report(""),
+            Some(String::new()),
+            "the empty pattern is the repository listing"
+        );
+
+        // Every other filter keeps its rows and reads nothing.
+        set_filter(&mut model, "installed");
+        assert_eq!(model.set_search_and_report(""), None);
     }
 
     #[test]

@@ -30,6 +30,11 @@ use crate::xbps_snapshot::{
     read_search,
 };
 
+/// The `lastSearchPattern` value that means "the whole repository listing was
+/// read". No real pattern can be this string, so the first empty read is not
+/// mistaken for an answer already on screen.
+const EMPTY_LISTING_SEEN: &str = "\u{0}";
+
 #[cxx_qt::bridge]
 pub mod qobject {
     unsafe extern "C++" {
@@ -373,10 +378,10 @@ impl qobject::QueryBackend {
     /// empty one is never sent: an empty field shows the filter's rows, not a
     /// repository listing xbps cannot even produce.
     fn read_list_search(mut self: Pin<&mut Self>, pattern: &cxx_qt_lib::QString) {
+        // The empty pattern is not "no search": it is the whole repository
+        // listing the Available page asks for. `xbps-query -Rs ''` answers it
+        // like any other pattern.
         let pattern = pattern.to_string().trim().to_owned();
-        if pattern.is_empty() {
-            return;
-        }
         let generation = {
             let data = Pin::get_mut(self.as_mut().rust_mut());
             if !data.needs_search(&pattern) {
@@ -610,13 +615,23 @@ impl QueryBackendRust {
     /// The comparison is on the trimmed text, so the padding a search field
     /// keeps around the words never costs a second `xbps-query`.
     fn needs_search(&self, pattern: &str) -> bool {
+        // The empty pattern is the whole repository listing, and `String::new()`
+        // is also what "no read yet" looks like; a sentinel keeps the first
+        // Available visit from being mistaken for an answer already on screen.
+        if pattern.trim().is_empty() {
+            return self.last_search_pattern != EMPTY_LISTING_SEEN;
+        }
         pattern.trim() != self.last_search_pattern
     }
 
     /// Records that the list now shows the answer for `pattern`; an empty
-    /// pattern forgets it, so leaving the search field reads again.
+    /// pattern records the repository listing, which is cached the same way.
     fn remember_search_answer(&mut self, pattern: &str) {
-        self.last_search_pattern = pattern.trim().to_owned();
+        self.last_search_pattern = if pattern.trim().is_empty() {
+            EMPTY_LISTING_SEEN.to_owned()
+        } else {
+            pattern.trim().to_owned()
+        };
     }
 
     /// Starts a repository read and answers with the generation it owns.
@@ -1634,6 +1649,28 @@ mod tests {
         assert_eq!(
             parsed, hits,
             "every field survives the trip, description included"
+        );
+    }
+
+    #[test]
+    fn the_empty_pattern_is_read_once_and_then_remembered() {
+        // The Available page asks for the whole repository listing with an
+        // empty pattern; a second visit must not read twenty thousand rows
+        // again, and a typed pattern must not make the listing look cached.
+        let mut backend = QueryBackendRust::default();
+        assert!(
+            backend.needs_search(""),
+            "the first Available visit reads the listing"
+        );
+        backend.remember_search_answer("");
+        assert!(
+            !backend.needs_search(""),
+            "the listing is cached after the answer lands"
+        );
+        backend.remember_search_answer("vim");
+        assert!(
+            backend.needs_search(""),
+            "a typed pattern does not answer for the listing"
         );
     }
 }

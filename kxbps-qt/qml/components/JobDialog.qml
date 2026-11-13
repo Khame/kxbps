@@ -107,8 +107,24 @@ Kirigami.Dialog {
 
         QQC2.Label {
             Layout.fillWidth: true
-            text: dialog.labelText
+            // The label says which step; before the first line it is empty, and
+            // an empty header over a moving bar is the "what is it doing?" the
+            // dialog exists to answer.
+            text: dialog.labelText.length > 0
+                  ? dialog.labelText
+                  : i18nd("kxbps", "Waiting for authentication…")
             elide: Text.ElideRight
+        }
+
+        QQC2.Label {
+            Layout.fillWidth: true
+            Layout.minimumWidth: 0
+            visible: dialog.job !== null && dialog.job.commandText.length > 0
+            text: dialog.job !== null ? dialog.job.commandText : ""
+            font.family: "monospace"
+            font.pixelSize: Kirigami.Theme.smallFont.pixelSize
+            color: Kirigami.Theme.disabledTextColor
+            elide: Text.ElideMiddle
         }
 
         QQC2.Label {

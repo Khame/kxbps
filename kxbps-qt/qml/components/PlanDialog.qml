@@ -304,18 +304,18 @@ Kirigami.Dialog {
             }
 
             QQC2.Label {
-                Layout.preferredWidth: Kirigami.Units.gridUnit * 11
-                Layout.minimumWidth: Kirigami.Units.gridUnit * 11
-                Layout.maximumWidth: Kirigami.Units.gridUnit * 11
+                Layout.preferredWidth: Kirigami.Units.gridUnit * 14
+                Layout.minimumWidth: Kirigami.Units.gridUnit * 14
+                Layout.maximumWidth: Kirigami.Units.gridUnit * 14
                 text: i18nd("kxbps", "Version")
                 font.bold: true
                 color: Kirigami.Theme.disabledTextColor
             }
 
             QQC2.Label {
-                Layout.preferredWidth: Kirigami.Units.gridUnit * 4.5
-                Layout.minimumWidth: Kirigami.Units.gridUnit * 4.5
-                Layout.maximumWidth: Kirigami.Units.gridUnit * 4.5
+                Layout.preferredWidth: Kirigami.Units.gridUnit * 6
+                Layout.minimumWidth: Kirigami.Units.gridUnit * 6
+                Layout.maximumWidth: Kirigami.Units.gridUnit * 6
                 horizontalAlignment: Text.AlignRight
                 text: i18nd("kxbps", "Size")
                 font.bold: true
@@ -362,18 +362,18 @@ Kirigami.Dialog {
                 }
 
                 QQC2.Label {
-                    Layout.preferredWidth: Kirigami.Units.gridUnit * 11
-                    Layout.minimumWidth: Kirigami.Units.gridUnit * 11
-                    Layout.maximumWidth: Kirigami.Units.gridUnit * 11
+                    Layout.preferredWidth: Kirigami.Units.gridUnit * 14
+                    Layout.minimumWidth: Kirigami.Units.gridUnit * 14
+                    Layout.maximumWidth: Kirigami.Units.gridUnit * 14
                     text: dialog.versionText(modelData)
                     font.family: "monospace"
                     elide: Text.ElideRight
                 }
 
                 QQC2.Label {
-                    Layout.preferredWidth: Kirigami.Units.gridUnit * 4.5
-                    Layout.minimumWidth: Kirigami.Units.gridUnit * 4.5
-                    Layout.maximumWidth: Kirigami.Units.gridUnit * 4.5
+                    Layout.preferredWidth: Kirigami.Units.gridUnit * 6
+                    Layout.minimumWidth: Kirigami.Units.gridUnit * 6
+                    Layout.maximumWidth: Kirigami.Units.gridUnit * 6
                     horizontalAlignment: Text.AlignRight
                     text: modelData.sizeText
                     font.family: "monospace"

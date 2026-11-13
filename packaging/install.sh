@@ -97,6 +97,7 @@ icon=$here/io.github.khame.kxbps.svg
 desktop=$here/io.github.khame.kxbps.desktop
 metainfo=$here/io.github.khame.kxbps.metainfo.xml
 policy=$here/io.github.khame.kxbps.policy
+notifyrc=$here/io.github.khame.kxbps.notifyrc
 
 require_file "$app_bin"
 require_file "$helper_bin"
@@ -105,6 +106,7 @@ require_file "$icon"
 require_file "$desktop"
 require_file "$metainfo"
 require_file "$policy"
+require_file "$notifyrc"
 
 # --- install --------------------------------------------------------------
 
@@ -128,6 +130,8 @@ install_file "$metainfo" 644 \
     "$DESTDIR$PREFIX/share/metainfo/io.github.khame.kxbps.metainfo.xml"
 install_file "$policy" 644 \
     "$DESTDIR$PREFIX/share/polkit-1/actions/io.github.khame.kxbps.policy"
+install_file "$notifyrc" 644 \
+    "$DESTDIR$PREFIX/share/knotifications6/kxbps.notifyrc"
 
 # Translations: one .mo per po/<lang>.po at the gettext path KI18n reads.
 if [ -d "$PO_DIR" ]; then

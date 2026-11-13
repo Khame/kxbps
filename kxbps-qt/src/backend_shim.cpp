@@ -2,6 +2,8 @@
 
 #include <QtCore/QMetaObject>
 #include <QtCore/QVariant>
+#include <QtDBus/QDBusConnection>
+#include <QtDBus/QDBusMessage>
 #include <QtWidgets/QSystemTrayIcon>
 
 #include "kxbps-qt/src/query_backend.cxxqt.h"
@@ -87,6 +89,25 @@ QObject *kxbps_start_mirror_job(QObject *owner, const QString &payloadJson)
 bool kxbps_tray_available()
 {
     return QSystemTrayIcon::isSystemTrayAvailable();
+}
+
+void kxbps_notify(const QString &summary, const QString &body, const QString &icon)
+{
+    // The spec's `Notify` call, sent fire-and-forget: the reply is a number the
+    // window has no use for, and waiting on it would block the GUI thread.
+    // `desktop-entry` is what lets the notification settings page group the
+    // popup under KXbps instead of a nameless sender.
+    QDBusMessage message = QDBusMessage::createMethodCall(
+        QStringLiteral("org.freedesktop.Notifications"),
+        QStringLiteral("/org/freedesktop/Notifications"),
+        QStringLiteral("org.freedesktop.Notifications"),
+        QStringLiteral("Notify"));
+    QVariantMap hints;
+    hints.insert(QStringLiteral("desktop-entry"),
+                 QStringLiteral("io.github.khame.kxbps"));
+    message << QStringLiteral("KXbps") << 0u << icon << summary << body
+            << QStringList() << hints << 10000;
+    QDBusConnection::sessionBus().send(message);
 }
 
 void kxbps_installed_apply_plan(QObject *owner, const QString &itemsJson)

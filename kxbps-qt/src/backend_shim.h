@@ -55,6 +55,14 @@ QObject *kxbps_create_plan_backend(QObject *parent, const QString &payloadJson);
 // platform without a tray prints two Qt warnings, so QML asks first.
 bool kxbps_tray_available();
 
+// Hands one notification to the desktop's notification service.
+//
+// KNotification's `sendEvent()` drops an event whose component it cannot
+// resolve, and the only answer it gives is an immediate `closed`; the session
+// bus does not lie, so this calls `org.freedesktop.Notifications.Notify`
+// directly. `summary` and `body` arrive already translated from QML.
+void kxbps_notify(const QString &summary, const QString &body, const QString &icon);
+
 // The one entry point a job is created through; `owner` parents it and QML
 // releases it when the dialog closes.
 QObject *kxbps_start_job(QObject *owner, const QString &payloadJson);

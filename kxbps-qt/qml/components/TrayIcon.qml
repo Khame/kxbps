@@ -31,7 +31,12 @@ SystemTrayIcon {
 
     readonly property int updateCount: installedBackend !== null ? installedBackend.updatesCount : 0
 
-    icon.source: "qrc:/qt/qml/org/kde/kxbps/icons/kxbps.svg"
+    // A theme name, not the qrc file: the StatusNotifierItem protocol carries
+    // an icon *name*, and a pixmap the host cannot resolve leaves an empty
+    // slot in the panel. The name resolves through hicolor, where the
+    // application tile is installed. While updates wait, the icon becomes the
+    // update glyph, so the panel says what the tooltip says.
+    icon.name: updateCount > 0 ? "system-software-update" : "io.github.khame.kxbps"
     tooltip: updateCount > 0
              ? i18ndp("kxbps", "%1 package can be updated.", "%1 packages can be updated.", updateCount)
              : i18nd("kxbps", "KXbps")

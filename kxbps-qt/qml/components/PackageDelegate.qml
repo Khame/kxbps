@@ -1,14 +1,15 @@
-// One package row: name and description, version, size, and the one action the
-// row exists for.
+// One package row of the installed-set table.
 //
-// The action is a visible button, not a hover overlay: the list is a work
-// surface, and a control that only appears under the pointer cannot be found by
-// someone scanning the screen. Clicking it asks the window for a plan, which is
-// a dry run — nothing is installed until the plan dialog's Apply, so a stray
-// click costs a dialog, never a package.
+// A table row, not a card: the checkbox that marks the package for the queue,
+// the name, the description, and the numeric columns the tool is read for.
+// Nothing here starts a transaction — the checkbox only moves the package in or
+// out of the queue, and the toolbar's `Apply` is what opens the dry run, so a
+// stray click costs a marked row, never a package.
 //
-// The widths come from `PackagesView`, which draws the header with the same
-// values, so no label can push the next column out of line.
+// The column widths come from the view, which draws the header from the same
+// values, so no label can push the next column out of line. `layout` picks the
+// form: `Wide` is every column, `Medium` folds the description under the name
+// and drops the download, `Narrow` drops the installed version and the sizes.
 
 import QtQuick
 import QtQuick.Controls as QQC2
@@ -19,221 +20,271 @@ import org.kde.ki18n 1.0
 QQC2.ItemDelegate {
     id: delegate
 
+    enum Layout {
+        Wide,
+        Medium,
+        Narrow
+    }
+
     property var installedBackend
-    property real versionWidth
+    // The row form, as the view decided for the width it was given.
+    property int layout: PackageDelegate.Wide
+    // Column widths shared with the header.
+    property real checkWidth
+    property real gutter: Kirigami.Units.gridUnit * 0.75
+    property real nameWidth
+    property real descriptionWidth
+    property real installedWidth
+    property real availableColumnWidth
+    property bool showAvailable: true
     property real sizeWidth
-    property real actionWidth
-    // Driven by the selected name, not `ListView.currentIndex`: a filter change
-    // resets the model and would drop the current index, while the details pane
-    // keeps showing the same package.
+    property real downloadWidth
+    // Driven by the selected package, not `ListView.currentIndex`: a filter
+    // change resets the model and would drop the current index while the
+    // details still describe the same package.
     property bool selected: false
 
-    // The page asks the window for a transaction; the row never runs anything.
-    signal planRequested(string name, string token)
+    // The row's own identity, as real properties. `model` is a context property
+    // injected into this file's bindings only: code outside the delegate reads
+    // `item.model` as undefined, so a click handler must not reach for it.
+    readonly property string packageName: model.name === undefined ? "" : model.name
+    readonly property string packageVersion: model.version === undefined ? "" : model.version
+    readonly property string packageInstalledVersion: model.installedVersion === undefined ? ""
+                                                                                            : model.installedVersion
+    readonly property string packageQueuedAction: model.queuedAction === undefined ? ""
+                                                                                  : model.queuedAction
+    // The row's position, likewise a context property inside this file only.
+    readonly property int packageIndex: index === undefined ? -1 : index
+    readonly property bool packageHeld: model.held === true
+    readonly property bool packageIsUpdate: model.isUpdate === true
+    readonly property string packagePkgver: {
+        const version = delegate.packageInstalledVersion.length > 0
+                        ? delegate.packageInstalledVersion
+                        : delegate.packageVersion
+        return delegate.packageName.length > 0 ? delegate.packageName + "-" + version : ""
+    }
 
+    readonly property bool wideRow: delegate.layout === PackageDelegate.Wide
+    readonly property bool narrowRow: delegate.layout === PackageDelegate.Narrow
     readonly property bool installed: model.installedVersion !== ""
     readonly property bool isUpdate: model.isUpdate === true
     readonly property bool queued: model.queuedAction !== ""
-    // An update outranks "installed": planning an update as an install would
-    // reinstall the old version instead of moving to the new one.
+    // What the checkbox sends when it is checked. An update outranks
+    // "installed": queueing an update as an install would pin the old version.
     readonly property string actionToken: delegate.isUpdate ? "update"
                                           : (delegate.installed ? "remove" : "install")
-    readonly property string actionLabel: delegate.isUpdate ? i18nd("kxbps", "Update")
-                                         : (delegate.installed ? i18nd("kxbps", "Remove")
-                                                               : i18nd("kxbps", "Install"))
-    readonly property string actionIcon: delegate.isUpdate ? "system-software-update"
-                                        : (delegate.installed ? "edit-delete" : "document-save")
+    // An em dash for a value xbps did not report; never a fabricated zero.
+    readonly property string dash: "—"
+    readonly property string installedText: delegate.installed ? model.installedVersion : delegate.dash
+    readonly property string availableText: {
+        if (delegate.isUpdate) {
+            return model.updateVersion
+        }
+        if (delegate.installed) {
+            return model.installedVersion
+        }
+        return model.version !== undefined && model.version !== "" ? model.version : delegate.dash
+    }
+    readonly property string sizeText: {
+        const value = delegate.isUpdate ? model.updateSize : model.size
+        return value !== undefined && value !== "" ? value : delegate.dash
+    }
+    readonly property string downloadText: model.download !== undefined && model.download !== ""
+                                           ? model.download : delegate.dash
 
-    implicitHeight: Kirigami.Units.gridUnit * 2.6
+    implicitHeight: Kirigami.Units.gridUnit * (delegate.wideRow ? 2 : 2.6)
     height: implicitHeight
     leftPadding: Kirigami.Units.mediumSpacing
     rightPadding: Kirigami.Units.mediumSpacing
     topPadding: 0
     bottomPadding: 0
-    // The current index covers keyboard navigation; the selected name keeps the
-    // row marked after a filter change resets the model.
-    highlighted: delegate.selected || ListView.isCurrentItem
+    // The selection wash is drawn by this row's own background, so the style's
+    // highlight fill never paints a solid block over it.
+    highlighted: false
 
     Accessible.role: Accessible.ListItem
     Accessible.name: model.name
     Accessible.description: model.short
-    Accessible.selected: delegate.highlighted
+    Accessible.selected: delegate.selected
+
+    background: Rectangle {
+        color: delegate.selected
+               ? Qt.rgba(Kirigami.Theme.highlightColor.r,
+                         Kirigami.Theme.highlightColor.g,
+                         Kirigami.Theme.highlightColor.b, 0.16)
+               : (delegate.hovered ? Qt.rgba(Kirigami.Theme.highlightColor.r,
+                                             Kirigami.Theme.highlightColor.g,
+                                             Kirigami.Theme.highlightColor.b, 0.07)
+                                   : "transparent")
+
+        // The left accent of the selected row: the theme colour at a width the
+        // unit scale defines, never a measured pixel line.
+        Rectangle {
+            visible: delegate.selected
+            anchors.left: parent.left
+            anchors.top: parent.top
+            anchors.bottom: parent.bottom
+            width: Kirigami.Units.smallSpacing / 2
+            color: Kirigami.Theme.highlightColor
+        }
+
+        // The hairline between rows, from the theme so it follows light and
+        // dark without a colour of its own.
+        Kirigami.Separator {
+            anchors.left: parent.left
+            anchors.right: parent.right
+            anchors.bottom: parent.bottom
+        }
+    }
 
     contentItem: RowLayout {
-        spacing: Kirigami.Units.smallSpacing
+        spacing: delegate.gutter
 
-        // Name over description: the row is a table cell, so the second line is
-        // what tells two similar packages apart (`neovim` against `neovim-qt`).
-        ColumnLayout {
-            Layout.fillWidth: true
-            Layout.minimumWidth: 0
-            spacing: 0
+        Item {
+            Layout.preferredWidth: delegate.checkWidth
+            Layout.minimumWidth: delegate.checkWidth
+            Layout.maximumWidth: delegate.checkWidth
+            Layout.fillHeight: true
 
-            QQC2.Label {
-                Layout.fillWidth: true
-                Layout.minimumWidth: 0
-                text: model.name
-                font.bold: true
-                elide: Text.ElideRight
+            QQC2.CheckBox {
+                anchors.centerIn: parent
+                checked: delegate.queued
+                // The checkbox is the row's action, so its accessible name says
+                // what marking does, not just "select".
+                Accessible.name: delegate.queued
+                                 ? i18nd("kxbps", "Unmark %1", model.name)
+                                 : i18nd("kxbps", "Mark %1 for the queue", model.name)
+                onToggled: {
+                    if (delegate.installedBackend === null || delegate.installedBackend === undefined) {
+                        return
+                    }
+                    if (delegate.queued) {
+                        delegate.installedBackend.removeQueued(model.name)
+                    } else {
+                        delegate.installedBackend.toggleQueue(model.name, delegate.actionToken)
+                    }
+                }
             }
+        }
+
+        // Name, and the description's second line in the two narrower forms.
+        ColumnLayout {
+            Layout.preferredWidth: delegate.nameWidth
+            Layout.minimumWidth: delegate.nameWidth
+            Layout.maximumWidth: delegate.nameWidth
+            Layout.fillHeight: true
+            spacing: 0
 
             RowLayout {
                 Layout.fillWidth: true
                 Layout.minimumWidth: 0
                 spacing: Kirigami.Units.smallSpacing
-
-                // Only the states that change what the package does. "Explicit"
-                // is the normal case and would be a pill on every row.
-                Pill {
-                    visible: model.held
-                    text: i18nd("kxbps", "Held")
-                }
-
-                Pill {
-                    visible: delegate.queued
-                    text: i18nd("kxbps", "Queued")
-                    textColor: Kirigami.Theme.highlightColor
-                }
 
                 QQC2.Label {
                     Layout.fillWidth: true
                     Layout.minimumWidth: 0
-                    visible: text.length > 0
-                    text: model.short
+                    text: model.name
+                    font.bold: true
+                    rightPadding: Kirigami.Units.smallSpacing
+                    elide: Text.ElideRight
+                }
+
+                // The states that change what the package does. "Explicit" is
+                // the normal case and would be a marker on every row.
+                QQC2.Label {
+                    visible: model.held
+                    text: i18nd("kxbps", "Held")
                     font: Kirigami.Theme.smallFont
-                    color: Kirigami.Theme.disabledTextColor
-                    elide: Text.ElideRight
+                    color: Kirigami.Theme.neutralTextColor
                 }
+
+                QQC2.Label {
+                    visible: delegate.queued
+                    text: i18nd("kxbps", "Marked")
+                    font: Kirigami.Theme.smallFont
+                    color: Kirigami.Theme.highlightColor
+                }
+            }
+
+            QQC2.Label {
+                visible: !delegate.wideRow
+                Layout.fillWidth: true
+                Layout.minimumWidth: 0
+                text: model.short
+                font: Kirigami.Theme.smallFont
+                color: Kirigami.Theme.disabledTextColor
+                elide: Text.ElideRight
             }
         }
 
-        // Version: one column with three states, so an update reads as
-        // "installed → available" and a fresh install as xbps' version.
-        Item {
-            Layout.preferredWidth: delegate.versionWidth
-            Layout.minimumWidth: delegate.versionWidth
-            Layout.maximumWidth: delegate.versionWidth
-            Layout.fillHeight: true
-
-            RowLayout {
-                anchors.fill: parent
-                spacing: Kirigami.Units.smallSpacing
-
-                QQC2.Label {
-                    Layout.fillWidth: true
-                    visible: !delegate.installed
-                    text: model.version
-                    font.family: "monospace"
-                    elide: Text.ElideRight
-                }
-
-                QQC2.Label {
-                    Layout.fillWidth: true
-                    visible: delegate.installed && !delegate.isUpdate
-                    text: model.installedVersion + " ✓"
-                    color: Kirigami.Theme.positiveTextColor
-                    font.family: "monospace"
-                    elide: Text.ElideRight
-                }
-
-                QQC2.Label {
-                    visible: delegate.installed && delegate.isUpdate
-                    text: model.installedVersion
-                    color: Kirigami.Theme.positiveTextColor
-                    font.family: "monospace"
-                }
-
-                QQC2.Label {
-                    visible: delegate.installed && delegate.isUpdate
-                    text: "→"
-                    color: Kirigami.Theme.disabledTextColor
-                }
-
-                QQC2.Label {
-                    Layout.fillWidth: true
-                    visible: delegate.installed && delegate.isUpdate
-                    text: model.updateVersion
-                    font.family: "monospace"
-                    elide: Text.ElideRight
-                }
-            }
-        }
-
-        // Installed size, or the new version's size on an update row. The
-        // tooltip carries the other two numbers, so one narrow column still
-        // tells the whole story.
+        // The description column exists only in the wide form; the narrower
+        // forms put it under the name, in the column above.
         QQC2.Label {
+            visible: delegate.wideRow
+            Layout.preferredWidth: delegate.descriptionWidth
+            Layout.minimumWidth: delegate.descriptionWidth
+            Layout.maximumWidth: delegate.descriptionWidth
+            text: model.short
+            font: Kirigami.Theme.smallFont
+            color: Kirigami.Theme.disabledTextColor
+            rightPadding: Kirigami.Units.smallSpacing
+            elide: Text.ElideRight
+        }
+
+        QQC2.Label {
+            visible: !delegate.narrowRow
+            Layout.preferredWidth: delegate.installedWidth
+            Layout.minimumWidth: delegate.installedWidth
+            Layout.maximumWidth: delegate.installedWidth
+            horizontalAlignment: Text.AlignRight
+            rightPadding: Kirigami.Units.smallSpacing
+            text: delegate.installedText
+            font.family: "monospace"
+            color: delegate.installed ? Kirigami.Theme.textColor
+                                      : Kirigami.Theme.disabledTextColor
+            elide: Text.ElideLeft
+        }
+
+        QQC2.Label {
+            visible: delegate.showAvailable
+            Layout.preferredWidth: delegate.availableColumnWidth
+            Layout.minimumWidth: delegate.availableColumnWidth
+            Layout.maximumWidth: delegate.availableColumnWidth
+            horizontalAlignment: Text.AlignRight
+            rightPadding: Kirigami.Units.smallSpacing
+            text: delegate.availableText
+            font.family: "monospace"
+            // An upgradable version is the reason the row is interesting; the
+            // theme's positive colour is how the tool marks a newer value.
+            color: delegate.isUpdate ? Kirigami.Theme.positiveTextColor
+                 : (delegate.installed ? Kirigami.Theme.textColor
+                                       : Kirigami.Theme.disabledTextColor)
+            elide: Text.ElideLeft
+        }
+
+        QQC2.Label {
+            visible: !delegate.narrowRow
             Layout.preferredWidth: delegate.sizeWidth
             Layout.minimumWidth: delegate.sizeWidth
             Layout.maximumWidth: delegate.sizeWidth
             horizontalAlignment: Text.AlignRight
-            text: delegate.isUpdate ? model.updateSize : model.size
+            rightPadding: Kirigami.Units.smallSpacing
+            text: delegate.sizeText
             font.family: "monospace"
             elide: Text.ElideLeft
-
-            QQC2.ToolTip.visible: sizeHover.containsMouse
-            QQC2.ToolTip.text: delegate.isUpdate
-                ? i18nd("kxbps", "Installed %1, download %2, new version %3",
-                        model.size, model.download, model.updateSize)
-                : i18nd("kxbps", "Installed %1", model.size)
-
-            MouseArea {
-                id: sizeHover
-                anchors.fill: parent
-                hoverEnabled: true
-            }
         }
-
-        QQC2.Button {
-            Layout.preferredWidth: delegate.actionWidth
-            Layout.minimumWidth: delegate.actionWidth
-            Layout.maximumWidth: delegate.actionWidth
-            text: delegate.actionLabel
-            // Install and update carry their icon; a removal is the quiet,
-            // text-only option, because a list where every installed row offers
-            // a red button reads as a warning. None of them is the accent
-            // button: a column of identical highlighted buttons pulls the eye
-            // off the package names.
-            icon.name: delegate.actionToken === "remove" ? "" : delegate.actionIcon
-            flat: delegate.actionToken === "remove"
-            font: Kirigami.Theme.smallFont
-            implicitHeight: Kirigami.Units.gridUnit * 1.6
-            Accessible.name: delegate.actionLabel + " " + model.name
-            onClicked: delegate.planRequested(model.name, delegate.actionToken)
-        }
-    }
-
-    // A hairline between rows: at 43 px the rows are close enough that the eye
-    // needs the same help the mockup's table gives it, without a full-opacity
-    // line that would read as a border.
-    Rectangle {
-        anchors.left: parent.left
-        anchors.right: parent.right
-        anchors.bottom: parent.bottom
-        height: 1
-        color: Qt.rgba(Kirigami.Theme.textColor.r,
-                       Kirigami.Theme.textColor.g,
-                       Kirigami.Theme.textColor.b, 0.08)
-    }
-
-    component Pill: Rectangle {
-        id: pill
-
-        property alias text: label.text
-        property color textColor: Kirigami.Theme.textColor
-
-        implicitWidth: label.implicitWidth + Kirigami.Units.smallSpacing * 1.5
-        implicitHeight: label.implicitHeight
-        radius: height / 2
-        color: Kirigami.Theme.alternateBackgroundColor
-        border.width: 1
-        border.color: Kirigami.Theme.disabledTextColor
 
         QQC2.Label {
-            id: label
-            anchors.centerIn: parent
-            font: Kirigami.Theme.smallFont
-            color: pill.textColor
+            visible: delegate.wideRow
+            Layout.preferredWidth: delegate.downloadWidth
+            Layout.minimumWidth: delegate.downloadWidth
+            Layout.maximumWidth: delegate.downloadWidth
+            horizontalAlignment: Text.AlignRight
+            rightPadding: Kirigami.Units.smallSpacing
+            text: delegate.downloadText
+            font.family: "monospace"
+            color: Kirigami.Theme.disabledTextColor
+            elide: Text.ElideLeft
         }
     }
 }

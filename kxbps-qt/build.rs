@@ -11,8 +11,8 @@ fn main() {
             .qml_file("qml/views/PackagesView.qml")
             .qml_file("qml/views/QueryView.qml")
             .qml_file("qml/views/MirrorsView.qml")
+            .qml_file("qml/views/SettingsView.qml")
             .qml_file("qml/components/NavItem.qml")
-            .qml_file("qml/components/AppMenuBar.qml")
             .qml_file("qml/components/PackageDelegate.qml")
             .qml_file("qml/components/QueryDelegate.qml")
             .qml_file("qml/components/MirrorDelegate.qml")
@@ -22,16 +22,17 @@ fn main() {
             .qml_file("qml/components/PlanDialog.qml")
             .qml_file("qml/components/JobDialog.qml")
             .qml_file("qml/components/BlockedDialog.qml")
-            .qml_file("qml/components/ResetDialog.qml")
             .qml_file("qml/components/AboutDialog.qml")
             // Each of these two is the only place one optional module is
             // imported; `Main.qml` loads them through `Loader`s so a missing
             // module costs the feature, not the window.
             .qml_file("qml/components/TrayIcon.qml")
-            .qml_file("qml/components/Notifier.qml")
-            .qml_file("qml/components/NotifierPopup.qml"),
+            .qml_file("qml/components/Notifier.qml"),
     )
     .qt_module("Network")
+    // The notification goes straight to `org.freedesktop.Notifications`; the
+    // KNotification module dropped the event without telling anyone.
+    .qt_module("DBus")
     // The application icon, kept in `packaging/` as the single source. The
     // `.qrc` alias puts it under the QML module's own import path, so QML reads
     // it as `qrc:/qt/qml/org/kde/kxbps/icons/kxbps.svg`.

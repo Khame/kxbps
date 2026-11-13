@@ -54,6 +54,12 @@ pub mod qobject {
 
         #[cxx_name = "kxbps_tray_available"]
         fn tray_available() -> bool;
+
+        // `org.freedesktop.Notifications.Notify`, sent from `backend_shim.cpp`.
+        // The notification module was the only user of `KNotification`, and it
+        // silently dropped the event; the session bus does not.
+        #[cxx_name = "kxbps_notify"]
+        fn notify(summary: &QString, body: &QString, icon: &QString);
     }
 
     // `auto_cxx_name` turns `update_count` into the QML-facing `updateCount`;
@@ -69,6 +75,11 @@ pub mod qobject {
 
         #[qinvokable]
         fn version(self: &AppBackend) -> QString;
+
+        /// Announces a set of available updates. The strings arrive already
+        /// translated; this only forwards them to the session bus.
+        #[qinvokable]
+        fn notify(self: &AppBackend, summary: &QString, body: &QString, icon: &QString);
     }
 }
 
@@ -93,6 +104,16 @@ impl qobject::AppBackend {
     /// Application version shown in the UI; proves Rust -> QML calls work.
     fn version(&self) -> cxx_qt_lib::QString {
         cxx_qt_lib::QString::from("0.1.0")
+    }
+
+    /// Forwards one announcement to the desktop's notification service.
+    fn notify(
+        &self,
+        summary: &cxx_qt_lib::QString,
+        body: &cxx_qt_lib::QString,
+        icon: &cxx_qt_lib::QString,
+    ) {
+        qobject::notify(summary, body, icon);
     }
 }
 
