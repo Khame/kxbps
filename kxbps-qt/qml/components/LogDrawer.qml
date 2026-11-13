@@ -25,7 +25,9 @@ Item {
 
     readonly property bool hasJob: job !== null
     readonly property real headerHeight: Kirigami.Units.gridUnit * 2
-    readonly property real collapsedHeight: headerHeight
+    // Collapsed, the drawer takes no room at all: the window's app bar carries
+    // the toggle, so a second header row would only repeat it.
+    readonly property real collapsedHeight: 0
     readonly property real maximumHeight: Math.min(Kirigami.Units.gridUnit * 18,
                                                    (Window.window ? Window.window.height : Kirigami.Units.gridUnit * 36) * 0.6)
 
@@ -42,8 +44,8 @@ Item {
         return job.cancelled ? i18nd("kxbps", "cancelled") : i18nd("kxbps", "finished")
     }
 
-    implicitHeight: expanded && hasJob ? Math.max(collapsedHeight, Math.min(expandedHeight, maximumHeight))
-                                       : collapsedHeight
+    implicitHeight: expanded && hasJob ? Math.max(headerHeight, Math.min(expandedHeight, maximumHeight))
+                                       : 0
     height: implicitHeight
 
     // Dragging to the minimum leaves `expandedHeight` at the header height.
@@ -69,6 +71,7 @@ Item {
         anchors.right: parent.right
         anchors.top: parent.top
         height: drawer.headerHeight
+        visible: drawer.expanded
         leftPadding: Kirigami.Units.largeSpacing
         rightPadding: Kirigami.Units.largeSpacing
 
@@ -120,6 +123,7 @@ Item {
         anchors.top: parent.top
         height: Kirigami.Units.smallSpacing
         color: Kirigami.Theme.alternateBackgroundColor
+        visible: drawer.expanded
         z: 2
 
         Rectangle {

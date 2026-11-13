@@ -11,10 +11,9 @@
 // costs, and what it depends on. Below the wide form the panels stack into one
 // column, which is the form the narrow drawer shows.
 //
-// The actions are direct, not queue toggles: `planRequested` asks the window for
-// the dry-run plan, whose Apply runs through pkexec. The checkbox in the table
-// is what touches the queue; a package's own details are not a place to file it
-// in a list.
+// The button queues and unqueues, like the checkbox in the table: the queue is
+// the one place a transaction is decided, and Apply is the one place it starts.
+// A queued package offers the opposite gesture, read back from the store.
 
 import QtQuick
 import QtQuick.Controls as QQC2
@@ -40,10 +39,6 @@ Item {
     // Bumped when the store changes, so `info` re-reads the snapshot: the
     // backend hands out a copy and has no notify signal for `get()`.
     property int refreshToken: 0
-
-    // The window owns the plan dialog and the job, so this file never calls
-    // `pkexec` itself. `token` is `install`, `update` or `remove`.
-    signal planRequested(string name, string token)
 
     readonly property var info: {
         pane.refreshToken
@@ -73,15 +68,26 @@ Item {
     readonly property string factsPkgver: pane.catalogBackend.factsPkgver
     readonly property bool factsReady: pane.factsPkgver === pane.packageName
 
+    // The action the queue already holds for this package, empty when it is
+    // not queued. `refreshToken` is the dependency: the store has no per-package
+    // signal, and every mutation bumps the revision.
+    readonly property string queuedAction: {
+        pane.refreshToken
+        return pane.installedBackend.queuedAction(pane.name)
+    }
+
     // What the one button does. An update outranks "installed", because the
     // reason the user opened the page is usually the new version.
     readonly property string actionToken: pane.info.isUpdate ? "update"
                                         : (pane.installed ? "remove" : "install")
-    readonly property string actionLabel: pane.info.isUpdate ? i18nd("kxbps", "Update")
-                                         : (pane.installed ? i18nd("kxbps", "Remove")
-                                                           : i18nd("kxbps", "Install"))
-    readonly property string actionIcon: pane.info.isUpdate ? "system-software-update"
-                                        : (pane.installed ? "edit-delete" : "document-save")
+    readonly property string actionLabel: pane.queuedAction.length > 0
+                                          ? i18nd("kxbps", "Remove from the queue")
+                                          : (pane.info.isUpdate ? i18nd("kxbps", "Queue the update")
+                                             : (pane.installed ? i18nd("kxbps", "Queue removal")
+                                                               : i18nd("kxbps", "Queue installation")))
+    readonly property string actionIcon: pane.queuedAction.length > 0 ? "edit-clear"
+                                        : (pane.info.isUpdate ? "system-software-update"
+                                           : (pane.installed ? "edit-delete" : "document-save"))
 
     readonly property bool threeColumns: pane.rowLayout === 0
 
@@ -210,20 +216,40 @@ Item {
             heading: i18nd("kxbps", "Package information")
         }
 
-        QQC2.Label {
+        RowLayout {
             Layout.fillWidth: true
             Layout.minimumWidth: 0
-            text: pane.name
-            font.bold: true
-            elide: Text.ElideRight
-        }
+            spacing: Kirigami.Units.smallSpacing
 
-        Fact {
-            label: i18nd("kxbps", "Version")
-            value: pane.installed && pane.version.length > 0
-                   ? i18nd("kxbps", "%1 → %2", pane.info.installedVersion, pane.version)
-                   : pane.version
-            mono: true
+            // One generic package icon, never a per-package picture: the
+            // catalogue has none, and an invented one would be decoration.
+            Kirigami.Icon {
+                source: "package-x-generic"
+                implicitWidth: Kirigami.Units.iconSizes.large
+                implicitHeight: Kirigami.Units.iconSizes.large
+            }
+
+            ColumnLayout {
+                Layout.fillWidth: true
+                Layout.minimumWidth: 0
+                spacing: 0
+
+                QQC2.Label {
+                    Layout.fillWidth: true
+                    Layout.minimumWidth: 0
+                    text: pane.name
+                    font.bold: true
+                    elide: Text.ElideRight
+                }
+
+                Fact {
+                    label: i18nd("kxbps", "Version")
+                    value: pane.installed && pane.version.length > 0
+                           ? i18nd("kxbps", "%1 → %2", pane.info.installedVersion, pane.version)
+                           : pane.version
+                    mono: true
+                }
+            }
         }
 
         Fact {
@@ -286,7 +312,13 @@ Item {
                 icon.name: pane.actionIcon
                 font: Kirigami.Theme.smallFont
                 enabled: pane.packageName.length > 0 && pane.factsReady
-                onClicked: pane.planRequested(pane.name, pane.actionToken)
+                onClicked: {
+                    if (pane.queuedAction.length > 0) {
+                        pane.installedBackend.removeQueued(pane.name)
+                    } else {
+                        pane.installedBackend.toggleQueue(pane.name, pane.actionToken)
+                    }
+                }
             }
 
             QQC2.Button {

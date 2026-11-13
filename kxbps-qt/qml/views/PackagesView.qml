@@ -29,12 +29,6 @@ Item {
     // The current or last finished job: the log strip reports it.
     property var job
 
-    signal updateAllRequested()
-
-    // A row asked for a transaction. The window owns the plan dialog and the
-    // job, so the list only forwards the name and what the user meant.
-    signal planRequested(string name, string token)
-
     // The selected row, as the `name-version_revision` xbps prints.
     property string selectedName: ""
     property string selectedPkgver: ""
@@ -502,6 +496,37 @@ Item {
         return i18nd("kxbps", "Could not save the system state.")
     }
 
+    // The table's own footer: the count of what the list shows. The window bar
+    // carries the tool's state, so numbers live next to the table that
+    // produced them.
+    function footerText() {
+        if (view.packages === null) {
+            return ""
+        }
+        const count = view.packages.count
+        // A read in flight: the rows on screen are the previous answer, so a
+        // number would describe a list that is about to change.
+        if (view.packages.searchLoading) {
+            return view.packages.search.length > 0
+                    ? i18nd("kxbps", "Searching the repositories…")
+                    : i18nd("kxbps", "Reading the repository list…")
+        }
+        // A pattern asks the repositories, so the number is the size of the
+        // answer, not of the installed set.
+        if (view.packages.search.length > 0) {
+            return i18ndp("kxbps", "%1 search result", "%1 search results", count)
+        }
+        switch (view.packages.filter) {
+        case "installed":
+            return i18ndp("kxbps", "%1 installed package", "%1 installed packages", count)
+        case "updates":
+            return i18ndp("kxbps", "%1 update", "%1 updates", count)
+        case "queued":
+            return i18ndp("kxbps", "%1 queued package", "%1 queued packages", count)
+        }
+        return i18ndp("kxbps", "%1 package", "%1 packages", count)
+    }
+
     ColumnLayout {
         anchors.fill: parent
         spacing: 0
@@ -821,6 +846,24 @@ Item {
             }
         }
 
+        // The table's footer: what the list shows, right under it. The window
+        // bar carries the tool's state instead of numbers.
+        Kirigami.Separator {
+            Layout.fillWidth: true
+        }
+
+        QQC2.Label {
+            Layout.fillWidth: true
+            Layout.leftMargin: Kirigami.Units.largeSpacing
+            Layout.rightMargin: Kirigami.Units.largeSpacing
+            Layout.topMargin: Kirigami.Units.smallSpacing
+            Layout.bottomMargin: Kirigami.Units.smallSpacing
+            text: view.footerText()
+            font: Kirigami.Theme.smallFont
+            color: Kirigami.Theme.disabledTextColor
+            elide: Text.ElideRight
+        }
+
         // The details of the selected row, under the table. The panels take
         // height, not width, so the columns keep their sizes.
         Kirigami.Separator {
@@ -837,7 +880,6 @@ Item {
             installedBackend: view.installedBackend
             packageName: view.selectedPkgver
             packageLabel: view.selectedName
-            onPlanRequested: (name, token) => view.planRequested(name, token)
         }
 
         // The narrow form's way into the facts, next to the log strip. It only
@@ -900,7 +942,6 @@ Item {
             installedBackend: view.installedBackend
             packageName: view.selectedPkgver
             packageLabel: view.selectedName
-            onPlanRequested: (name, token) => view.planRequested(name, token)
         }
     }
 

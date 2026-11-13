@@ -1,9 +1,11 @@
-// The status bar under the table: the counts, and what a running job is doing.
+// The thin bar at the bottom: what the tool is doing, and the way into the
+// xbps log. Counts live in the page footer, where the table that produced them
+// is, so this bar answers one question only.
 //
-// It answers three questions without opening anything: how big the system is,
-// how much of it the queue holds, and how the last transaction ended. While a
-// job runs the strip belongs to the job, because progress is the only thing
-// that matters then; the counts come back when it has finished.
+// A transaction owns the bar while it runs: progress, its own sentence and a
+// cancel that exists only while xbps has not started. Afterwards the bar keeps
+// the result until the next transaction, because the exit code is what the
+// user wants to read.
 
 import QtQuick
 import QtQuick.Controls as QQC2
@@ -12,28 +14,46 @@ import org.kde.kirigami as Kirigami
 import org.kde.ki18n 1.0
 
 Rectangle {
-    id: strip
+    id: bar
 
-    property var installedBackend
     property var job
     property string jobLabel
     // False once the queue is used again: the last transaction's result must
     // not outlive the state it describes.
     property bool showResult: false
     // Why a transaction never started: a dry run xbps refused, or one that
-    // found nothing to do. The strip is the only place the silent queue path
-    // can say it.
+    // found nothing to do.
     property string message: ""
     property bool messageIsError: false
-    property string currentMirror
-    // The counts of the whole system, not of the visible filter: the strip is a
-    // fact about the machine, and a filter is a view of it.
-    property int totalCount: 0
-    property int installedCount: 0
+    // Whether the log drawer below is open.
+    property bool logOpen: false
+    // False before the first transaction: there is no output to show yet.
+    property bool logAvailable: false
 
     signal cancelRequested()
+    signal logToggleRequested()
 
     readonly property bool running: job !== null && !job.done
+    readonly property bool resultVisible: !running && showResult && job !== null && job.done
+
+    // One sentence, by precedence: the job, its result, the reason nothing
+    // started, or "Ready".
+    readonly property string statusText: {
+        if (running || resultVisible) {
+            return bar.jobLabel
+        }
+        if (message.length > 0) {
+            return message
+        }
+        return i18nd("kxbps", "Ready")
+    }
+
+    readonly property bool statusIsError: {
+        if (running || resultVisible) {
+            return job !== null && job.failed === true
+        }
+        return message.length > 0 && messageIsError
+    }
 
     color: Kirigami.Theme.alternateBackgroundColor
 
@@ -43,100 +63,48 @@ Rectangle {
         anchors.top: parent.top
     }
 
-    // The one sentence of the strip, with positional arguments so a translator
-    // can reorder the numbers. Void ships no catalogue, so there is no total
-    // "packages" number to print: the installed set is the only whole set the
-    // tool knows.
-    function summaryText() {
-        // Label-and-number, not a sentence: a count in a sentence needs the
-        // language's plural form for each of the three numbers, and one msgid
-        // cannot carry three of them. Every language reads this as a legend.
-        return i18nd("kxbps", "Installed: %1 · Upgradable: %2 · Marked: %3",
-                     strip.installedCount,
-                     strip.installedBackend.updatesCount,
-                     strip.installedBackend.queueCount)
-    }
-
     RowLayout {
         anchors.fill: parent
         anchors.leftMargin: Kirigami.Units.largeSpacing
-        anchors.rightMargin: Kirigami.Units.largeSpacing
+        anchors.rightMargin: Kirigami.Units.smallSpacing
         spacing: Kirigami.Units.largeSpacing
 
-        // While a transaction runs the left half belongs to the job.
-        RowLayout {
-            visible: strip.running
+        QQC2.ProgressBar {
+            visible: bar.running
+            Layout.preferredWidth: Kirigami.Units.gridUnit * 8
+            from: 0
+            to: 100
+            value: bar.job !== null ? bar.job.progress : 0
+        }
+
+        QQC2.Label {
             Layout.fillWidth: true
             Layout.minimumWidth: 0
-            spacing: Kirigami.Units.largeSpacing
-
-            QQC2.ProgressBar {
-                Layout.preferredWidth: Kirigami.Units.gridUnit * 10
-                from: 0
-                to: 100
-                value: strip.job !== null ? strip.job.progress : 0
-            }
-
-            QQC2.Label {
-                Layout.fillWidth: true
-                Layout.minimumWidth: 0
-                text: strip.jobLabel
-                font: Kirigami.Theme.smallFont
-                elide: Text.ElideRight
-            }
-
-            QQC2.Button {
-                text: i18nd("kxbps", "Cancel")
-                icon.name: "dialog-cancel"
-                font: Kirigami.Theme.smallFont
-                // A cancel is only possible before xbps exists; hiding the
-                // control once it runs avoids a click that would do nothing.
-                visible: strip.job === null || strip.job.cancellable
-                onClicked: strip.cancelRequested()
-            }
-        }
-
-        QQC2.Label {
-            visible: !strip.running
-            Layout.fillWidth: true
-            Layout.minimumWidth: 0
-            text: strip.summaryText()
+            text: bar.statusText
             font: Kirigami.Theme.smallFont
-            color: Kirigami.Theme.disabledTextColor
+            color: bar.statusIsError ? Kirigami.Theme.negativeTextColor
+                                     : Kirigami.Theme.disabledTextColor
             elide: Text.ElideRight
         }
 
-        // Why a click on Apply started nothing. A refusal is not a count, so
-        // it reads in the warning colour instead of the muted one.
-        QQC2.Label {
-            visible: !strip.running && strip.message.length > 0
-            Layout.maximumWidth: Kirigami.Units.gridUnit * 30
-            text: strip.message
+        QQC2.Button {
+            // A cancel is only possible before xbps exists; hiding the control
+            // once it runs avoids a click that would do nothing.
+            visible: bar.running && (bar.job === null || bar.job.cancellable)
+            text: i18nd("kxbps", "Cancel")
+            icon.name: "dialog-cancel"
             font: Kirigami.Theme.smallFont
-            color: strip.messageIsError ? Kirigami.Theme.negativeTextColor
-                                        : Kirigami.Theme.disabledTextColor
-            elide: Text.ElideRight
+            onClicked: bar.cancelRequested()
         }
 
-        // The result of the last transaction, beside the counts it changed.
-        QQC2.Label {
-            visible: !strip.running && strip.job !== null && strip.job.done && strip.showResult
-            Layout.maximumWidth: Kirigami.Units.gridUnit * 24
-            text: strip.jobLabel
+        QQC2.Button {
+            text: i18nd("kxbps", "xbps log")
+            icon.name: "utilities-terminal"
             font: Kirigami.Theme.smallFont
-            // A failed transaction must not read like a finished one.
-            color: strip.job !== null && strip.job.failed ? Kirigami.Theme.negativeTextColor
-                                                          : Kirigami.Theme.disabledTextColor
-            elide: Text.ElideRight
-        }
-
-        QQC2.Label {
-            Layout.maximumWidth: Kirigami.Units.gridUnit * 20
-            text: strip.currentMirror
-            font: Kirigami.Theme.smallFont
-            color: Kirigami.Theme.disabledTextColor
-            elide: Text.ElideMiddle
-            // The repository in use is a URL, so it stays untranslated.
+            checkable: true
+            checked: bar.logOpen
+            enabled: bar.logAvailable
+            onClicked: bar.logToggleRequested()
         }
     }
 }

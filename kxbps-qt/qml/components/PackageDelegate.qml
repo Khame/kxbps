@@ -139,7 +139,7 @@ QQC2.ItemDelegate {
         color: delegate.selected
                ? Qt.rgba(Kirigami.Theme.highlightColor.r,
                          Kirigami.Theme.highlightColor.g,
-                         Kirigami.Theme.highlightColor.b, 0.16)
+                         Kirigami.Theme.highlightColor.b, 0.28)
                : (delegate.hovered ? Qt.rgba(Kirigami.Theme.highlightColor.r,
                                              Kirigami.Theme.highlightColor.g,
                                              Kirigami.Theme.highlightColor.b, 0.07)

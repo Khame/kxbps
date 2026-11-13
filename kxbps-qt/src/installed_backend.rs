@@ -247,6 +247,12 @@ pub mod qobject {
         #[qinvokable]
         fn is_installed(self: &InstalledBackend, name: &QString) -> bool;
 
+        /// The action queued for `name` (`install`, `remove`, `update`), or an
+        /// empty string when the package is not in the queue. The details pane
+        /// reads it to offer the opposite gesture.
+        #[qinvokable]
+        fn queued_action(self: &InstalledBackend, name: &QString) -> QString;
+
         #[qinvokable]
         fn release(self: &InstalledBackend, object: QObjectMutPtr);
 
@@ -630,6 +636,13 @@ impl qobject::InstalledBackend {
 
     fn is_installed(&self, name: &cxx_qt_lib::QString) -> bool {
         self.store.installed.contains_key(&name.to_string())
+    }
+
+    /// The queue token for one package, empty when it is not queued.
+    fn queued_action(&self, name: &cxx_qt_lib::QString) -> cxx_qt_lib::QString {
+        queued_action_in(&self.store.queue, &name.to_string())
+            .map(cxx_qt_lib::QString::from)
+            .unwrap_or_default()
     }
 
     fn reset(mut self: Pin<&mut Self>) {
@@ -1328,6 +1341,23 @@ fn strings_of(list: &cxx_qt_lib::QStringList) -> Vec<String> {
 fn json_of<T: serde::Serialize>(value: &T) -> QString {
     let json = serde_json::to_string(value).unwrap_or_else(|_| String::from("null"));
     QString::from(json.as_str())
+}
+
+/// The action the queue holds for `name`, as the token QML reads.
+fn queued_action_in(queue: &[QueueItem], name: &str) -> Option<&'static str> {
+    queue
+        .iter()
+        .find(|item| item.name == name)
+        .map(|item| action_token(item.action))
+}
+
+/// The QML token for a queued action, the inverse of [`parse_action`].
+fn action_token(action: QueueAction) -> &'static str {
+    match action {
+        QueueAction::Remove => "remove",
+        QueueAction::Update => "update",
+        QueueAction::Install => "install",
+    }
 }
 
 fn parse_action(token: &str) -> QueueAction {
@@ -2037,6 +2067,34 @@ mod tests {
         assert_eq!(parse_action("remove"), QueueAction::Remove);
         assert_eq!(parse_action("update"), QueueAction::Update);
         assert_eq!(parse_action("nonsense"), QueueAction::Install);
+    }
+
+    /// The details pane offers the opposite gesture by reading the action the
+    /// queue holds; an empty answer means the package is not queued.
+    #[test]
+    fn the_queue_reports_the_action_it_holds() {
+        let installed = installed_set();
+        let store = store_with(
+            &installed,
+            vec![
+                QueueItem {
+                    name: "vim".into(),
+                    action: QueueAction::Update,
+                },
+                QueueItem {
+                    name: "mesa".into(),
+                    action: QueueAction::Remove,
+                },
+                QueueItem {
+                    name: "ark".into(),
+                    action: QueueAction::Install,
+                },
+            ],
+        );
+        assert_eq!(queued_action_in(&store.queue, "vim"), Some("update"));
+        assert_eq!(queued_action_in(&store.queue, "mesa"), Some("remove"));
+        assert_eq!(queued_action_in(&store.queue, "ark"), Some("install"));
+        assert_eq!(queued_action_in(&store.queue, "zsh"), None);
     }
 
     /// A healthy answer to the five read commands, as the shim would return it.

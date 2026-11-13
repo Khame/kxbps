@@ -315,32 +315,6 @@ Kirigami.ApplicationWindow {
         return ""
     }
 
-    // The one line above the table. It carries only what the status strip
-    // cannot: the sidebar already names the active filter, and the strip counts
-    // the installed set, the updates and the queue, so repeating those numbers
-    // here said nothing. A search result count, a read in flight and the
-    // filters the strip does not count still belong here.
-    function listCaption() {
-        const packages = installedBackend.packages
-        if (packages.searchLoading) {
-            return packages.search.length > 0
-                    ? i18nd("kxbps", "Searching the repositories…")
-                    : i18nd("kxbps", "Reading the repository list…")
-        }
-        // A non-empty pattern asks the repositories, so the number is the size
-        // of the answer, not of the installed set.
-        if (packages.search.length > 0) {
-            return i18ndp("kxbps", "%1 search result", "%1 search results", packages.count)
-        }
-        switch (packages.filter) {
-        case "installed":
-        case "updates":
-        case "queued":
-            return ""
-        }
-        return i18ndp("kxbps", "%1 package", "%1 packages", packages.count)
-    }
-
     // The one sentence for a missing privileged half, chosen by the key the
     // backend sent. A disabled button with no reason is the bug this names.
     function mirrorHelperText(key) {
@@ -357,60 +331,13 @@ Kirigami.ApplicationWindow {
 
     // Plan and job objects are C++-parented children of the backend, so the
     // dialog that opens one releases it. `startJob` keeps the job in
-    // `root.job`, which the strip and the drawer read; the backend releases the
+    // `root.job`, which the bar and the drawer read; the backend releases the
     // previous one when it hands over the next.
     //
-    // A plan is a dry run, so `open*` only starts a worker thread and answers
-    // with a request id; the object arrives through `onPlanReady`. The backend
-    // drops an answer whose request a newer one superseded, so a plan is only
-    // ever shown for the state the user asked from.
-    function openQueuePlan() {
-        planDialog.loadingText = i18nd("kxbps", "Asking xbps what it would do…")
-        planDialog.loading = true
-        planDialog.open()
-        planPending = installedBackend.openQueuePlan()
-    }
-
-    function openSystemPlan() {
-        planDialog.loadingText = i18nd("kxbps", "Asking xbps what it would do…")
-        planDialog.loading = true
-        planDialog.open()
-        planPending = installedBackend.openSystemPlan()
-    }
-
-    // One row asked for its own transaction: `install` and `update` both plan
-    // installing that name (xbps resolves the version itself), `remove` plans
-    // the removal. Either way the dialog opens in its loading state and the dry
-    // run decides what is really going to happen.
-    function openPackagePlan(name, token) {
-        if (name.length === 0) {
-            return
-        }
-        planDialog.loadingText = i18nd("kxbps", "Asking xbps what it would do…")
-        planDialog.loading = true
-        planDialog.open()
-        if (token === "remove") {
-            planPending = installedBackend.openRemoveNames([name], false)
-        } else {
-            planPending = installedBackend.openNamedPlan([name], "planInstall")
-        }
-    }
-
-    // `Remove…` from the menu bar. The backend answers with a request id only,
-    // like the queue and system plans, so the dialog opens in its loading state
-    // and `onPlanReady` fills it. A name that is not installed, or an empty one,
-    // sends nothing: the menu item is disabled then, and this is the second net.
-    function openRemoveName(name) {
-        if (name.length === 0) {
-            return
-        }
-        planDialog.loadingText = i18nd("kxbps", "Asking xbps what it would do…")
-        planDialog.loading = true
-        planDialog.open()
-        const names = [name]
-        planPending = installedBackend.openRemoveNames(names, false)
-    }
-
+    // A plan is a dry run, so `openQueuePlan` only starts a worker thread and
+    // answers with a request id; the object arrives through `onPlanReady`. The
+    // backend drops an answer whose request a newer one superseded, so a plan
+    // is only ever shown for the state the user asked from.
     function startJob(started) {
         if (started === null) {
             return
@@ -954,14 +881,15 @@ Kirigami.ApplicationWindow {
                 // The page's own title, kept as a single muted line so the
                 // toolbar stays one row and the table starts as high as it can.
                 // The band stays even when it has nothing to say: it separates
-                // the toolbar from the table.
+                // the toolbar from the table. Counts belong to the page footer,
+                // not here.
                 QQC2.Label {
                     Layout.fillWidth: true
                     Layout.leftMargin: Kirigami.Units.largeSpacing
                     Layout.rightMargin: Kirigami.Units.largeSpacing
                     Layout.topMargin: Kirigami.Units.smallSpacing
                     text: root.section === "packages"
-                          ? root.listCaption()
+                          ? root.headerTitle()
                           : root.headerTitle() + " · " + root.headerSubtitle(installedBackend.packages.count)
                     font: Kirigami.Theme.smallFont
                     color: Kirigami.Theme.disabledTextColor
@@ -1000,8 +928,6 @@ Kirigami.ApplicationWindow {
                         installedBackend: installedBackend
                         catalogBackend: catalogBackend
                         job: root.job
-                        onUpdateAllRequested: root.openSystemPlan()
-                        onPlanRequested: (name, token) => root.openPackagePlan(name, token)
                         onSearchFieldRequested: toolbarSearch.forceActiveFocus()
                     }
 
@@ -1023,22 +949,19 @@ Kirigami.ApplicationWindow {
                 StatusStrip {
                     Layout.fillWidth: true
                     implicitHeight: Kirigami.Units.gridUnit * 2
-                    installedBackend: installedBackend
                     job: root.job
                     jobLabel: root.jobLabel
                     showResult: root.showJobResult
                     message: root.stripMessage
                     messageIsError: root.stripMessageIsError
-                    currentMirror: mirrorBackend.systemMirror.length > 0
-                                   ? mirrorBackend.systemMirror
-                                   : mirrorBackend.currentMirror
-                    totalCount: installedBackend.packages.count
-                    installedCount: installedBackend.installedCount
+                    logOpen: logDrawer.expanded
+                    logAvailable: root.job !== null
                     onCancelRequested: {
                         if (root.job !== null) {
                             root.job.cancel()
                         }
                     }
+                    onLogToggleRequested: logDrawer.toggleExpanded()
                 }
 
                 LogDrawer {
