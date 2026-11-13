@@ -330,6 +330,9 @@ pub mod keys {
     pub const REPO_ADD_DONE: &str = "repoAddDone";
     /// The repository helper removed one file (`%1` = the file name).
     pub const REPO_REMOVE_DONE: &str = "repoRemoveDone";
+    /// The repository file was written, but `xbps-install -S` failed
+    /// (`%1` = the URL).
+    pub const REPO_SYNC_FAILED: &str = "repoSyncFailed";
 }
 
 /// What the job thread needs: the plan the dialog was built from, or the one
@@ -514,6 +517,18 @@ impl JobKind {
 /// page shows with the value the user asked for. 126/127/-1 stay pkexec's, the
 /// same as for the mirror helper.
 fn repo_verdict(code: i32, value: &str, remove: bool) -> Verdict {
+    // The file is written; only the index fetch failed. Not a failed edit: the
+    // sentence says the repository is there and what to retry.
+    if code == kxbps_core::repository_edit::SYNC_FAILED {
+        return Verdict {
+            done: true,
+            failed: false,
+            cancelled: false,
+            exit_code: code,
+            key: keys::REPO_SYNC_FAILED,
+            args: vec![value.to_owned()],
+        };
+    }
     if code == 0 {
         return Verdict {
             done: true,
@@ -591,15 +606,21 @@ fn mirror_verdict(code: i32, detail: &str, url: &str) -> Verdict {
 ///   it could not confirm. Inventing a path by parsing the sentence would
 ///   guess, and printing the same text twice helps nobody.
 fn mirror_failed(exit: Exit, code: i32, detail: &str, url: &str) -> Verdict {
+    // The configuration is written and verified; only the index fetch failed.
+    // The job is not a failure -- the sentence says the mirror is set and what
+    // to retry -- so the strip does not paint a correct mirror red.
+    let failed = exit != Exit::SyncFailed;
     let args = match exit {
         Exit::UrlRefused => exit.args(url),
-        Exit::Ok | Exit::WriteFailed | Exit::VerifyFailed | Exit::VerifyAndRevertFailed => {
-            vec![detail.to_owned()]
-        }
+        Exit::Ok
+        | Exit::WriteFailed
+        | Exit::VerifyFailed
+        | Exit::VerifyAndRevertFailed
+        | Exit::SyncFailed => vec![detail.to_owned()],
     };
     Verdict {
         done: true,
-        failed: true,
+        failed,
         cancelled: false,
         exit_code: code,
         key: exit.key(),
@@ -1538,6 +1559,18 @@ mod tests {
             ]
         );
         assert_eq!(JobKind::of(&payload), JobKind::RepoApply { remove: false });
+    }
+
+    #[test]
+    fn a_failed_index_sync_is_a_warning_not_a_failure() {
+        let done = JobKind::RepoApply { remove: false }.verdict(
+            kxbps_core::repository_edit::SYNC_FAILED,
+            "",
+            "https://repo.example.org/",
+        );
+        assert!(done.done && !done.failed);
+        assert_eq!(done.key, keys::REPO_SYNC_FAILED);
+        assert_eq!(done.args, vec!["https://repo.example.org/"]);
     }
 
     #[test]

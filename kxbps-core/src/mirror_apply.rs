@@ -15,6 +15,10 @@
 //! 4. **Revert** the previous bytes on a failed verification: exit 4 when the
 //!    revert worked, exit 5 when it did not.
 //!
+//! A verified configuration is then **synced** with `xbps-install -S`, because
+//! `xbps-query` skips a repository that has no index and the package list would
+//! stay short without a word. A failed sync exits 6 and keeps the file.
+//!
 //! The commands and every path are injected, so the tests drive the whole
 //! pipeline without root and without xbps. The production entry point is
 //! [`Cli`] and its [`Cli::run`].
@@ -54,6 +58,11 @@ pub enum Exit {
     VerifyFailed = 4,
     /// The verification failed and the revert failed too.
     VerifyAndRevertFailed = 5,
+    /// The configuration is written and verified, but `xbps-install -S` failed.
+    /// The mirror is set; the index for it is not, so every package list stays
+    /// incomplete until the sync succeeds. The file is kept: a mirror that is
+    /// merely unreachable for a minute is not a wrong mirror.
+    SyncFailed = 6,
 }
 
 impl Exit {
@@ -70,6 +79,7 @@ impl Exit {
             3 => Some(Self::WriteFailed),
             4 => Some(Self::VerifyFailed),
             5 => Some(Self::VerifyAndRevertFailed),
+            6 => Some(Self::SyncFailed),
             _ => None,
         }
     }
@@ -82,6 +92,7 @@ impl Exit {
             Self::WriteFailed => "errorMirrorWrite",
             Self::VerifyFailed => "errorMirrorVerify",
             Self::VerifyAndRevertFailed => "errorMirrorRevert",
+            Self::SyncFailed => "mirrorSyncFailed",
         }
     }
 
@@ -107,11 +118,21 @@ pub fn check_url(url: &str) -> Result<String, String> {
 /// reason the job shows.
 pub type VerifyFn<'a> = dyn FnMut(&str) -> Result<(), String> + 'a;
 
+/// Fetches the indexes of the configured repositories. `Err` carries the
+/// reason the job shows.
+///
+/// A repository whose index is missing is skipped by `xbps-query` without a
+/// word, so a mirror that was written but never synced silently shrinks every
+/// package list. The sync belongs to the same authorization as the write: one
+/// password sets the mirror *and* makes it readable.
+pub type SyncFn<'a> = dyn FnMut() -> Result<(), String> + 'a;
+
 /// Everything one Apply touches. All of it is outer-world state, so the tests
 /// hand in a temporary directory and a closure instead of root and xbps.
 pub struct ApplyRequest<'a> {
     pub config_path: PathBuf,
     pub verify: Box<VerifyFn<'a>>,
+    pub sync: Box<SyncFn<'a>>,
 }
 
 /// What one Apply did, for the report and the job label.
@@ -198,12 +219,24 @@ pub fn apply(mut request: ApplyRequest<'_>, url: &str) -> ApplyResult {
     if let Err(detail) = (request.verify)(&format!("{base}current")) {
         return finish(previous, current, base, backup, detail);
     }
-    ApplyResult {
-        exit: Exit::Ok,
-        url: current,
-        base,
-        backup,
-        detail: String::new(),
+
+    // The file is correct at this point, so a failed sync keeps it and only
+    // reports that the index is still missing.
+    match (request.sync)() {
+        Ok(()) => ApplyResult {
+            exit: Exit::Ok,
+            url: current,
+            base,
+            backup,
+            detail: String::new(),
+        },
+        Err(detail) => ApplyResult {
+            exit: Exit::SyncFailed,
+            url: current,
+            base,
+            backup,
+            detail,
+        },
     }
 }
 
@@ -251,8 +284,16 @@ pub fn verify_argv() -> Vec<String> {
     vec![String::from(XBPS_QUERY), String::from("-L")]
 }
 
+/// The argv of the sync command: `xbps-install -S`.
+pub fn sync_argv() -> Vec<String> {
+    vec![String::from(XBPS_INSTALL), String::from("-S")]
+}
+
 /// The absolute path of `xbps-query`.
 pub const XBPS_QUERY: &str = "/usr/bin/xbps-query";
+
+/// The absolute path of `xbps-install`.
+pub const XBPS_INSTALL: &str = "/usr/bin/xbps-install";
 
 /// The production entry point: one base URL argument, the real commands.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -302,6 +343,7 @@ impl Cli {
             ApplyRequest {
                 config_path,
                 verify: Box::new(run_verify),
+                sync: Box::new(sync_indexes),
             },
             &url,
         )
@@ -320,6 +362,27 @@ fn run_verify(url: &str) -> Result<(), String> {
         }
         Ok(output) => Err(format!(
             "xbps-query -L exited {}: {}",
+            output.status.code().unwrap_or(-1),
+            last_line(&String::from_utf8_lossy(&output.stderr))
+        )),
+        Err(error) => Err(error.to_string()),
+    }
+}
+
+/// Runs `xbps-install -S`; `Err` is the one line the job shows.
+///
+/// A repository without an index is skipped by `xbps-query` without a word, so
+/// every path that writes a repository configuration calls this in the same
+/// authorization: one password sets the repository *and* makes it readable.
+pub fn sync_indexes() -> Result<(), String> {
+    let output = Command::new(command_path(XBPS_INSTALL))
+        .arg("-S")
+        .stdin(Stdio::null())
+        .output();
+    match output {
+        Ok(output) if output.status.success() => Ok(()),
+        Ok(output) => Err(format!(
+            "xbps-install -S exited {}: {}",
             output.status.code().unwrap_or(-1),
             last_line(&String::from_utf8_lossy(&output.stderr))
         )),
@@ -351,7 +414,7 @@ pub fn config_path() -> &'static Path {
 /// fake script: the helper is root-only, and a test that needs the whole
 /// pipeline must not shell out to a real xbps. Unset, the documented absolute
 /// paths are used, which is what polkit authorizes in a real run.
-fn command_path(name: &str) -> String {
+pub fn command_path(name: &str) -> String {
     match std::env::var_os("KXBPS_XBPS_BIN_DIR") {
         Some(dir) => {
             let file = Path::new(name)
@@ -395,6 +458,7 @@ mod tests {
                     Err(format!("{url} is not listed by xbps-query -L"))
                 }
             }),
+            sync: Box::new(|| Ok(())),
         }
     }
 
@@ -422,6 +486,9 @@ mod tests {
         }
         assert_eq!(Exit::from_code(1), None);
         assert_eq!(Exit::from_code(126), None);
+        assert_eq!(Exit::SyncFailed.code(), 6);
+        assert_eq!(Exit::from_code(6), Some(Exit::SyncFailed));
+        assert_eq!(Exit::SyncFailed.key(), "mirrorSyncFailed");
         assert_eq!(Exit::UrlRefused.key(), "errorMirrorUrlRefused");
         assert_eq!(Exit::VerifyFailed.key(), "errorMirrorVerify");
         assert_eq!(
@@ -429,6 +496,43 @@ mod tests {
             [String::from("https://x/")]
         );
         assert!(Exit::WriteFailed.args("https://x/").is_empty());
+    }
+
+    #[test]
+    fn a_failed_sync_keeps_the_file_and_reports_six() {
+        let dir = tempdir("sync-fails");
+        let path = dir.join("00-repository-main.conf");
+        let mut request = request(&path);
+        request.sync = Box::new(|| Err(String::from("network is down")));
+
+        let result = apply(request, GOOD);
+        assert_eq!(result.exit, Exit::SyncFailed);
+        assert_eq!(result.detail, "network is down");
+        assert!(
+            fs::read_to_string(&path)
+                .expect("the written file stays")
+                .contains("repository=https://repo-default.voidlinux.org/current"),
+            "a failed sync must not undo a correct configuration"
+        );
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn the_sync_does_not_run_when_the_verification_failed() {
+        let dir = tempdir("no-sync");
+        let path = dir.join("00-repository-main.conf");
+        let mut request = request(&path);
+        request.verify = Box::new(|_| Err(String::from("not listed")));
+        request.sync = Box::new(|| panic!("a rejected configuration must not be synced"));
+
+        let result = apply(request, GOOD);
+        assert_eq!(result.exit, Exit::VerifyFailed);
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn the_sync_argv_is_xbps_install_dash_s() {
+        assert_eq!(sync_argv(), ["/usr/bin/xbps-install", "-S"]);
     }
 
     #[test]
@@ -704,8 +808,9 @@ mod tests {
         let dir = tempdir("cli-ok");
         let path = dir.join("00-repository-main.conf");
         let listing = format!("7 {GOOD}current (RSA signed)");
-        let script =
-            format!("#!/bin/sh\ncase \"$1\" in\n  -L) echo '{listing}' ;;\n  *) exit 9 ;;\nesac\n");
+        let script = format!(
+            "#!/bin/sh\ncase \"$1\" in\n  -L) echo '{listing}' ;;\n  -S) exit 0 ;;\n  *) exit 9 ;;\nesac\n"
+        );
         let bin = write_fake_xbps(&dir, &script);
 
         let result = with_fake_xbps(&bin, || cli_over(&path, Some(GOOD)).run());
@@ -721,6 +826,27 @@ mod tests {
             fs::read_to_string(&path).expect("written"),
             render_config(GOOD)
         );
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn a_failing_sync_through_the_cli_ends_on_six_and_keeps_the_config() {
+        let dir = tempdir("cli-sync");
+        let path = dir.join("00-repository-main.conf");
+        let listing = format!("7 {GOOD}current (RSA signed)");
+        let script = format!(
+            "#!/bin/sh\ncase \"$1\" in\n  -L) echo '{listing}' ;;\n  -S) echo 'index fetch failed' >&2; exit 1 ;;\n  *) exit 9 ;;\nesac\n"
+        );
+        let bin = write_fake_xbps(&dir, &script);
+
+        let result = with_fake_xbps(&bin, || cli_over(&path, Some(GOOD)).run());
+        assert_eq!(result.exit, Exit::SyncFailed);
+        assert!(
+            result.detail.contains("index fetch failed"),
+            "{}",
+            result.detail
+        );
+        assert!(path.exists(), "the mirror file stays written");
         let _ = fs::remove_dir_all(&dir);
     }
 

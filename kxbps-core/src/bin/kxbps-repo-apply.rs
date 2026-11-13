@@ -7,12 +7,17 @@
 //!   line;
 //! - `remove <file.conf>` deletes a file this helper wrote.
 //!
+//! After a successful `add` it also runs `xbps-install -S`, because a
+//! repository without an index is skipped by `xbps-query` and would not appear
+//! in any package list. A failed sync exits 6 and keeps the file.
+//!
 //! Everything it accepts is decided by [`kxbps_core::repository_edit`]; this
 //! file only parses the argv, prints what happened on stderr and exits with the
 //! documented code. A value that is not one of those verbs is refused before
 //! any file is touched.
 
-use kxbps_core::repository_edit::{self, CONFIG_DIR, RepoError};
+use kxbps_core::mirror_apply::sync_indexes;
+use kxbps_core::repository_edit::{self, CONFIG_DIR, RepoError, SYNC_FAILED};
 
 fn main() {
     let mut args = std::env::args().skip(1);
@@ -32,7 +37,18 @@ fn main() {
         }
     };
     match result {
-        Ok(()) => {}
+        Ok(()) => {
+            // A new repository has no index until `xbps-install -S` fetches
+            // one, and `xbps-query` skips it without a word: the package list
+            // would not show the repository the user just added. Same
+            // authorization, so one password does both.
+            if verb == "add"
+                && let Err(detail) = sync_indexes()
+            {
+                eprintln!("kxbps-repo-apply: index sync failed: {detail}");
+                std::process::exit(SYNC_FAILED);
+            }
+        }
         Err(error) => {
             eprintln!("kxbps-repo-apply: {}", error.key());
             std::process::exit(error.code());

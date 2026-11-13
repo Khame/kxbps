@@ -109,10 +109,16 @@ Kirigami.ApplicationWindow {
         // the dialog named a moment ago, so repeating it adds nothing.
         case "mirrorApplyDone":
             return i18nd("kxbps", "Mirror applied.")
+        // The mirror is written, but `xbps-install -S` did not finish, so the
+        // package lists are still short: the sentence has to say both.
+        case "mirrorSyncFailed":
+            return i18nd("kxbps", "Mirror set, but the package index could not be refreshed: %1", job.labelArg)
         case "repoAddDone":
             return i18nd("kxbps", "Repository %1 added.", job.labelArg)
         case "repoRemoveDone":
             return i18nd("kxbps", "Repository %1 removed.", job.labelArg)
+        case "repoSyncFailed":
+            return i18nd("kxbps", "Repository %1 added, but the package index could not be refreshed", job.labelArg)
         case "errorRepoUrl":
             return i18nd("kxbps", "The helper refused the repository URL.")
         case "errorRepoPresent":

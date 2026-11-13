@@ -23,6 +23,12 @@ pub const CONFIG_DIR: &str = "/etc/xbps.d";
 /// Prefix of every file this helper owns. Removal refuses anything else.
 pub const FILE_PREFIX: &str = "20-kxbps-";
 
+/// The exit code of "the file is written, but the index could not be fetched".
+///
+/// Not a [`RepoError`]: the edit succeeded, and the caller shows a warning
+/// rather than a failure.
+pub const SYNC_FAILED: i32 = 6;
+
 /// Why an edit was refused. Each variant is one exit code and one i18n key.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum RepoError {
