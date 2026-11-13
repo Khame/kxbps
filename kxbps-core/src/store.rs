@@ -20,7 +20,9 @@
 //! renamed over the target, so a crash mid-write leaves either the previous
 //! file or the new one — never a truncated one. A missing or unparsable file
 //! falls back to that concern's default and nothing else is touched; a broken
-//! `prefs.json` must not cost the queue.
+//! `prefs.json` must not cost the queue. The preferences block is versioned
+//! through its `schema` field: a version-1 file is migrated once, when it is
+//! loaded, to the version-2 defaults.
 //!
 //! Versions before the rename kept the same files under a `khaxbps` directory
 //! next to this one; [`Store::load`] moves them out of it on the first start
@@ -160,9 +162,10 @@ impl Eq for Store {}
 fn default_prefs() -> Prefs {
     Prefs {
         notify_on_start: true,
-        desktop: false,
+        desktop: true,
         dismissed: String::new(),
         start_with_session: true,
+        schema: 2,
     }
 }
 
@@ -230,6 +233,15 @@ impl Store {
         }
         if let Some(prefs) = read_json(&dir.join(PREFS_FILE)) {
             store.prefs = prefs;
+            if store.prefs.schema < 2 {
+                // Version 1 of the block kept the desktop switch off; version 2
+                // defaults the announcement to on. The migration is one-time: a
+                // file that already carries `schema: 2` keeps the switch the user
+                // left off, and a missing file never enters this branch.
+                store.prefs.desktop = true;
+                store.prefs.schema = 2;
+                write_json(dir, PREFS_FILE, &store.prefs)?;
+            }
         }
         // An empty URL is what `hydrate` treats as "no mirror saved". Written
         // as `filter` rather than a let-chain so the crate keeps its 1.85 MSRV.
@@ -387,6 +399,7 @@ impl Store {
             desktop: self.prefs.desktop,
             dismissed: String::new(),
             start_with_session: true,
+            schema: 2,
         };
         self.synced_at = None;
         self.dirty = true;
@@ -689,6 +702,10 @@ mod tests {
         assert_eq!(loaded.queue, store.queue);
         assert_eq!(loaded.mirror, "https://mirror.example/void/");
         assert_eq!(loaded.prefs.dismissed, "42");
+        assert_eq!(
+            loaded.prefs.schema, 2,
+            "the schema version survives the round trip"
+        );
         assert!(
             loaded.installed.is_empty(),
             "the installed set is read from xbps, never from disk"
@@ -796,6 +813,7 @@ mod tests {
             desktop: true,
             dismissed: "7".to_string(),
             start_with_session: false,
+            schema: 2,
         };
         write_json(dir.path(), PREFS_FILE, &prefs).expect("seed prefs");
         // A writer that died before its rename leaves a truncated temp file.
@@ -832,6 +850,66 @@ mod tests {
         assert!(
             !reloaded.prefs.start_with_session,
             "the stored value is read back"
+        );
+    }
+
+    #[test]
+    fn a_fresh_store_defaults_to_desktop_notifications_on() {
+        let store = Store::fresh();
+        assert!(
+            store.prefs.desktop,
+            "the update announcement defaults to on"
+        );
+        assert_eq!(store.prefs.schema, 2);
+    }
+
+    #[test]
+    fn a_version_one_prefs_file_is_migrated_to_desktop_notifications_on() {
+        // A file from before the schema version existed has no `schema` key and
+        // kept the desktop switch off; loading it migrates to version 2.
+        let dir = TempDir::new("prefs-migrate");
+        fs::write(
+            dir.path().join(PREFS_FILE),
+            br#"{"notifyOnStart":true,"desktop":false,"dismissed":"","startWithSession":true}"#,
+        )
+        .expect("seed version-1 prefs");
+
+        let store = Store::load_at(dir.path()).expect("load");
+        assert!(
+            store.prefs.desktop,
+            "the migration turns the announcement on"
+        );
+        assert_eq!(store.prefs.schema, 2);
+
+        let stored: Prefs = serde_json::from_str(
+            &fs::read_to_string(dir.path().join(PREFS_FILE)).expect("read migrated prefs"),
+        )
+        .expect("the migrated file reads back");
+        assert_eq!(stored.schema, 2);
+        assert!(stored.desktop);
+    }
+
+    #[test]
+    fn a_version_two_prefs_file_keeps_desktop_notifications_off() {
+        let dir = TempDir::new("prefs-v2");
+        let path = dir.path().join(PREFS_FILE);
+        fs::write(
+            &path,
+            br#"{"schema":2,"notifyOnStart":true,"desktop":false,"dismissed":"","startWithSession":true}"#,
+        )
+        .expect("seed version-2 prefs");
+
+        let before = fs::read(&path).expect("read prefs");
+        let store = Store::load_at(dir.path()).expect("load");
+        assert!(
+            !store.prefs.desktop,
+            "a version-2 file keeps the stored switch"
+        );
+        assert_eq!(store.prefs.schema, 2);
+        assert_eq!(
+            fs::read(&path).expect("read prefs"),
+            before,
+            "a version-2 file is not rewritten by the migration"
         );
     }
 
@@ -1118,6 +1196,7 @@ mod tests {
                 desktop: true,
                 dismissed: String::new(),
                 start_with_session: true,
+                schema: 2,
             }
         );
         assert_eq!(store.synced_at, None);

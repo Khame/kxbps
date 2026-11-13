@@ -303,6 +303,9 @@ pub struct PrefsBackendRust {
     desktop_notifications: bool,
     dismissed_version: QString,
     start_with_session: bool,
+    /// The schema version of the block this backend mirrors, so its cache
+    /// block equals the store's block again after an adopt.
+    schema: u32,
 }
 
 impl Default for PrefsBackendRust {
@@ -313,9 +316,10 @@ impl Default for PrefsBackendRust {
         Self {
             owner: unsafe { QObjectMutPtr::from_raw(std::ptr::null_mut()) },
             notify_on_start: true,
-            desktop_notifications: false,
+            desktop_notifications: true,
             dismissed_version: QString::from(""),
             start_with_session: true,
+            schema: 2,
         }
     }
 }
@@ -328,6 +332,7 @@ impl PrefsBackendRust {
             desktop: self.desktop_notifications,
             dismissed: self.dismissed_version.to_string(),
             start_with_session: self.start_with_session,
+            schema: self.schema,
         }
     }
 
@@ -349,6 +354,7 @@ impl PrefsBackendRust {
         self.desktop_notifications = prefs.desktop;
         self.dismissed_version = QString::from(prefs.dismissed.as_str());
         self.start_with_session = prefs.start_with_session;
+        self.schema = prefs.schema;
     }
 }
 
@@ -555,6 +561,7 @@ mod tests {
             desktop: true,
             dismissed: "sig-42".to_string(),
             start_with_session: false,
+            schema: 2,
         };
         let json = serde_json::to_string(&prefs).expect("serialise");
         assert!(json.contains("\"notifyOnStart\""));
@@ -578,6 +585,7 @@ mod tests {
             desktop: false,
             dismissed: String::new(),
             start_with_session: true,
+            schema: 2,
         };
         let write = bool_write(keys::NOTIFY_ON_START, false).expect("known key");
         assert_eq!(write.key(), keys::NOTIFY_ON_START);
@@ -600,6 +608,7 @@ mod tests {
             desktop: false,
             dismissed: String::new(),
             start_with_session: true,
+            schema: 2,
         };
         let write = string_write(keys::DISMISSED, "sig-7").expect("known key");
         assert_eq!(write.key(), keys::DISMISSED);
@@ -628,6 +637,7 @@ mod tests {
             desktop: false,
             dismissed: String::new(),
             start_with_session: true,
+            schema: 2,
         };
         assert!(
             bool_write(keys::NOTIFY_ON_START, true)
@@ -656,6 +666,7 @@ mod tests {
             desktop,
             dismissed: dismissed.to_string(),
             start_with_session: true,
+            schema: 2,
         }
     }
 
@@ -741,7 +752,7 @@ mod tests {
 
         for write in [
             bool_write(keys::NOTIFY_ON_START, false).expect("known key"),
-            bool_write(keys::DESKTOP, true).expect("known key"),
+            bool_write(keys::DESKTOP, false).expect("known key"),
             string_write(keys::DISMISSED, "sig-42").expect("known key"),
             bool_write(keys::START_WITH_SESSION, false).expect("known key"),
         ] {
@@ -758,7 +769,7 @@ mod tests {
         let json = serde_json::to_string(&loaded.prefs).expect("serialise");
         let prefs = decode_prefs(&json).expect("decode");
         assert!(!prefs.notify_on_start);
-        assert!(prefs.desktop);
+        assert!(!prefs.desktop);
         assert_eq!(prefs.dismissed, "sig-42");
         assert!(!prefs.start_with_session);
     }
