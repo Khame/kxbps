@@ -147,8 +147,11 @@ Item {
         if (!view.wideRow) {
             return 0
         }
+        // Two spacings of slack: a row that asks for exactly the width it has
+        // gets squeezed by the layout's own rounding, and the header and the
+        // delegates then squeeze different cells.
         const room = view.tableWidth - view.rowWidth(view.sizedColumns("description"))
-                     - view.gutter
+                     - view.gutter - Kirigami.Units.smallSpacing * 2
         return Math.max(Kirigami.Units.gridUnit * 6, room)
     }
 

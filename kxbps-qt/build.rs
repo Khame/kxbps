@@ -20,7 +20,6 @@ fn main() {
             .qml_file("qml/components/StatusStrip.qml")
             .qml_file("qml/components/LogDrawer.qml")
             .qml_file("qml/components/PlanDialog.qml")
-            .qml_file("qml/components/JobDialog.qml")
             .qml_file("qml/components/BlockedDialog.qml")
             .qml_file("qml/components/AboutDialog.qml")
             // Each of these two is the only place one optional module is

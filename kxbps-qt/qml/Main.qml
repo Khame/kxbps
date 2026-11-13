@@ -43,11 +43,30 @@ Kirigami.ApplicationWindow {
     readonly property bool hasSelection: selectedName.length > 0
 
     // The current or last finished job. It is kept until the next transaction
-    // starts, so the status strip and the log drawer stay readable after the
-    // JobDialog closes; the dialog releases the previous job when it takes the
-    // next one.
+    // starts, so the status strip and the log drawer stay readable afterwards.
+    // There is no transaction window: the strip carries the progress and the
+    // drawer carries the output, which is where the user watches xbps anyway.
     property var job: null
     property bool showJobResult: false
+
+    // Milliseconds since the job was handed over; the backend turns it into the
+    // bar. The 250 ms pass is also what makes the log live: the worker queues
+    // lines and `tick` appends them, so they land while xbps runs instead of in
+    // one burst after it exits.
+    property real jobElapsed: 0
+
+    Timer {
+        interval: 250
+        repeat: true
+        running: root.job !== null && !root.job.done
+        onTriggered: {
+            if (root.job === null || root.job.done) {
+                return
+            }
+            root.jobElapsed += interval
+            root.job.tick(Math.round(root.jobElapsed))
+        }
+    }
 
     readonly property string jobLabel: {
         if (job === null) {
@@ -335,9 +354,9 @@ Kirigami.ApplicationWindow {
     }
 
     // Plan and job objects are C++-parented children of the backend, so the
-    // dialog that opens one releases it. `startJob` hands the job to JobDialog,
-    // which releases the previous job when it takes the new one; the strip and
-    // the drawer keep reading `root.job` in between.
+    // dialog that opens one releases it. `startJob` keeps the job in
+    // `root.job`, which the strip and the drawer read; the backend releases the
+    // previous one when it hands over the next.
     //
     // A plan is a dry run, so `open*` only starts a worker thread and answers
     // with a request id; the object arrives through `onPlanReady`. The backend
@@ -408,11 +427,12 @@ Kirigami.ApplicationWindow {
         if (started === null) {
             return
         }
-        // Assign before the dialog releases the previous job, so no binding
-        // ever reads a job that is already scheduled for deletion.
+        // The previous job is released when the backend hands over the next
+        // one, so nothing here has to free it first.
         job = started
+        jobElapsed = 0
         showJobResult = false
-        jobDialog.showJob(started)
+        // The drawer scrolls itself: its list follows the last line.
         logDrawer.expand()
     }
 
@@ -498,6 +518,10 @@ Kirigami.ApplicationWindow {
 
     // The request id waiting for its plan; 0 means nothing is pending.
     property real planPending: 0
+    // True while a plan is only being computed so it can be applied at once.
+    // The dry run is still what turns the queue into exact versions and sizes,
+    // but nothing is shown for it: the queue is the confirmation.
+    property bool applyDirectly: false
 
     Connections {
         target: root.job
@@ -553,16 +577,19 @@ Kirigami.ApplicationWindow {
             planDialog.clearLoading()
             root.planPending = 0
             const plan = installedBackend.makePlan(payloadJson)
-            if (plan !== null) {
-                planDialog.showPlan(plan)
+            if (plan === null) {
+                root.applyDirectly = false
+                return
             }
+            if (root.applyDirectly) {
+                root.applyDirectly = false
+                const started = installedBackend.applyPlan(plan)
+                installedBackend.release(plan)
+                root.startJob(started)
+                return
+            }
+            planDialog.showPlan(plan)
         }
-    }
-
-    JobDialog {
-        id: jobDialog
-        installedBackend: installedBackend
-        labelText: root.jobLabel
     }
 
     BlockedDialog {
@@ -742,10 +769,16 @@ Kirigami.ApplicationWindow {
         mirrorBackend.refreshSystem()
     }
 
-    // The queue plan, opened from the toolbar's Apply button and the drawer's
-    // Review. Both describe the same queue, so they are one entry point.
+    // The queue, applied from the toolbar's Apply button and the drawer's
+    // Review. The user has already confirmed by marking packages, so the dry run
+    // runs silently and the transaction starts the moment xbps answers: the
+    // first thing to appear is the password prompt, not another window.
     function reviewQueue() {
-        root.openQueuePlan()
+        if (installedBackend.queueCount === 0) {
+            return
+        }
+        root.applyDirectly = true
+        root.planPending = installedBackend.openQueuePlan()
     }
 
     pageStack.initialPage: Kirigami.Page {

@@ -76,7 +76,12 @@ QObject *kxbps_start_job(QObject *owner, const QString &payloadJson)
 {
     // The job parses the payload itself; `new` takes the parent so Qt destroys
     // it with the installed backend if QML never releases it.
-    return new JobBackend(payloadJson, owner);
+    auto *job = new JobBackend(payloadJson, owner);
+    // The constructor only builds the command list. Without this call nothing
+    // runs: the job keeps its `jobStart` label, the strip shows a bar that never
+    // moves and the log stays empty, because no process was ever spawned.
+    job->start(payloadJson, owner);
+    return job;
 }
 
 QObject *kxbps_start_mirror_job(QObject *owner, const QString &payloadJson)
