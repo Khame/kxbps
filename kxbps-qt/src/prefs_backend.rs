@@ -319,7 +319,7 @@ impl Default for PrefsBackendRust {
             desktop_notifications: true,
             dismissed_version: QString::from(""),
             start_with_session: true,
-            schema: 2,
+            schema: 4,
         }
     }
 }
@@ -561,7 +561,7 @@ mod tests {
             desktop: true,
             dismissed: "sig-42".to_string(),
             start_with_session: false,
-            schema: 2,
+            schema: 4,
         };
         let json = serde_json::to_string(&prefs).expect("serialise");
         assert!(json.contains("\"notifyOnStart\""));
@@ -585,7 +585,7 @@ mod tests {
             desktop: false,
             dismissed: String::new(),
             start_with_session: true,
-            schema: 2,
+            schema: 4,
         };
         let write = bool_write(keys::NOTIFY_ON_START, false).expect("known key");
         assert_eq!(write.key(), keys::NOTIFY_ON_START);
@@ -608,7 +608,7 @@ mod tests {
             desktop: false,
             dismissed: String::new(),
             start_with_session: true,
-            schema: 2,
+            schema: 4,
         };
         let write = string_write(keys::DISMISSED, "sig-7").expect("known key");
         assert_eq!(write.key(), keys::DISMISSED);
@@ -637,7 +637,7 @@ mod tests {
             desktop: false,
             dismissed: String::new(),
             start_with_session: true,
-            schema: 2,
+            schema: 4,
         };
         assert!(
             bool_write(keys::NOTIFY_ON_START, true)
@@ -666,7 +666,7 @@ mod tests {
             desktop,
             dismissed: dismissed.to_string(),
             start_with_session: true,
-            schema: 2,
+            schema: 4,
         }
     }
 

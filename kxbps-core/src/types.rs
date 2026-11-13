@@ -250,8 +250,9 @@ pub struct Prefs {
     /// the filesystem.
     #[serde(default = "default_start_with_session")]
     pub start_with_session: bool,
-    /// Version of this block. `2` means desktop notifications default to on and
-    /// a version-1 file was migrated when it was loaded.
+    /// Version of this block. `4` means the update announcement defaults to on,
+    /// an older file was migrated when it was loaded, and a delivered marker
+    /// written by an earlier notifier was cleared once.
     #[serde(default)]
     pub schema: u32,
 }
@@ -300,7 +301,7 @@ mod tests {
             desktop: false,
             dismissed: String::new(),
             start_with_session: false,
-            schema: 2,
+            schema: 4,
         };
         let json = serde_json::to_string(&prefs).expect("serialise");
         assert!(json.contains("\"startWithSession\":false"));
