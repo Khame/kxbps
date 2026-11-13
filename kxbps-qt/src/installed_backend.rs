@@ -155,6 +155,11 @@ pub mod qobject {
         #[qinvokable]
         fn clear_queue(self: Pin<&mut InstalledBackend>);
 
+        /// Marks every pending update as queued, leaving the rest of the queue
+        /// alone; the marking is idempotent.
+        #[qinvokable]
+        fn queue_all_updates(self: Pin<&mut InstalledBackend>);
+
         #[qinvokable]
         fn toggle_hold(self: Pin<&mut InstalledBackend>, name: &QString);
 
@@ -400,6 +405,37 @@ impl cxx_qt::Initialize for qobject::InstalledBackend {
     }
 }
 
+impl InstalledBackendRust {
+    /// Marks every pending update of the last read as queued, leaving the
+    /// entries that are already in the queue alone.
+    ///
+    /// Idempotent: a second call over the same pending updates adds nothing, and
+    /// a package that is already queued keeps its entry instead of being queued
+    /// twice.
+    fn mark_pending_updates(&mut self) {
+        let pending: Vec<String> = self
+            .snapshot
+            .as_ref()
+            .map(|snapshot| {
+                snapshot
+                    .updates
+                    .iter()
+                    .map(|update| update.name.clone())
+                    .collect::<Vec<_>>()
+            })
+            .unwrap_or_default();
+        for name in pending {
+            let queued = self.store.queue.iter().any(|item| item.name == name);
+            if !queued {
+                self.store.queue.push(QueueItem {
+                    name,
+                    action: QueueAction::Update,
+                });
+            }
+        }
+    }
+}
+
 impl qobject::InstalledBackend {
     fn toggle_queue(
         mut self: Pin<&mut Self>,
@@ -428,6 +464,17 @@ impl qobject::InstalledBackend {
         {
             let data = Pin::get_mut(self.as_mut().rust_mut());
             data.store.clear_queue();
+        }
+        save_store(self.as_mut());
+        refresh_store(self.as_mut());
+    }
+
+    /// Marks every pending update as queued, leaving the rest of the queue
+    /// alone; the marking is idempotent.
+    fn queue_all_updates(mut self: Pin<&mut Self>) {
+        {
+            let data = Pin::get_mut(self.as_mut().rust_mut());
+            data.mark_pending_updates();
         }
         save_store(self.as_mut());
         refresh_store(self.as_mut());
@@ -2074,5 +2121,54 @@ mod tests {
             snapshot.orphans.is_empty(),
             "the old orphan list is replaced"
         );
+    }
+
+    #[test]
+    fn queue_all_updates_marks_every_pending_update() {
+        let installed = installed_set();
+        let mut snapshot = store_snapshot(&installed);
+        snapshot.updates = vec![
+            update_entry("mesa", "25.2_1"),
+            update_entry("vim", "9.2.3000_1"),
+        ];
+        let mut backend = InstalledBackendRust {
+            store: store_with(&installed, Vec::new()),
+            snapshot: Some(snapshot),
+            ..Default::default()
+        };
+
+        backend.mark_pending_updates();
+        let queued = &backend.store.queue;
+        assert_eq!(queued.len(), 2, "both pending updates are queued");
+        assert_eq!(queued[0].name, "mesa");
+        assert_eq!(queued[0].action, QueueAction::Update);
+        assert_eq!(queued[1].name, "vim");
+        assert_eq!(queued[1].action, QueueAction::Update);
+
+        backend.mark_pending_updates();
+        assert_eq!(
+            backend.store.queue.len(),
+            2,
+            "a second call over the same updates adds nothing"
+        );
+    }
+
+    #[test]
+    fn queue_all_updates_keeps_the_entries_already_queued() {
+        let installed = installed_set();
+        let snapshot = store_snapshot(&installed);
+        let mut backend = InstalledBackendRust {
+            store: store_with(&installed, queue("acpid", QueueAction::Remove)),
+            snapshot: Some(snapshot),
+            ..Default::default()
+        };
+
+        backend.mark_pending_updates();
+        let queued = &backend.store.queue;
+        assert_eq!(queued.len(), 2, "the kept removal and the new update");
+        assert_eq!(queued[0].name, "acpid");
+        assert_eq!(queued[0].action, QueueAction::Remove);
+        assert_eq!(queued[1].name, "mesa");
+        assert_eq!(queued[1].action, QueueAction::Update);
     }
 }

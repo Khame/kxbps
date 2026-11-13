@@ -282,6 +282,35 @@ impl InstalledState {
     }
 }
 
+/// Whether one repository hit takes a row while the list filters by `filter`.
+///
+/// The filter narrows the installed set and a search ranks what the repositories
+/// have, so a hit the filter would not show must not take a row: with the
+/// "Installed" filter active, typing must not surface repository hits that are
+/// not installed, install action included. An unknown filter keeps every hit.
+fn search_hit_visible(
+    filter: &str,
+    installed: Option<&Inst>,
+    update_to: Option<&str>,
+    queued: Option<QueueAction>,
+    orphan: bool,
+) -> bool {
+    let installed_here = installed.is_some();
+    let held = installed.is_some_and(|inst| inst.held);
+    match filter {
+        // The Available page reads the repositories, so its filter keeps every
+        // hit: there is no installed set to narrow.
+        "all" => true,
+        "installed" => installed_here,
+        "updates" => installed_here && update_to.is_some() && !held,
+        "explicit" => installed.is_some_and(|inst| inst.explicit),
+        "held" => held,
+        "orphans" => installed_here && orphan,
+        "queued" => queued.is_some(),
+        _ => true,
+    }
+}
+
 /// Value of `role` for one row; an invalid `QVariant` for unknown roles.
 pub fn role_value(role: i32, row: &RowView<'_>) -> QVariant {
     match role {
@@ -896,12 +925,24 @@ impl PackageModelRust {
     /// failed read that keeps the pattern and no rows.
     #[cfg(test)]
     fn apply_search_results(&mut self, hits: &[kxbps_core::SearchHit], key: &str, _args: &[&str]) {
+        let hits: Vec<SearchRow> = hits.iter().map(SearchRow::of).collect();
+        let hits: Vec<SearchRow> = if key.is_empty() {
+            hits.into_iter()
+                .filter(|hit| self.hit_visible(hit))
+                .collect()
+        } else {
+            hits
+        };
         self.active_search = Some(ActiveSearch {
             pattern: self.search.to_string().trim().to_owned(),
-            hits: hits.iter().map(SearchRow::of).collect(),
+            hits,
             error_key: key.to_owned(),
         });
-        self.count = i32::try_from(hits.len()).unwrap_or(i32::MAX);
+        let count = self
+            .active_search
+            .as_ref()
+            .map_or(0, |search| search.hits.len());
+        self.count = i32::try_from(count).unwrap_or(i32::MAX);
     }
 
     #[cfg(test)]
@@ -951,6 +992,20 @@ impl PackageModelRust {
     /// so nothing is copied here; the method keeps the call sites explicit.
     #[cfg(test)]
     fn refresh_search_rows(&mut self) {}
+
+    /// Whether one repository hit the search returned takes a row now, under
+    /// the filter the list currently shows.
+    fn hit_visible(&self, hit: &SearchRow) -> bool {
+        let filter = self.filter.to_string();
+        let view = hit.view(self);
+        search_hit_visible(
+            &filter,
+            view.installed,
+            view.update_to,
+            view.queued,
+            self.state.is_orphan(&hit.name),
+        )
+    }
 
     fn matches(&self, row: &u32, filter: &str, search: &str) -> bool {
         let name = self.name_of(row);
@@ -1156,14 +1211,23 @@ impl qobject::PackageModel {
             serde_json::from_str(&hits_json.to_string()).unwrap_or_default();
         let key = error_key.to_string();
         let args: Vec<String> = error_args.iter().map(QString::to_string).collect();
+        let hits: Vec<SearchRow> = hits.iter().map(SearchRow::of).collect();
+        let hits: Vec<SearchRow> = if key.is_empty() {
+            hits.into_iter()
+                .filter(|hit| self.hit_visible(hit))
+                .collect()
+        } else {
+            hits
+        };
+        let count = hits.len();
         {
             let data = Pin::get_mut(self.as_mut().rust_mut());
             data.active_search = Some(ActiveSearch {
                 pattern: data.search.to_string().trim().to_owned(),
-                hits: hits.iter().map(SearchRow::of).collect(),
+                hits,
                 error_key: key.clone(),
             });
-            data.count = i32::try_from(hits.len()).unwrap_or(i32::MAX);
+            data.count = i32::try_from(count).unwrap_or(i32::MAX);
             data.searching = true;
             data.search_error = QString::from(key.as_str());
             data.search_error_args = args
@@ -1351,6 +1415,9 @@ fn boolean(value: bool) -> QVariant {
 /// with no size must not render `0 B`.
 fn size_text(bytes: Option<u64>) -> QVariant {
     match bytes {
+        // A zero byte size is a real answer xbps printed — a transitional
+        // package — and must not render as `0 B`: the row shows an empty field.
+        Some(0) => text(""),
         Some(bytes) => text(&format_size(bytes)),
         // Unknown is not zero: an invalid variant keeps QML from printing "0 B".
         None => QVariant::default(),
@@ -2381,7 +2448,7 @@ mod tests {
             .map(str::to_owned)
             .collect();
         model.set_search_and_report("vim");
-        model.apply_search_results(&[search_hit("vim", "9.2.1031_1", false)], "", &[]);
+        model.apply_search_results(&[search_hit("vim", "9.2.1031_1", true)], "", &[]);
         assert_eq!(
             model.visible_names(),
             vec!["vim"],
@@ -2403,9 +2470,9 @@ mod tests {
     #[test]
     fn search_hit_rows_are_the_ranked_repository_answer_not_the_installed_set() {
         let mut model = model();
-        set_filter(&mut model, "installed");
+        set_filter(&mut model, "all");
         model.set_search_and_report("vim");
-        // Not installed: a filter over the installed set would hide it.
+        // The Available page reads the repositories, so every hit is in.
         model.apply_search_results(
             &[
                 search_hit("vim", "9.2.1031_1", false),
@@ -2460,7 +2527,7 @@ mod tests {
     fn a_queue_change_moves_a_search_hit_row_without_a_new_read() {
         let mut model = model();
         model.set_search_and_report("retext");
-        model.apply_search_results(&[search_hit("retext", "8.0.2_1", false)], "", &[]);
+        model.apply_search_results(&[search_hit("retext", "8.0.2_1", true)], "", &[]);
         // The row now shows the state a plan left behind: the same hits, read
         // again against the live queue.
         model.store_state(
@@ -2472,5 +2539,165 @@ mod tests {
         );
         model.refresh_search_rows();
         assert_eq!(model.search_row_actions(), vec!["install".to_owned()]);
+    }
+
+    #[test]
+    fn installed_filter_plus_a_search_returns_only_installed_hits() {
+        // The search box is one box for packages, but it must not escape the
+        // filter: with Installed active, a repository hit that is not installed
+        // must not take a row, install action included.
+        let mut model = model();
+        set_filter(&mut model, "installed");
+        model.set_search_and_report("vim");
+        model.apply_search_results(
+            &[
+                search_hit("vim", "9.2.1031_1", true),
+                search_hit("vimb", "4.0.0_1", false),
+            ],
+            "",
+            &[],
+        );
+        assert_eq!(model.visible_names(), vec!["vim"]);
+        assert_eq!(model.count, 1);
+    }
+
+    #[test]
+    fn updates_filter_plus_a_search_returns_only_updatable_hits() {
+        let mut model = model();
+        install(
+            &mut model,
+            &installed(),
+            vec![update("vim-9.2.1031_1")],
+            Vec::new(),
+        );
+        set_filter(&mut model, "updates");
+        model.set_search_and_report("vim");
+        model.apply_search_results(
+            &[
+                search_hit("vim", "9.2.1031_1", true),
+                search_hit("vimb", "4.0.0_1", true),
+            ],
+            "",
+            &[],
+        );
+        assert_eq!(model.visible_names(), vec!["vim"]);
+    }
+
+    #[test]
+    fn explicit_filter_plus_a_search_returns_only_explicit_hits() {
+        let mut model = model();
+        set_filter(&mut model, "explicit");
+        model.set_search_and_report("vim");
+        model.apply_search_results(
+            &[
+                search_hit("vim", "9.2.1031_1", true),
+                search_hit("bash", "5.3_2", true),
+            ],
+            "",
+            &[],
+        );
+        assert_eq!(model.visible_names(), vec!["vim"]);
+    }
+
+    #[test]
+    fn held_filter_plus_a_search_returns_only_held_hits() {
+        let mut model = model();
+        let mut held_installed = installed();
+        held_installed.get_mut("vim").unwrap().held = true;
+        install(&mut model, &held_installed, Vec::new(), Vec::new());
+        set_filter(&mut model, "held");
+        model.set_search_and_report("vim");
+        model.apply_search_results(
+            &[
+                search_hit("vim", "9.2.1031_1", true),
+                search_hit("bash", "5.3_2", true),
+            ],
+            "",
+            &[],
+        );
+        assert_eq!(model.visible_names(), vec!["vim"]);
+    }
+
+    #[test]
+    fn orphans_filter_plus_a_search_returns_only_orphan_hits() {
+        let mut model = model();
+        install(&mut model, &installed(), Vec::new(), vec!["vim".to_owned()]);
+        set_filter(&mut model, "orphans");
+        model.set_search_and_report("vim");
+        model.apply_search_results(
+            &[
+                search_hit("vim", "9.2.1031_1", true),
+                search_hit("bash", "5.3_2", true),
+            ],
+            "",
+            &[],
+        );
+        assert_eq!(model.visible_names(), vec!["vim"]);
+    }
+
+    #[test]
+    fn queued_filter_plus_a_search_returns_only_queued_hits() {
+        let mut model = model();
+        model.queue.insert("vim".to_string(), QueueAction::Install);
+        set_filter(&mut model, "queued");
+        model.set_search_and_report("vim");
+        model.apply_search_results(
+            &[
+                search_hit("vim", "9.2.1031_1", true),
+                search_hit("vimb", "4.0.0_1", true),
+            ],
+            "",
+            &[],
+        );
+        assert_eq!(model.visible_names(), vec!["vim"]);
+    }
+
+    #[test]
+    fn the_all_filter_keeps_every_hit() {
+        let mut model = model();
+        set_filter(&mut model, "all");
+        model.set_search_and_report("vim");
+        model.apply_search_results(
+            &[
+                search_hit("vim", "9.2.1031_1", false),
+                search_hit("vimb", "4.0.0_1", false),
+                search_hit("bash", "5.3_2", true),
+            ],
+            "",
+            &[],
+        );
+        assert_eq!(model.visible_names(), vec!["vim", "vimb", "bash"]);
+    }
+
+    #[test]
+    fn a_zero_byte_size_reports_an_empty_field() {
+        let (mut installed_sizes, repo_installed, repo_download) = sizes();
+        installed_sizes.insert("vim".to_owned(), 0);
+        let mut model = PackageModelRust::default();
+        model.set_sizes(installed_sizes, repo_installed, repo_download);
+        install_records(&mut model, &installed(), records(), Vec::new(), Vec::new());
+
+        let [
+            size,
+            size_bytes,
+            update,
+            update_bytes,
+            download,
+            download_bytes,
+        ] = size_roles(&model, "vim");
+        assert_eq!(
+            string_of(size).as_deref(),
+            Some(""),
+            "a zero size is an empty field, never `0 B`"
+        );
+        assert_eq!(bytes_of(size_bytes), Some(0));
+        assert_eq!(string_of(update), None, "no update, no new size");
+        assert_eq!(bytes_of(update_bytes), None);
+        assert_eq!(
+            string_of(download).as_deref(),
+            Some("1.6 MiB"),
+            "the repository archive size is what a queued install would fetch"
+        );
+        assert_eq!(bytes_of(download_bytes), Some(1_700_000));
     }
 }
