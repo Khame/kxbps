@@ -143,9 +143,10 @@ QQC2.ItemDelegate {
         }
 
         QQC2.Label {
-            Layout.preferredWidth: Kirigami.Units.gridUnit * 5
-            Layout.minimumWidth: Kirigami.Units.gridUnit * 5
-            Layout.maximumWidth: Kirigami.Units.gridUnit * 5
+            // The same width the heading asks for, or the two columns drift.
+            Layout.preferredWidth: Kirigami.Units.gridUnit * 7
+            Layout.minimumWidth: Kirigami.Units.gridUnit * 7
+            Layout.maximumWidth: Kirigami.Units.gridUnit * 7
             horizontalAlignment: Text.AlignRight
             text: delegate.latencyText(model.state, model.latencyMs)
             font.family: "monospace"

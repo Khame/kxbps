@@ -26,24 +26,14 @@ Item {
 
     readonly property real selectionWidth: Kirigami.Units.gridUnit * 2
     readonly property real regionWidth: Kirigami.Units.gridUnit * 6
-    readonly property real latencyWidth: Kirigami.Units.gridUnit * 5
+    // The heading is a word, the values are numbers: at five grid units
+    // the Polish "Opóźnienie" was cut in half and the column drifted
+    // from the rows, which use this same width.
+    readonly property real latencyWidth: Kirigami.Units.gridUnit * 7
     readonly property real stateWidth: Kirigami.Units.gridUnit * 16
-    readonly property real countWidth: Kirigami.Units.gridUnit * 6
-    readonly property real signatureWidth: Kirigami.Units.gridUnit * 8
-    readonly property real fileWidth: Kirigami.Units.gridUnit * 18
-
-    // Filter indices, the same three values `mirror_model.rs` documents: `0`
-    // all, `1` answered (`ok`), `2` failed. The labels use the row's own words
-    // so the filter and the pill never name one state two ways. Filled in
-    // `Component.onCompleted` rather than in the declaration: a `readonly var`
-    // whose initialiser throws once stays undefined for the object's lifetime.
-    property var filterLabels: []
-
-    // `xbps-query -L` plus the `.conf` files, as `{url, count, signed, file}`.
-    // Recomputed only when the backend re-reads, so `JSON.parse` never runs per
-    // binding evaluation. A value this view cannot parse is an empty list: a
-    // half-parsed repository table would claim a state xbps did not report.
-    property var repos: []
+    // The strip the scrollbar takes when it is visible. Rows and the header end
+    // before it, so the state badge is never cut by the bar.
+    readonly property real mirrorScrollBarSpace: mirrorBar.visible ? mirrorBar.width : 0
 
     function parseRepos(json) {
         try {
@@ -161,95 +151,105 @@ Item {
                 Layout.fillWidth: true
                 Layout.fillHeight: true
 
-                ListView {
-                    id: mirrorList
-                    anchors.fill: parent
-                    clip: true
-                    model: view.mirrorBackend.model
-                    headerPositioning: ListView.OverlayHeader
-                    QQC2.ScrollBar.vertical: QQC2.ScrollBar {}
+                // The header is a sibling of the list, not its `header`: an
+                // overlay header draws over the first row, which is how the
+                // latency and state headings ended up printed on a mirror's
+                // badges.
+                Item {
+                    id: mirrorHeader
+                    anchors.left: parent.left
+                    anchors.right: parent.right
+                    anchors.top: parent.top
+                    height: Kirigami.Units.gridUnit * 2
 
-                    header: Item {
-                        width: mirrorList.width
-                        height: Kirigami.Units.gridUnit * 2
+                    Rectangle {
+                        anchors.fill: parent
+                        color: Kirigami.Theme.alternateBackgroundColor
+                    }
 
-                        Rectangle {
-                            anchors.fill: parent
-                            color: Kirigami.Theme.alternateBackgroundColor
+                    Kirigami.Separator {
+                        anchors.left: parent.left
+                        anchors.right: parent.right
+                        anchors.bottom: parent.bottom
+                    }
+
+                    RowLayout {
+                        anchors.fill: parent
+                        anchors.leftMargin: Kirigami.Units.largeSpacing
+                        anchors.rightMargin: Kirigami.Units.largeSpacing
+                                                     + view.mirrorScrollBarSpace
+                        spacing: Kirigami.Units.largeSpacing
+
+                        Item {
+                            Layout.preferredWidth: view.selectionWidth
+                            Layout.minimumWidth: view.selectionWidth
+                            Layout.maximumWidth: view.selectionWidth
                         }
 
-                        Rectangle {
-                            anchors.left: parent.left
-                            anchors.right: parent.right
-                            anchors.bottom: parent.bottom
-                            height: 1
+                        QQC2.Label {
+                            Layout.fillWidth: true
+                            text: i18nd("kxbps", "Server")
+                            font.bold: true
+                            color: Kirigami.Theme.disabledTextColor
+                            elide: Text.ElideRight
+                        }
+
+                        QQC2.Label {
+                            Layout.preferredWidth: view.regionWidth
+                            Layout.minimumWidth: view.regionWidth
+                            Layout.maximumWidth: view.regionWidth
+                            text: i18nd("kxbps", "Region")
+                            font.bold: true
                             color: Kirigami.Theme.disabledTextColor
                         }
 
-                        RowLayout {
-                            anchors.fill: parent
-                            anchors.leftMargin: Kirigami.Units.largeSpacing
-                            anchors.rightMargin: Kirigami.Units.largeSpacing
-                            spacing: Kirigami.Units.largeSpacing
-
-                            Item {
-                                Layout.preferredWidth: view.selectionWidth
-                                Layout.minimumWidth: view.selectionWidth
-                                Layout.maximumWidth: view.selectionWidth
-                            }
-
-                            QQC2.Label {
-                                Layout.fillWidth: true
-                                text: i18nd("kxbps", "Server")
-                                font.bold: true
-                                color: Kirigami.Theme.disabledTextColor
-                                elide: Text.ElideRight
-                            }
-
-                            QQC2.Label {
-                                Layout.preferredWidth: view.regionWidth
-                                Layout.minimumWidth: view.regionWidth
-                                Layout.maximumWidth: view.regionWidth
-                                text: i18nd("kxbps", "Region")
-                                font.bold: true
-                                color: Kirigami.Theme.disabledTextColor
-                            }
-
-                            // The sort is the model's, not a QML reorder: a row
-                            // keeps its mirror when the order changes, so a
-                            // result that arrives mid-sort still lands on the
-                            // right row.
-                            QQC2.ToolButton {
-                                Layout.preferredWidth: view.latencyWidth
-                                Layout.minimumWidth: view.latencyWidth
-                                Layout.maximumWidth: view.latencyWidth
-                                padding: 0
-                                display: QQC2.AbstractButton.TextOnly
-                                text: i18nd("kxbps", "Latency") + " "
-                                      + (view.mirrorBackend.model.sortDescending ? "\u25BC" : "\u25B2")
-                                font.bold: true
-                                checkable: false
-                                Accessible.name: view.mirrorBackend.model.sortDescending
-                                                 ? i18nd("kxbps", "Latency, sorted slowest first")
-                                                 : i18nd("kxbps", "Latency, sorted fastest first")
-                                Accessible.role: Accessible.Button
-                                onClicked: view.mirrorBackend.model.sortDescending =
-                                               !view.mirrorBackend.model.sortDescending
-                            }
-
-                            QQC2.Label {
-                                Layout.preferredWidth: view.stateWidth
-                                Layout.minimumWidth: view.stateWidth
-                                Layout.maximumWidth: view.stateWidth
-                                text: i18nd("kxbps", "State")
-                                font.bold: true
-                                color: Kirigami.Theme.disabledTextColor
-                            }
+                        // The sort is the model's, not a QML reorder: a row
+                        // keeps its mirror when the order changes, so a
+                        // result that arrives mid-sort still lands on the
+                        // right row.
+                        QQC2.ToolButton {
+                            Layout.preferredWidth: view.latencyWidth
+                            Layout.minimumWidth: view.latencyWidth
+                            Layout.maximumWidth: view.latencyWidth
+                            padding: 0
+                            display: QQC2.AbstractButton.TextOnly
+                            text: i18nd("kxbps", "Latency") + " "
+                                  + (view.mirrorBackend.model.sortDescending ? "\u25BC" : "\u25B2")
+                            font.bold: true
+                            checkable: false
+                            Accessible.name: view.mirrorBackend.model.sortDescending
+                                             ? i18nd("kxbps", "Latency, sorted slowest first")
+                                             : i18nd("kxbps", "Latency, sorted fastest first")
+                            Accessible.role: Accessible.Button
+                            onClicked: view.mirrorBackend.model.sortDescending =
+                                           !view.mirrorBackend.model.sortDescending
                         }
+
+                        QQC2.Label {
+                            Layout.preferredWidth: view.stateWidth
+                            Layout.minimumWidth: view.stateWidth
+                            Layout.maximumWidth: view.stateWidth
+                            text: i18nd("kxbps", "State")
+                            font.bold: true
+                            color: Kirigami.Theme.disabledTextColor
+                        }
+                    }
+                }
+
+                ListView {
+                    id: mirrorList
+                    anchors.left: parent.left
+                    anchors.right: parent.right
+                    anchors.top: mirrorHeader.bottom
+                    anchors.bottom: parent.bottom
+                    clip: true
+                    model: view.mirrorBackend.model
+                    QQC2.ScrollBar.vertical: QQC2.ScrollBar {
+                        id: mirrorBar
                     }
 
                     delegate: MirrorDelegate {
-                        width: mirrorList.width
+                        width: mirrorList.width - view.mirrorScrollBarSpace
                         mirrorBackend: view.mirrorBackend
                     }
                 }
