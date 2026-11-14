@@ -30,10 +30,59 @@ use crate::xbps_snapshot::{
     read_search,
 };
 
-/// The `lastSearchPattern` value that means "the whole repository listing was
-/// read". No real pattern can be this string, so the first empty read is not
-/// mistaken for an answer already on screen.
-const EMPTY_LISTING_SEEN: &str = "\u{0}";
+/// The repository answers the package list already holds.
+///
+/// The cache exists so a request the backend does not want to re-read still
+/// gets exactly one answer: the window sets `searchLoading` before it emits
+/// `searchRequested` and only an answer clears it, so a silent skip would leave
+/// the page loading forever.
+///
+/// Two slots at most, kept apart on purpose: the whole listing (the empty
+/// pattern) and the newest typed pattern. Typing must not evict the listing,
+/// because clearing the field is the same page and should be instant. The JSON
+/// is stored as `xbps-query -Rs` produced it; the model parses it again on every
+/// delivery, which costs a few tens of milliseconds for twenty thousand hits —
+/// caching parsed rows here would duplicate the model's own row store.
+#[derive(Default)]
+struct ListAnswers {
+    listing: Option<QString>,
+    typed: Option<(String, QString)>,
+}
+
+impl ListAnswers {
+    /// The stored answer for `pattern`, when the list already asked for it.
+    fn get(&self, pattern: &str) -> Option<&QString> {
+        let pattern = pattern.trim();
+        if pattern.is_empty() {
+            self.listing.as_ref()
+        } else {
+            self.typed
+                .as_ref()
+                .filter(|(held, _)| held == pattern)
+                .map(|(_, json)| json)
+        }
+    }
+
+    /// Records the answer the list now shows for `pattern`.
+    ///
+    /// A fresh listing also forgets the typed answer: the index may have moved,
+    /// and nothing asks for the old pattern again except the pattern itself,
+    /// which arrives as a new read.
+    fn remember(&mut self, pattern: &str, json: &QString) {
+        let pattern = pattern.trim();
+        if pattern.is_empty() {
+            self.listing = Some(json.clone());
+            self.typed = None;
+        } else {
+            self.typed = Some((pattern.to_owned(), json.clone()));
+        }
+    }
+
+    /// Drops the listing; the next empty request reads the repositories again.
+    fn forget_listing(&mut self) {
+        self.listing = None;
+    }
+}
 
 #[cxx_qt::bridge]
 pub mod qobject {
@@ -115,6 +164,15 @@ pub mod qobject {
         #[qinvokable]
         fn list_search_is_current(self: &QueryBackend, pattern: &QString) -> bool;
 
+        /// Drops the cached repository listing.
+        ///
+        /// Called when the repository index may have changed — the toolbar
+        /// Refresh and the end of a job — so the next Available visit reads the
+        /// repositories again instead of showing rows an index has moved past.
+        /// Only the listing is dropped; a typed answer is transient anyway.
+        #[qinvokable]
+        fn invalidate_list_search(self: Pin<&mut QueryBackend>);
+
         /// A repository answer for the package list: the request id, so a
         /// stale answer is dropped, and the JSON of
         /// `{"hits": [...], "errorKey": "…", "errorArgs": [...]}`.
@@ -181,13 +239,13 @@ pub struct QueryBackendRust {
     facts_error_args: QStringList,
     facts_pkgver: QString,
     facts_revision: i32,
-    /// The trimmed pattern of the newest repository answer the list shows.
+    /// The repository answers the list already shows, so a request that is not
+    /// re-read is still answered from here instead of hanging the page.
     ///
-    /// The package list asks for a repository answer on every non-empty
-    /// search; a pattern that is already on screen costs no second
-    /// `xbps-query`, which is what keeps Enter from re-reading what typing
-    /// already found.
-    last_search_pattern: String,
+    /// The package list asks for a repository answer on every non-empty search;
+    /// a pattern already on screen costs no second `xbps-query`, which is what
+    /// keeps Enter from re-reading what typing already found.
+    answers: ListAnswers,
 }
 
 /// What a search is asked for: a moved signature makes an answer stale.
@@ -264,7 +322,7 @@ impl Default for QueryBackendRust {
             facts_error_args: QStringList::default(),
             facts_pkgver: QString::from(""),
             facts_revision: 0,
-            last_search_pattern: String::new(),
+            answers: ListAnswers::default(),
         }
     }
 }
@@ -374,22 +432,35 @@ impl qobject::QueryBackend {
     /// Reads the repository hits for the list's search field on a worker
     /// thread; the answer arrives through `listSearchDone`.
     ///
-    /// The read is skipped when the same pattern is already on screen, and an
-    /// empty one is never sent: an empty field shows the filter's rows, not a
-    /// repository listing xbps cannot even produce.
+    /// Every call produces exactly one `listSearchDone`: a fresh read, a stored
+    /// answer, and a failure alike. The list marks itself as loading before it
+    /// asks and only an answer clears that mark, so returning without one would
+    /// leave the page loading forever.
     fn read_list_search(mut self: Pin<&mut Self>, pattern: &cxx_qt_lib::QString) {
         // The empty pattern is not "no search": it is the whole repository
         // listing the Available page asks for. `xbps-query -Rs ''` answers it
         // like any other pattern.
         let pattern = pattern.to_string().trim().to_owned();
-        let generation = {
+        let (generation, stored) = {
             let data = Pin::get_mut(self.as_mut().rust_mut());
-            if !data.needs_search(&pattern) {
-                return;
-            }
-            data.begin_search_read()
+            // A new generation owns the window: an answer still in flight for a
+            // pattern the user has left must not land on the page on screen.
+            (
+                data.begin_search_read(),
+                data.answers.get(&pattern).cloned(),
+            )
         };
         let thread = self.qt_thread();
+        if let Some(json) = stored {
+            // Posted rather than emitted: this runs inside the list's
+            // `searchRequested` emission, and applying the answer there would
+            // mutate the model while its own setter still holds it. One turn of
+            // the event loop later is still instant to the eye.
+            thread
+                .queue(move |backend| backend.deliver_list_search(generation, &pattern, json))
+                .ok();
+            return;
+        }
         let invoke = self.invoke.clone();
         std::thread::spawn(move || {
             // A detached copy of the read state: `search_answer_json` only
@@ -417,9 +488,19 @@ impl qobject::QueryBackend {
             if !data.search_read_is_current(generation) {
                 return;
             }
-            data.remember_search_answer(pattern);
+            data.remember_search_answer(pattern, &json);
         }
         self.as_mut().list_search_done(generation, json);
+    }
+
+    /// Drops the cached repository listing, so the next empty request reads the
+    /// repositories again.
+    ///
+    /// The window calls this when the index may have moved: the toolbar Refresh
+    /// and the end of a job. Nothing else about the read state changes.
+    fn invalidate_list_search(mut self: Pin<&mut Self>) {
+        let data = Pin::get_mut(self.as_mut().rust_mut());
+        data.forget_listing();
     }
 
     fn set_state(
@@ -610,28 +691,29 @@ impl QueryBackendRust {
         map
     }
 
-    /// Whether `pattern` needs a read: a new pattern, not the one on screen.
+    /// Whether `pattern` needs a read: the list does not hold its answer.
     ///
     /// The comparison is on the trimmed text, so the padding a search field
-    /// keeps around the words never costs a second `xbps-query`.
+    /// keeps around the words never costs a second `xbps-query`. The empty
+    /// pattern is the whole repository listing and has a slot of its own, so the
+    /// first Available visit is not mistaken for an answer already on screen.
     fn needs_search(&self, pattern: &str) -> bool {
-        // The empty pattern is the whole repository listing, and `String::new()`
-        // is also what "no read yet" looks like; a sentinel keeps the first
-        // Available visit from being mistaken for an answer already on screen.
-        if pattern.trim().is_empty() {
-            return self.last_search_pattern != EMPTY_LISTING_SEEN;
-        }
-        pattern.trim() != self.last_search_pattern
+        self.answers.get(pattern).is_none()
     }
 
     /// Records that the list now shows the answer for `pattern`; an empty
     /// pattern records the repository listing, which is cached the same way.
-    fn remember_search_answer(&mut self, pattern: &str) {
-        self.last_search_pattern = if pattern.trim().is_empty() {
-            EMPTY_LISTING_SEEN.to_owned()
-        } else {
-            pattern.trim().to_owned()
-        };
+    fn remember_search_answer(&mut self, pattern: &str, json: &QString) {
+        self.answers.remember(pattern, json);
+    }
+
+    /// Drops the cached repository listing.
+    ///
+    /// Called when the repository index may have changed: the toolbar Refresh
+    /// and the end of a job. The next empty request reads the repositories and
+    /// stores the fresh answer. Typed answers are transient and stay.
+    pub(crate) fn forget_listing(&mut self) {
+        self.answers.forget_listing();
     }
 
     /// Starts a repository read and answers with the generation it owns.
@@ -1582,7 +1664,7 @@ mod tests {
             ..QueryBackendRust::default()
         };
         assert!(backend.needs_search("vim"), "a new pattern is read");
-        backend.remember_search_answer("vim");
+        backend.remember_search_answer("vim", &QString::from(r#"{"hits":[]}"#));
         assert_eq!(calls.load(Ordering::SeqCst), 0, "remembering reads nothing");
         assert!(
             !backend.needs_search(" vim "),
@@ -1592,8 +1674,11 @@ mod tests {
             backend.needs_search("vim-"),
             "a longer pattern is a new read"
         );
-        backend.remember_search_answer("");
-        assert!(backend.needs_search("vim"), "an emptied field forgets");
+        backend.remember_search_answer("", &QString::from(r#"{"hits":[]}"#));
+        assert!(
+            backend.needs_search("vim"),
+            "a fresh listing forgets the typed answer it may have moved past"
+        );
     }
 
     #[test]
@@ -1653,24 +1738,71 @@ mod tests {
     }
 
     #[test]
-    fn the_empty_pattern_is_read_once_and_then_remembered() {
-        // The Available page asks for the whole repository listing with an
-        // empty pattern; a second visit must not read twenty thousand rows
-        // again, and a typed pattern must not make the listing look cached.
+    fn a_cached_listing_answers_the_second_request_with_the_stored_json() {
+        // The window sets `searchLoading` before it asks and only an answer
+        // clears it, so the backend may skip the read but never the answer.
+        // The stored JSON is exactly what `read_list_search` hands to
+        // `listSearchDone` on a cache hit.
         let mut backend = QueryBackendRust::default();
         assert!(
             backend.needs_search(""),
             "the first Available visit reads the listing"
         );
-        backend.remember_search_answer("");
+        let json = QString::from(r#"{"hits":[],"errorKey":"","errorArgs":[]}"#);
+        backend.remember_search_answer("", &json);
         assert!(
             !backend.needs_search(""),
             "the listing is cached after the answer lands"
         );
-        backend.remember_search_answer("vim");
+        assert_eq!(
+            backend.answers.get("").map(QString::to_string),
+            Some(json.to_string()),
+            "the second request is answered with the stored JSON, not silence"
+        );
+    }
+
+    #[test]
+    fn invalidate_list_search_forgets_the_listing() {
+        let mut backend = QueryBackendRust::default();
+        backend.remember_search_answer("", &QString::from(r#"{"hits":[]}"#));
+        backend.forget_listing();
         assert!(
             backend.needs_search(""),
-            "a typed pattern does not answer for the listing"
+            "after an invalidation the next empty request reads again"
+        );
+        assert!(
+            backend.answers.get("").is_none(),
+            "the invalidated answer is not handed out"
+        );
+    }
+
+    #[test]
+    fn a_typed_pattern_does_not_evict_the_listing() {
+        // Clearing the field must be instant: a search for "vim" may not push
+        // the twenty thousand rows the listing holds out of the cache.
+        let mut backend = QueryBackendRust::default();
+        let listing = QString::from(r#"{"hits":[1]}"#);
+        let typed = QString::from(r#"{"hits":[2]}"#);
+        backend.remember_search_answer("", &listing);
+        backend.remember_search_answer("vim", &typed);
+        assert_eq!(
+            backend.answers.get("").map(QString::to_string),
+            Some(listing.to_string())
+        );
+        assert_eq!(
+            backend.answers.get("vim").map(QString::to_string),
+            Some(typed.to_string())
+        );
+        backend.remember_search_answer("emacs", &typed);
+        assert_eq!(
+            backend.answers.get("vim"),
+            None,
+            "the typed slot keeps only the newest pattern"
+        );
+        assert_eq!(
+            backend.answers.get("").map(QString::to_string),
+            Some(listing.to_string()),
+            "the listing survives every typed search"
         );
     }
 }

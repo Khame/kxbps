@@ -579,6 +579,9 @@ Kirigami.ApplicationWindow {
         function onDoneChanged() {
             if (root.job !== null && root.job.done) {
                 root.showJobResult = true
+                // A transaction can move the repository index; the next
+                // Available visit reads it instead of the cached listing.
+                catalogBackend.invalidateListSearch()
             }
         }
     }
@@ -686,10 +689,13 @@ Kirigami.ApplicationWindow {
     ]
 
     // Refreshing xbps: the installed set and the repository list are two
-    // different reads, and the toolbar's button refreshes both.
+    // different reads, and the toolbar's button refreshes both. The cached
+    // repository listing is dropped with them, so Available reads the index
+    // again instead of showing rows it has moved past.
     function refreshAll() {
         installedBackend.reload()
         mirrorBackend.refreshSystem()
+        catalogBackend.invalidateListSearch()
     }
 
     // The queue, applied from the toolbar's Apply button and the drawer's

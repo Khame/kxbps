@@ -297,6 +297,27 @@ fn wants_repository_listing(filter: &str) -> bool {
     filter == "all"
 }
 
+/// The read a page asks for when the user enters it, if any.
+///
+/// The answer is the pattern to send: `Some("")` is the whole repository
+/// listing, which is what Available asks for on every entry so the page never
+/// depends on an answer the backend may or may not still hold. Every other
+/// filter narrows the installed set and reads nothing while the box is empty;
+/// a typed pattern is that field's own read, not a filter's.
+pub(crate) fn listing_read_on_filter(filter: &str, search: &str) -> Option<String> {
+    (wants_repository_listing(filter) && search.trim().is_empty()).then(String::new)
+}
+
+/// Whether an answer belongs on the page the user is looking at now.
+///
+/// A typed pattern keeps its answer whatever the filter: the box is one box for
+/// packages. An empty pattern is only an answer where the page asked for the
+/// listing — anywhere else it describes a page the user already left. Dropping
+/// it must still settle the loading mark, or the next page waits forever.
+pub(crate) fn accepts_search_answer(filter: &str, search: &str) -> bool {
+    !search.trim().is_empty() || wants_repository_listing(filter)
+}
+
 /// Whether one repository hit takes a row while the list filters by `filter`.
 ///
 /// The filter narrows the installed set and a search ranks what the repositories
@@ -905,6 +926,21 @@ impl PackageModelRust {
         self.rebuild();
     }
 
+    /// Enters a filter page the way the Qt setter does, and answers with the
+    /// repository read that page asks for, if any. `search_loading` is only set
+    /// when a request comes back, which is the invariant the window relies on.
+    #[cfg(test)]
+    fn set_filter_and_report(&mut self, filter: &str) -> Option<String> {
+        self.filter = QString::from(filter);
+        self.clear_search_rows();
+        self.searching = false;
+        self.search_error = QString::from("");
+        self.rebuild();
+        let read = listing_read_on_filter(filter, &self.search.to_string());
+        self.search_loading = read.is_some();
+        read
+    }
+
     /// All visible names, for the tests.
     #[cfg(test)]
     pub(crate) fn visible_names(&self) -> Vec<&str> {
@@ -923,18 +959,18 @@ impl PackageModelRust {
     /// The search box is one box for packages, whatever filter the list shows:
     /// a non-empty pattern always asks xbps about the repositories, because a
     /// filter narrows the installed set while a search asks a different
-    /// question. An emptied pattern restores the filter's own rows from the
-    /// snapshot and reads nothing.
+    /// question. An emptied pattern restores the filter's own rows, and on
+    /// Available that means asking for the whole repository listing again.
     ///
-    /// `None` means nothing to read: an empty pattern (the rows come back) or
-    /// the answer already on screen.
+    /// `None` means nothing to read: an emptied field on a page that shows the
+    /// installed set, or the answer already on screen.
     #[cfg(test)]
     fn set_search_and_report(&mut self, text: &str) -> Option<String> {
         self.search = QString::from(text);
         let pattern = text.trim().to_string();
         if pattern.is_empty() {
             self.clear_search_rows();
-            return wants_repository_listing(&self.filter.to_string()).then(String::new);
+            return listing_read_on_filter(&self.filter.to_string(), &pattern);
         }
         if self
             .active_search
@@ -955,10 +991,19 @@ impl PackageModelRust {
         }
     }
 
-    /// Applies a repository answer; an empty `hits` with an error key is a
-    /// failed read that keeps the pattern and no rows.
+    /// Applies a repository answer the way `set_search_results` does; an empty
+    /// `hits` with an error key is a failed read that keeps the pattern and no
+    /// rows.
+    ///
+    /// The guard and the settled mark are the production ones: this helper used
+    /// to accept everything and leave `search_loading` set, so a test could pass
+    /// on a behaviour the window never has.
     #[cfg(test)]
     fn apply_search_results(&mut self, hits: &[kxbps_core::SearchHit], key: &str, _args: &[&str]) {
+        if !accepts_search_answer(&self.filter.to_string(), &self.search.to_string()) {
+            self.search_loading = false;
+            return;
+        }
         let hits: Vec<SearchRow> = hits.iter().map(SearchRow::of).collect();
         let hits: Vec<SearchRow> = if key.is_empty() {
             hits.into_iter()
@@ -973,6 +1018,9 @@ impl PackageModelRust {
             error_key: key.to_owned(),
         });
         self.count = self.visible_count();
+        self.searching = true;
+        self.search_loading = false;
+        self.search_error = QString::from(key);
     }
 
     #[cfg(test)]
@@ -1190,11 +1238,11 @@ impl qobject::PackageModel {
         // with an empty search box it asks for every hit, the same read a
         // typed pattern asks for. Without this the page showed the installed
         // packages under a name that promises the repositories.
-        if wants_repository_listing(&self.filter.to_string())
-            && self.search.to_string().trim().is_empty()
+        if let Some(pattern) =
+            listing_read_on_filter(&self.filter.to_string(), &self.search.to_string())
         {
             self.as_mut().mark_search_loading();
-            self.as_mut().search_requested(QString::from(""));
+            self.as_mut().search_requested(QString::from(pattern));
         }
     }
 
@@ -1226,9 +1274,9 @@ impl qobject::PackageModel {
                 self.as_mut().search_error_args_changed();
             }
             self.as_mut().search_changed();
-            if wants_repository_listing(&self.filter.to_string()) {
+            if let Some(read) = listing_read_on_filter(&self.filter.to_string(), &pattern) {
                 self.as_mut().mark_search_loading();
-                self.as_mut().search_requested(QString::from(""));
+                self.as_mut().search_requested(QString::from(read));
             }
             return;
         }
@@ -1258,10 +1306,9 @@ impl qobject::PackageModel {
         // An answer the window no longer asks for: the field is empty and the
         // page is not the repository listing, so the read belongs to a page
         // the user already left. Applying it would put repository rows under a
-        // filter that does not show them.
-        if self.search.to_string().trim().is_empty()
-            && !wants_repository_listing(&self.filter.to_string())
-        {
+        // filter that does not show them, and the loading mark must still be
+        // cleared or the page waits for an answer that never comes.
+        if !accepts_search_answer(&self.filter.to_string(), &self.search.to_string()) {
             self.as_mut().mark_search_settled();
             return;
         }
@@ -2541,6 +2588,104 @@ mod tests {
         install_records(&mut model, &installed(), records(), Vec::new(), Vec::new());
         assert_eq!(model.count, 2, "the answer is still on screen");
         assert_eq!(model.visible_names(), ["ark", "vim"]);
+    }
+
+    #[test]
+    fn a_listing_answer_clears_the_loading_mark_and_sets_the_count() {
+        // The model enters `searchLoading` before it asks for the listing; the
+        // answer is the only thing that clears it. A cached answer goes through
+        // the same path, so this is also the cache-hit stop condition.
+        let mut model = model();
+        set_filter(&mut model, "all");
+        model.search_loading = true;
+        model.apply_search_results(
+            &[
+                search_hit("ark", "25.08.0_1", false),
+                search_hit("vim", "9.2.1031_1", true),
+                search_hit("bash", "5.3_2", true),
+            ],
+            "",
+            &[],
+        );
+        assert_eq!(model.count, 3, "the count is the size of the answer");
+        assert!(
+            !model.search_loading,
+            "the page stops loading when the answer lands"
+        );
+        assert!(model.search_results_active(), "the hits are the rows");
+        assert_eq!(model.search_error_key(), "", "a good read reports no error");
+    }
+
+    #[test]
+    fn an_answer_under_installed_with_an_empty_search_is_dropped_and_settles() {
+        // The read belonged to a page the user already left: applying it would
+        // put repository rows under a filter that does not show them, and
+        // leaving the loading mark set would strand the next page.
+        let mut model = model();
+        set_filter(&mut model, "installed");
+        let before: Vec<String> = model
+            .visible_names()
+            .into_iter()
+            .map(str::to_owned)
+            .collect();
+        model.search_loading = true;
+        model.apply_search_results(&[search_hit("vim", "9.2.1031_1", false)], "", &[]);
+        assert!(
+            !model.search_results_active(),
+            "a stale answer does not become the rows"
+        );
+        assert!(!model.search_loading, "dropping an answer settles the page");
+        let after: Vec<String> = model
+            .visible_names()
+            .into_iter()
+            .map(str::to_owned)
+            .collect();
+        assert_eq!(after, before, "the installed rows stay as they were");
+    }
+
+    #[test]
+    fn available_asks_for_the_listing_every_time_the_page_is_entered() {
+        // The backend may answer from its cache, but the model may never assume
+        // it: every entry asks, and the loading mark exists only together with
+        // that request.
+        let mut model = model();
+        assert_eq!(
+            model.set_filter_and_report("all"),
+            Some(String::new()),
+            "entering Available asks for the whole repository"
+        );
+        assert!(
+            model.search_loading,
+            "loading is set together with the request"
+        );
+        model.apply_search_results(&[search_hit("vim", "9.2.1031_1", false)], "", &[]);
+        assert_eq!(model.count, 1);
+        assert!(!model.search_loading, "the answer settles the page");
+
+        assert_eq!(
+            model.set_filter_and_report("installed"),
+            None,
+            "a filter that shows the installed set reads nothing"
+        );
+        assert!(!model.search_loading, "no request means no loading mark");
+
+        assert_eq!(
+            model.set_filter_and_report("all"),
+            Some(String::new()),
+            "a second entry still asks; the answer may come from the cache"
+        );
+        assert_eq!(
+            listing_read_on_filter("all", "   "),
+            Some(String::new()),
+            "a field of blanks is still the whole repository"
+        );
+        assert_eq!(listing_read_on_filter("all", "vim"), None);
+        assert_eq!(listing_read_on_filter("orphans", ""), None);
+        assert!(accepts_search_answer("all", ""));
+        assert!(accepts_search_answer("all", "vim"));
+        assert!(accepts_search_answer("installed", "vim"));
+        assert!(!accepts_search_answer("installed", ""));
+        assert!(!accepts_search_answer("updates", ""));
     }
 
     #[test]
