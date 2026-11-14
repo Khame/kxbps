@@ -18,12 +18,18 @@ Item {
     id: drawer
 
     property var job
+    /// The lines the update checks printed. A check is not a transaction and
+    /// has no job, so its output arrives here; the drawer shows it until a
+    /// transaction exists, because that is the newer news.
+    property var checkLines
     property bool expanded: false
     // The height the user dragged to; collapsed and clamped by the properties
     // below. Not persisted in Task 10.
     property real expandedHeight: Kirigami.Units.gridUnit * 10
 
     readonly property bool hasJob: job !== null
+    readonly property bool hasLines: hasJob
+                                      || (checkLines !== null && checkLines.count > 0)
     readonly property real headerHeight: Kirigami.Units.gridUnit * 2
     // Collapsed, the drawer takes no room at all: the window's app bar carries
     // the toggle, so a second header row would only repeat it.
@@ -69,7 +75,9 @@ Item {
         id: header
         anchors.left: parent.left
         anchors.right: parent.right
-        anchors.top: parent.top
+        // The drawer grows upward from the bottom edge, so its bar belongs at
+        // that edge: the log opens above the control that opened it.
+        anchors.bottom: parent.bottom
         height: drawer.headerHeight
         visible: drawer.expanded
         leftPadding: Kirigami.Units.largeSpacing
@@ -171,8 +179,8 @@ Item {
     Rectangle {
         anchors.left: parent.left
         anchors.right: parent.right
-        anchors.top: header.bottom
-        anchors.bottom: parent.bottom
+        anchors.top: parent.top
+        anchors.bottom: header.top
         visible: drawer.expanded
         clip: true
         color: Kirigami.Theme.alternateBackgroundColor
@@ -182,7 +190,7 @@ Item {
         QQC2.Label {
             anchors.centerIn: parent
             width: parent.width - Kirigami.Units.largeSpacing * 2
-            visible: !drawer.hasJob
+            visible: !drawer.hasLines
             text: i18nd("kxbps", "No transaction has run in this session yet.")
             color: Kirigami.Theme.disabledTextColor
             horizontalAlignment: Text.AlignHCenter
@@ -193,9 +201,9 @@ Item {
             id: logList
             anchors.fill: parent
             anchors.margins: Kirigami.Units.smallSpacing
-            visible: drawer.hasJob
+            visible: drawer.hasLines
             clip: true
-            model: drawer.hasJob ? drawer.job.lines : null
+            model: drawer.hasJob ? drawer.job.lines : drawer.checkLines
             onCountChanged: positionViewAtEnd()
 
             delegate: QQC2.Label {

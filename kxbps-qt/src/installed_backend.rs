@@ -33,7 +33,7 @@ use crate::plan_backend::{PlanPayload, keys as plan_keys};
 use crate::xbps_plan;
 use crate::xbps_runner::{READ_TIMEOUT_MS, repos_argv, run};
 use crate::xbps_snapshot::{
-    SharedInvoke, Snapshot, SnapshotError, read_remote_updates, read_snapshot,
+    SharedInvoke, Snapshot, SnapshotError, command_lines, read_remote_updates_logged, read_snapshot,
 };
 use kxbps_core::UpdateEntry;
 use kxbps_core::xbps::parse_repos;
@@ -123,6 +123,7 @@ pub mod qobject {
         #[qml_element]
         #[qproperty(QObjectMutPtr, packages, READ, CONSTANT)]
         #[qproperty(QObjectMutPtr, queue_model, READ, CONSTANT)]
+        #[qproperty(QObjectMutPtr, check_log, READ, CONSTANT)]
         #[qproperty(QObjectMutPtr, query_backend, READ, WRITE = set_query_backend, NOTIFY)]
         #[qproperty(i32, installed_count, READ, NOTIFY)]
         #[qproperty(i32, queue_count, READ, NOTIFY)]
@@ -411,6 +412,11 @@ pub struct InstalledBackendRust {
     /// The mirror backend waiting for the next job to end, as an address: a job
     /// is created with this owner and has no other way back to its caller.
     mirror_waiter: usize,
+    /// The lines the update checks printed, for the log drawer.
+    ///
+    /// A check is not a transaction and has no job, so its output needs a home
+    /// of its own: the drawer shows this model until a transaction exists.
+    check_log: QObjectMutPtr,
 }
 
 impl Default for InstalledBackendRust {
@@ -447,6 +453,7 @@ impl Default for InstalledBackendRust {
             check_error_args: QStringList::default(),
             check_generation: Arc::new(AtomicU64::new(0)),
             mirror_waiter: 0,
+            check_log: unsafe { QObjectMutPtr::from_raw(std::ptr::null_mut()) },
         }
     }
 }
@@ -474,6 +481,9 @@ impl cxx_qt::Initialize for qobject::InstalledBackend {
         let queue_json = json_of(&store.queue);
         let packages = qobject::create_package_model(parent);
         let queue_model = qobject::create_queue_model(parent, &queue_json);
+        // The check log is a plain log model, the same type the job dialog
+        // uses: one `line` role and a `count`, appended a line at a time.
+        let check_log = crate::job_backend::qobject::create_log_model(parent);
 
         let queue_count = store.queue.len();
         let (error_key, error_args) = match &store_error {
@@ -485,6 +495,7 @@ impl cxx_qt::Initialize for qobject::InstalledBackend {
         data.store = store;
         data.packages = packages;
         data.queue_model = queue_model;
+        data.check_log = check_log;
         data.installed_count = 0;
         data.queue_count = i32::try_from(queue_count).unwrap_or(i32::MAX);
         data.updates_count = 0;
@@ -565,8 +576,9 @@ impl InstalledBackendRust {
         }
         self.checking = true;
         let invoke = self.invoke.clone();
-        let result = check_remote(&*invoke);
+        let (result, lines) = check_remote(&*invoke);
         self.checking = false;
+        self.append_check_lines(&lines);
         let age = self.check_age(now);
         match result {
             Ok(updates) => {
@@ -606,6 +618,20 @@ impl InstalledBackendRust {
                 self.finish_check_error(err.key(), err.args());
                 check_status(&CheckOutcome::ReadFailed { key: err.key() }, &age)
             }
+        }
+    }
+
+    /// Appends the lines one check printed to the drawer's model.
+    ///
+    /// The model does not exist in the tests that drive the pure decision
+    /// path, so a null pointer is a no-op rather than a crash.
+    fn append_check_lines(&self, lines: &[String]) {
+        let log = self.check_log;
+        if log.as_mut_ptr().is_null() {
+            return;
+        }
+        for line in lines {
+            crate::job_backend::qobject::log_model_append(log, &QString::from(line.as_str()));
         }
     }
 
@@ -1094,9 +1120,11 @@ impl qobject::InstalledBackend {
         let current = self.check_generation.clone();
         let invoke = self.invoke.clone();
         std::thread::spawn(move || {
-            let result = check_remote(&*invoke);
+            let (result, lines) = check_remote(&*invoke);
             thread
-                .queue(move |backend| backend.finish_check(generation, &current, now, result))
+                .queue(move |backend| {
+                    backend.finish_check(generation, &current, now, result, lines)
+                })
                 .ok();
         });
     }
@@ -1108,10 +1136,15 @@ impl qobject::InstalledBackend {
         current: &Arc<AtomicU64>,
         now: i64,
         result: Result<Vec<UpdateEntry>, SnapshotError>,
+        lines: Vec<String>,
     ) {
         if current.load(Ordering::SeqCst) != generation {
             return;
         }
+        // The lines belong to the answer that was accepted: a check a newer one
+        // superseded never reaches this point, so the drawer never shows the
+        // output of a question nobody is waiting for.
+        self.append_check_lines(&lines);
         let age = self.check_age_at(now);
         let status = {
             let data = Pin::get_mut(self.as_mut().rust_mut());
@@ -1316,15 +1349,32 @@ impl qobject::InstalledBackend {
 /// Runs on the worker thread: two processes, the second the network one. The
 /// count is only for the sentence, so a listing this version cannot read costs
 /// the number and not the check.
-fn check_remote(invoke: &crate::xbps_snapshot::Invoke) -> Result<Vec<UpdateEntry>, SnapshotError> {
-    let total = match run(&repos_argv(), READ_TIMEOUT_MS, invoke) {
-        Ok(output) if output.success() => parse_repos(&output.stdout)
-            .map(|entries| entries.len())
-            .unwrap_or(0),
-        _ => 0,
+fn check_remote(invoke: &crate::xbps_snapshot::Invoke) -> CheckAnswer {
+    // The check is two commands: the repository count, then the update list.
+    // Both print to the log, because both are xbps runs the user asked for.
+    let mut lines = Vec::new();
+    let repos = repos_argv();
+    let total = match run(&repos, READ_TIMEOUT_MS, invoke) {
+        Ok(output) => {
+            lines.extend(command_lines(&repos, &output));
+            if output.success() {
+                parse_repos(&output.stdout)
+                    .map(|entries| entries.len())
+                    .unwrap_or(0)
+            } else {
+                0
+            }
+        }
+        Err(_) => 0,
     };
-    read_remote_updates(invoke, total)
+    let updates = read_remote_updates_logged(invoke, total);
+    lines.extend(updates.lines);
+    (updates.result, lines)
 }
+
+/// What one update check answers: the list or the failure, plus the lines the
+/// drawer shows.
+type CheckAnswer = (Result<Vec<UpdateEntry>, SnapshotError>, Vec<String>);
 
 /// What one `open*` asks the worker to plan, and how it becomes a payload.
 ///

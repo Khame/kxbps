@@ -24,10 +24,10 @@ use kxbps_core::{
 };
 
 use crate::xbps_runner::{
-    READ_TIMEOUT_MS, REMOTE_TIMEOUT_MS, XPBS_QUERY, argv, depends_argv, held_argv, installed_argv,
-    installed_search_argv, installed_sizes_argv, manual_argv, orphans_argv, property_argv,
-    property_repo_argv, repo_filename_sizes_argv, repo_installed_sizes_argv, required_by_argv, run,
-    search_argv, updates_argv, updates_remote_argv,
+    READ_TIMEOUT_MS, REMOTE_TIMEOUT_MS, XPBS_QUERY, XbpsOutput, argv, depends_argv, held_argv,
+    installed_argv, installed_search_argv, installed_sizes_argv, manual_argv, orphans_argv,
+    property_argv, property_repo_argv, repo_filename_sizes_argv, repo_installed_sizes_argv,
+    required_by_argv, run, search_argv, updates_argv, updates_remote_argv,
 };
 
 /// The injectable process transport: the encoded argv and the timeout go in,
@@ -278,15 +278,64 @@ pub(crate) fn run_parsed<T>(
 ///
 /// `total` is the number of configured repositories, which only `xbps-query -L`
 /// knows; the caller reads it, so the sentence can name both numbers.
+/// One command's raw output, in the shape the log drawer shows: the command
+/// line first, then what xbps printed on each stream.
+///
+/// The two streams are appended rather than interleaved: the shim collects
+/// them separately, and inventing an order would misreport what xbps did.
+pub fn command_lines(argv: &[String], output: &XbpsOutput) -> Vec<String> {
+    let mut lines = vec![format!("$ {}", argv.join(" "))];
+    lines.extend(output.stdout.lines().map(str::to_owned));
+    lines.extend(output.stderr.lines().map(str::to_owned));
+    lines
+}
+
+/// The answer of a fresh check, plus the lines it printed.
+pub struct RemoteUpdates {
+    /// What the check found, or why it failed.
+    pub result: Result<Vec<UpdateEntry>, SnapshotError>,
+    /// The command and its output, for the log drawer.
+    pub lines: Vec<String>,
+}
+
 pub fn read_remote_updates(
     invoke: &Invoke,
     total: usize,
 ) -> Result<Vec<UpdateEntry>, SnapshotError> {
+    read_remote_updates_logged(invoke, total).result
+}
+
+/// [`read_remote_updates`], plus the command and its output.
+///
+/// The drawer shows what xbps printed, and a check is an xbps run like any
+/// other, so the lines travel with the answer instead of being dropped.
+pub fn read_remote_updates_logged(invoke: &Invoke, total: usize) -> RemoteUpdates {
     let argv = updates_remote_argv();
+    let output = match run(&argv, REMOTE_TIMEOUT_MS, invoke) {
+        Ok(output) => output,
+        Err(err) => {
+            return RemoteUpdates {
+                result: Err(SnapshotError::Reply {
+                    reason: err.to_string(),
+                }),
+                lines: vec![format!("$ {}", argv.join(" "))],
+            };
+        }
+    };
+    let lines = command_lines(&argv, &output);
+    RemoteUpdates {
+        result: judge_remote(&argv, &output, total),
+        lines,
+    }
+}
+
+/// Turns one `xbps-install -M -un` answer into the pending list or an error.
+fn judge_remote(
+    argv: &[String],
+    output: &XbpsOutput,
+    total: usize,
+) -> Result<Vec<UpdateEntry>, SnapshotError> {
     let program = argv[0].clone();
-    let output = run(&argv, REMOTE_TIMEOUT_MS, invoke).map_err(|err| SnapshotError::Reply {
-        reason: err.to_string(),
-    })?;
     if output.timed_out {
         return Err(SnapshotError::Timeout { program });
     }
@@ -783,6 +832,39 @@ mod tests {
     fn a_fresh_check_with_nothing_pending_is_an_empty_list() {
         let remote = read_remote_updates(&fixed(ok_reply("")), 2).expect("lands");
         assert!(remote.is_empty());
+    }
+
+    #[test]
+    fn a_fresh_check_logs_the_command_and_what_xbps_printed() {
+        let logged = read_remote_updates_logged(&fixed(ok_reply(REMOTE_ONE_UPDATE)), 2);
+        assert!(logged.result.is_ok());
+        assert_eq!(
+            logged.lines,
+            [
+                "$ xbps-install -M -un".to_string(),
+                "vim-9.2.2000_1 update x86_64 https://r/current 10 20".to_string(),
+            ]
+        );
+    }
+
+    #[test]
+    fn a_failing_repository_keeps_its_error_line_in_the_log() {
+        let reply = reply_of(
+            0,
+            "",
+            "ERROR: failed to open repository: https://r/current: Input/output error\n",
+            false,
+        );
+        let logged = read_remote_updates_logged(&fixed(reply), 1);
+        assert!(logged.result.is_err());
+        assert!(
+            logged
+                .lines
+                .iter()
+                .any(|line| line.contains("ERROR: failed to open repository")),
+            "the error line xbps printed is what a bug report needs: {:?}",
+            logged.lines
+        );
     }
 
     #[test]

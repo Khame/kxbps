@@ -1182,6 +1182,7 @@ Kirigami.ApplicationWindow {
                     id: logDrawer
                     Layout.fillWidth: true
                     job: root.job
+                    checkLines: installedBackend.checkLog
                 }
             }
         }
