@@ -74,9 +74,9 @@ void kxbps_notify(const QString &summary,
                   QObject &owner);
 
 // Connects `owner` to the notification server's `ActionInvoked` signal once per
-// process, so a click on the popup reaches the backend that sent it. Called from
-// the owner's constructor, before any popup exists; the Rust method it invokes
-// is the one that decides what the click does.
+// process, so a click on the popup reaches the backend that sent it. Called
+// right before the first popup; the Rust method it invokes decides whether the
+// id and the action are this process's.
 void kxbps_notification_watch_actions(QObject &owner);
 
 // The one entry point a job is created through; `owner` parents it and QML

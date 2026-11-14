@@ -40,11 +40,6 @@ pub mod qobject {
     }
 
     unsafe extern "C++" {
-        include!("cxx-qt-lib/qobjectmutptr.h");
-        type QObjectMutPtr = cxx_qt_lib::QObjectMutPtr;
-    }
-
-    unsafe extern "C++" {
         include!("cxx-qt-lib/qqmlengine.h");
         type QQmlEngine = cxx_qt_lib::QQmlEngine;
 
@@ -91,16 +86,6 @@ pub mod qobject {
         #[qproperty(i32, update_count)]
         /// Whether this session has a tray host; constant for the run.
         #[qproperty(bool, tray_available, READ, CONSTANT)]
-        /// The `QDBusInterface` that carries the notification server's
-        /// `ActionInvoked` signal; QML connects to it by name. Null until the
-        /// first popup, when the service is known to be there.
-        #[qproperty(
-            QObjectMutPtr,
-            notification_watch,
-            READ,
-            WRITE = set_notification_watch,
-            NOTIFY
-        )]
         type AppBackend = super::AppBackendRust;
 
         #[qinvokable]
@@ -116,10 +101,6 @@ pub mod qobject {
             icon: &QString,
             action: &QString,
         );
-
-        // The shim adopts the `QDBusInterface` through this setter; not
-        // invokable, so QML cannot replace the watch with its own object.
-        fn set_notification_watch(self: Pin<&mut AppBackend>, value: QObjectMutPtr);
 
         // Called by `backend_shim.cpp`: the notification server answered a
         // popup with its id, or with `none` when the call failed. Invokable so
@@ -150,9 +131,6 @@ pub struct AppBackendRust {
     /// last. An `ActionInvoked` for one of them is ours; an id from before a
     /// restart, or from another application, is not.
     notification_ids: Vec<u32>,
-    /// The `QDBusInterface` QML watches for `ActionInvoked`; owned by this
-    /// object once the shim parents it here.
-    notification_watch: cxx_qt_lib::QObjectMutPtr,
 }
 
 /// How many notification ids are remembered: enough for the popups a tray
@@ -168,9 +146,6 @@ impl Default for AppBackendRust {
             update_count: 0,
             tray_available: qobject::tray_available(),
             notification_ids: Vec::new(),
-            notification_watch: unsafe {
-                cxx_qt_lib::QObjectMutPtr::from_raw(std::ptr::null_mut())
-            },
         }
     }
 }
@@ -197,16 +172,6 @@ impl qobject::AppBackend {
         // `rememberNotificationId`, which the parent keeps alive for the run.
         let this = cxx_qt::casting::Upcast::<cxx_qt::QObject>::upcast_pin(self);
         qobject::notify(summary, body, icon, action, this);
-    }
-
-    /// Adopts the `QDBusInterface` the shim created, so QML can watch its
-    /// `ActionInvoked` signal. The shim sets this property; QML only reads it.
-    fn set_notification_watch(mut self: Pin<&mut Self>, value: cxx_qt_lib::QObjectMutPtr) {
-        {
-            let data = self.as_mut().rust_mut().get_mut();
-            data.notification_watch = value;
-        }
-        self.as_mut().notification_watch_changed();
     }
 
     /// Keeps the id the notification server answered with; `none` is a failed

@@ -1,9 +1,9 @@
 #include "backend_shim.h"
+#include "notification_watcher.h"
 
 #include <QtCore/QMetaObject>
 #include <QtCore/QVariant>
 #include <QtDBus/QDBusConnection>
-#include <QtDBus/QDBusInterface>
 #include <QtDBus/QDBusMessage>
 #include <QtDBus/QDBusPendingCallWatcher>
 #include <QtDBus/QDBusPendingReply>
@@ -148,31 +148,16 @@ void kxbps_notify(const QString &summary,
 
 void kxbps_notification_watch_actions(QObject &owner)
 {
-    // The signal is a D-Bus signal, and `QDBusConnection::connect` needs a
-    // slot; a CXX-Qt method is only `Q_INVOKABLE`, which the string connect
-    // refuses. `QDBusInterface` exposes the remote signal through its dynamic
-    // meta-object, and QML can connect to that by name, so the interface is
-    // handed to QML through the backend's `notificationWatch` property.
+    // Once per process: a second watcher would deliver every click twice.
     static QObject *watched = nullptr;
     if (watched != nullptr) {
         return;
     }
-    auto *iface = new QDBusInterface(
-        QStringLiteral("org.freedesktop.Notifications"),
-        QStringLiteral("/org/freedesktop/Notifications"),
-        QStringLiteral("org.freedesktop.Notifications"),
-        QDBusConnection::sessionBus(),
-        &owner);
-    if (!iface->isValid()) {
+    auto *watcher = new NotificationWatcher(owner);
+    if (!watcher->watch()) {
         qWarning("kxbps: notification actions: %s",
-                 qUtf8Printable(iface->lastError().message()));
-        delete iface;
-        return;
-    }
-    if (!owner.setProperty("notificationWatch",
-                           QVariant::fromValue<QObject *>(iface))) {
-        qWarning("kxbps: notification actions: the backend has no watch property");
-        delete iface;
+                 qUtf8Printable(QDBusConnection::sessionBus().lastError().message()));
+        delete watcher;
         return;
     }
     watched = &owner;

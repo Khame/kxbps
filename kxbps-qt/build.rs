@@ -73,7 +73,10 @@ fn main() {
     // Network reachability for the update check: `QNetworkInformation` has no
     // `cxx-qt-lib` binding, and xbps cannot tell a DNS failure from an empty
     // answer.
-    .cpp_file("src/network_shim.cpp");
+    .cpp_file("src/network_shim.cpp")
+    // The notification click slot. A header so `cxx-qt-build` runs moc over it;
+    // the slot cannot live in Rust, where CXX-Qt 0.10 has no slot support.
+    .cpp_file("src/notification_watcher.h");
 
     // `cxx-qt-build` has no `include_path` helper, so add the KI18n header
     // directory through the underlying `cc::Build`. The crate's own `src` dir is

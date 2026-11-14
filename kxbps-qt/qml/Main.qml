@@ -521,17 +521,6 @@ Kirigami.ApplicationWindow {
         }
     }
 
-    // The notification server's `ActionInvoked`, carried by the interface the
-    // backend adopts on the first popup. QML can watch a D-Bus signal by name;
-    // the Rust side decides whether the id belongs to this process and whether
-    // the action is `default`.
-    Connections {
-        target: appBackend.notificationWatch
-        function onActionInvoked(id, key) {
-            appBackend.onNotificationAction(id, key)
-        }
-    }
-
     Connections {
         target: trayLoader.item
         function onShowRequested() {
