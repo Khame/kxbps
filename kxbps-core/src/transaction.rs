@@ -1,6 +1,6 @@
 //! The privileged transaction: what to run and what its exit code means.
 //!
-//! One transaction is a sequence of `pkexec /usr/bin/xbps-install -y <pkgver>…`
+//! One transaction is a sequence of `pkexec /usr/bin/xbps-install -S -y <pkgver>…`
 //! and `pkexec /usr/bin/xbps-remove -y <pkgver>…` commands: installations,
 //! updates and reinstalls first, removals after. The program and every package
 //! are separate argv elements, and no `sudo` ever appears: polkit is the only
@@ -86,9 +86,18 @@ impl Transaction {
     ///
     /// The package versions stay one element each even when a name contains a
     /// space or a quote, because there is no shell anywhere in this path.
+    ///
+    /// An install syncs the repository indexes first (`-S`): the plan and the
+    /// update list are read from indexes fetched into memory, so the on-disk
+    /// copy may be older than the versions this transaction names, and without
+    /// the sync xbps answers "not found in repository pool" for a package the
+    /// window just showed. A removal has no index to sync.
     pub fn xbps_argv(self, pkgvers: &[String]) -> Vec<String> {
-        let mut list = Vec::with_capacity(pkgvers.len() + 2);
+        let mut list = Vec::with_capacity(pkgvers.len() + 3);
         list.push(self.program().to_owned());
+        if self == Self::Install {
+            list.push(String::from("-S"));
+        }
         list.push(String::from("-y"));
         list.extend(pkgvers.iter().cloned());
         list
@@ -118,7 +127,7 @@ impl Transaction {
 /// command.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Privileged {
-    /// `pkexec /usr/bin/xbps-install -y …`: one transaction tool.
+    /// `pkexec /usr/bin/xbps-install -S -y …`: one transaction tool.
     Package(Transaction),
     /// `pkexec /usr/libexec/kxbps-mirror-apply <base>`: one base URL.
     Mirror(String),
@@ -340,6 +349,22 @@ mod tests {
         values.iter().map(|value| (*value).to_owned()).collect()
     }
 
+    /// The plan was read from freshly fetched indexes (`-M`), but the
+    /// transaction reads the on-disk ones. `-S` syncs them first, so a package
+    /// version the plan just showed is not "not found in repository pool" a
+    /// second later. A removal has no index to sync and never gets it.
+    #[test]
+    fn an_install_transaction_syncs_the_indexes_before_it_installs() {
+        let install = Transaction::Install.argv(&v(&["vim-9.2.1031_1"]));
+        assert_eq!(install[1], "/usr/bin/xbps-install");
+        assert_eq!(install[2], "-S");
+        let remove = Transaction::Remove.argv(&v(&["tzdata-2025.1_1"]));
+        assert_eq!(
+            remove,
+            ["pkexec", "/usr/bin/xbps-remove", "-y", "tzdata-2025.1_1"]
+        );
+    }
+
     #[test]
     fn install_runs_xbps_install_through_pkexec_after_yes() {
         let argv = Transaction::Install.argv(&v(&["vim-9.2.1031_1", "git-2.51.0_1"]));
@@ -348,6 +373,7 @@ mod tests {
             [
                 "pkexec",
                 "/usr/bin/xbps-install",
+                "-S",
                 "-y",
                 "vim-9.2.1031_1",
                 "git-2.51.0_1"
@@ -383,8 +409,8 @@ mod tests {
     #[test]
     fn a_package_with_spaces_stays_one_argument() {
         let argv = Transaction::Install.argv(&v(&["my package-1.0_1"]));
-        assert_eq!(argv.len(), 4);
-        assert_eq!(argv[3], "my package-1.0_1");
+        assert_eq!(argv.len(), 5);
+        assert_eq!(argv[4], "my package-1.0_1");
     }
 
     #[test]
@@ -460,13 +486,14 @@ mod tests {
             [v(&[
                 "pkexec",
                 "/usr/bin/xbps-install",
+                "-S",
                 "-y",
                 "vim-9.2.1031_1"
             ])]
         );
         assert_eq!(
             Transaction::Install.command_line(&v(&["vim-9.2.1031_1"])),
-            "pkexec /usr/bin/xbps-install -y vim-9.2.1031_1"
+            "pkexec /usr/bin/xbps-install -S -y vim-9.2.1031_1"
         );
         assert_eq!(TransactionPlan::for_items(&[]), None);
     }
@@ -490,6 +517,7 @@ mod tests {
                 v(&[
                     "pkexec",
                     "/usr/bin/xbps-install",
+                    "-S",
                     "-y",
                     "vim-9.2.1031_1",
                     "git-2.51.0_1"
@@ -541,6 +569,7 @@ mod tests {
             [v(&[
                 "pkexec",
                 "/usr/bin/xbps-install",
+                "-S",
                 "-y",
                 "vim-9.2.1031_1",
                 "git-2.51.0_1"

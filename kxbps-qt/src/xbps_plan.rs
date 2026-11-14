@@ -11,7 +11,7 @@
 //! when to call it (worker thread, generation guard) and how it is rendered.
 //! Every process call is injected, so the suite never starts xbps.
 
-use crate::xbps_runner::{READ_TIMEOUT_MS, XPBS_INSTALL, XPBS_REMOVE, argv};
+use crate::xbps_runner::{READ_TIMEOUT_MS, REMOTE_TIMEOUT_MS, XPBS_INSTALL, XPBS_REMOVE, argv};
 use crate::xbps_snapshot::{Invoke, SnapshotError};
 use kxbps_core::{
     DryRun, InstalledMap, Plan, PlanRequest, QueueItem, XbpsError, is_already_installed,
@@ -56,16 +56,33 @@ impl PlanError {
     }
 }
 
-/// `xbps-install -n <names>`: install or update exactly the named packages.
+/// `xbps-install -M -n <names>`: install or update exactly the named packages.
+///
+/// `-M` is the same flag the update check reads the list with: it fetches the
+/// repository indexes into memory instead of trusting the on-disk copy, which
+/// may be days old. Without it the plan describes a different index than the
+/// list on screen — a queued update whose version the stale index does not
+/// know comes back as `already installed`, and the plan is empty while the
+/// window shows updates.
 pub fn install_argv(names: &[String]) -> Vec<String> {
-    let mut args = vec!["-n"];
+    let mut args = vec!["-M", "-n"];
     args.extend(names.iter().map(String::as_str));
     argv(XPBS_INSTALL, &args)
 }
 
-/// `xbps-install -n -Su`: every update the repositories hold.
+/// `xbps-install -M -n -Su`: every update the repositories hold.
 pub fn system_argv() -> Vec<String> {
-    argv(XPBS_INSTALL, &["-n", "-Su"])
+    argv(XPBS_INSTALL, &["-M", "-n", "-Su"])
+}
+
+/// The timeout a dry run needs: a fetching run reads the network, the rest only
+/// the local database.
+fn dry_run_timeout(command: &[String]) -> u32 {
+    if command.iter().any(|arg| arg == "-M") {
+        REMOTE_TIMEOUT_MS
+    } else {
+        READ_TIMEOUT_MS
+    }
 }
 
 /// `xbps-remove -n <names>`: remove exactly the named packages.
@@ -137,11 +154,12 @@ pub fn dry_run(
         DryRun::Remove => remove_argv(&request.names),
     };
     let program = command.first().cloned().unwrap_or_default();
-    let output = crate::xbps_runner::run(&command, READ_TIMEOUT_MS, invoke).map_err(|err| {
-        PlanError::Xbps(SnapshotError::Reply {
-            reason: err.to_string(),
-        })
-    })?;
+    let output =
+        crate::xbps_runner::run(&command, dry_run_timeout(&command), invoke).map_err(|err| {
+            PlanError::Xbps(SnapshotError::Reply {
+                reason: err.to_string(),
+            })
+        })?;
 
     if output.timed_out {
         return Err(PlanError::Xbps(SnapshotError::Timeout { program }));
@@ -404,11 +422,54 @@ mod tests {
         (invoke, seen)
     }
 
+    /// The update list is read with `-M`, which fetches the indexes into
+    /// memory. A plan read from the on-disk index would then describe a
+    /// different, older set: every queued update comes back as "already
+    /// installed" and the plan is empty while the list shows updates. The dry
+    /// runs must ask the same index the check asked.
+    #[test]
+    fn the_install_dry_runs_read_the_index_the_update_check_reads() {
+        let names = vec!["hello".to_owned(), "vim".to_owned()];
+        assert_eq!(
+            install_argv(&names),
+            ["xbps-install", "-M", "-n", "hello", "vim"]
+        );
+        assert_eq!(system_argv(), ["xbps-install", "-M", "-n", "-Su"]);
+        assert_eq!(remove_argv(&names), ["xbps-remove", "-n", "hello", "vim"]);
+    }
+
+    /// A dry run that fetches the indexes is a network read, so it gets the
+    /// network timeout instead of the local one.
+    #[test]
+    fn a_fetching_dry_run_uses_the_remote_timeout() {
+        let seen = std::sync::Arc::new(std::sync::Mutex::new(Vec::new()));
+        let recorder = std::sync::Arc::clone(&seen);
+        let invoke: SharedInvoke = std::sync::Arc::new(move |request: &str, timeout: u32| {
+            recorder.lock().map(|mut seen| seen.push(timeout)).ok();
+            let _ = request;
+            reply(0, "", "")
+        });
+        let names = vec!["hello".to_owned()];
+        dry_run(
+            &PlanRequest::install(names.clone()),
+            &installed(&[]),
+            &*invoke,
+        )
+        .expect("plans");
+        dry_run(&PlanRequest::remove(names), &installed(&[]), &*invoke).expect("plans");
+        let seen = seen.lock().expect("recorded");
+        assert_eq!(seen[0], crate::xbps_runner::REMOTE_TIMEOUT_MS);
+        assert_eq!(seen[1], READ_TIMEOUT_MS);
+    }
+
     #[test]
     fn the_dry_run_argv_lists_never_ask_for_root() {
         let names = vec!["hello".to_owned(), "vim".to_owned()];
-        assert_eq!(install_argv(&names), ["xbps-install", "-n", "hello", "vim"]);
-        assert_eq!(system_argv(), ["xbps-install", "-n", "-Su"]);
+        assert_eq!(
+            install_argv(&names),
+            ["xbps-install", "-M", "-n", "hello", "vim"]
+        );
+        assert_eq!(system_argv(), ["xbps-install", "-M", "-n", "-Su"]);
         assert_eq!(remove_argv(&names), ["xbps-remove", "-n", "hello", "vim"]);
         for argv in [install_argv(&names), system_argv(), remove_argv(&names)] {
             assert!(
@@ -508,7 +569,7 @@ mod tests {
         assert!(outcome.empty);
         assert_eq!(
             seen.lock().map(|seen| seen[0].clone()).unwrap(),
-            ["xbps-install", "-n", "-Su"]
+            ["xbps-install", "-M", "-n", "-Su"]
         );
     }
 

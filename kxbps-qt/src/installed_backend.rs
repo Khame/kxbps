@@ -2078,7 +2078,7 @@ mod tests {
         assert_eq!(payload.items[1].reason, PlanReason::Requested);
         assert_eq!(
             seen.lock().map(|seen| seen[0].clone()).unwrap(),
-            ["xbps-install", "-n", "ark"]
+            ["xbps-install", "-M", "-n", "ark"]
         );
     }
 
@@ -2128,7 +2128,7 @@ mod tests {
         assert!(payload.items.is_empty());
         assert_eq!(
             seen.lock().map(|seen| seen[0].clone()).unwrap(),
-            ["xbps-install", "-n", "vim"],
+            ["xbps-install", "-M", "-n", "vim"],
             "the dry run is asked, so the plan says there is nothing to do"
         );
     }
@@ -2354,7 +2354,7 @@ mod tests {
         assert_eq!(payload.items.len(), 1);
         assert_eq!(
             seen.lock().map(|seen| seen[0].clone()).unwrap(),
-            ["xbps-install", "-n", "-Su"]
+            ["xbps-install", "-M", "-n", "-Su"]
         );
     }
 
@@ -2495,8 +2495,8 @@ mod tests {
                 .names,
             ["vim"]
         );
-        assert_eq!(install_argv(&["vim".to_string()])[1], "-n");
-        assert_eq!(system_argv(), ["xbps-install", "-n", "-Su"]);
+        assert_eq!(install_argv(&["vim".to_string()])[1..3], ["-M", "-n"]);
+        assert_eq!(system_argv(), ["xbps-install", "-M", "-n", "-Su"]);
         assert_eq!(
             remove_argv(&["vim".to_string()]),
             ["xbps-remove", "-n", "vim"]
@@ -2550,7 +2550,7 @@ mod tests {
         .run(&installed, &*invoke);
         assert_eq!(
             seen.lock().map(|seen| seen[0].clone()).unwrap(),
-            ["xbps-install", "-n", "ark", "vim"]
+            ["xbps-install", "-M", "-n", "ark", "vim"]
         );
     }
 

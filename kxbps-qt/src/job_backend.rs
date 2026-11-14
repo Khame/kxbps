@@ -1420,6 +1420,7 @@ mod tests {
             [vec![
                 String::from("pkexec"),
                 String::from("/usr/bin/xbps-install"),
+                String::from("-S"),
                 String::from("-y"),
                 String::from("vim-9.2.1031_1"),
             ]]
@@ -1939,6 +1940,7 @@ mod tests {
             vec![
                 String::from("pkexec"),
                 String::from("/usr/bin/xbps-install"),
+                String::from("-S"),
                 String::from("-y"),
                 String::from("vim"),
             ],
@@ -1951,7 +1953,7 @@ mod tests {
         ];
         assert_eq!(
             command_text(&commands),
-            "pkexec /usr/bin/xbps-install -y vim ; pkexec /usr/bin/xbps-remove -y nano"
+            "pkexec /usr/bin/xbps-install -S -y vim ; pkexec /usr/bin/xbps-remove -y nano"
         );
         assert_eq!(command_text(&[]), "", "an empty plan has no command");
     }
