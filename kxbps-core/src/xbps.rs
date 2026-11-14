@@ -319,6 +319,12 @@ pub fn parse_search(input: &str) -> Result<Vec<SearchHit>, XbpsError> {
 /// - `<count> <url>` — no note at all for an unsigned repository, `signed`
 ///   `false`.
 ///
+/// A repository with staged packages gets a `(Staged)` marker in front of the
+/// signature note — `<count> <url> (Staged) (RSA signed)` — and the marker on
+/// its own is a valid note as well. The marker says nothing the caller needs,
+/// so it is accepted and ignored; [`RepoEntry`] keeps its three fields and the
+/// shape that crosses to QML does not change.
+///
 /// Any other note is a new format the caller has to learn about, so it fails.
 pub fn parse_repos(input: &str) -> Result<Vec<RepoEntry>, XbpsError> {
     let mut repos = Vec::new();
@@ -332,6 +338,13 @@ pub fn parse_repos(input: &str) -> Result<Vec<RepoEntry>, XbpsError> {
             .map_err(|_| malformed(line_no, line, "repository count is not a number"))?;
         let (url, note) = split_first_field(rest)
             .ok_or_else(|| malformed(line_no, line, "missing repository URL"))?;
+        // The note is the staged marker, then the signature note. The marker
+        // carries no information for the caller, so it is accepted and
+        // ignored.
+        let note = match note.strip_prefix("(Staged)") {
+            Some(rest) => rest.trim_start(),
+            None => note,
+        };
         let signed = match note {
             "" | "(RSA maybe-signed)" => false,
             "(RSA signed)" => true,
@@ -834,11 +847,73 @@ mod tests {
         assert_eq!(line, 2);
         assert_eq!(text, "many https://r/current (RSA signed)");
         assert!(parse_repos("10 https://r/current (unsigned)\n").is_err());
+        assert!(parse_repos("10 https://r/current (Staged) (unsigned)\n").is_err());
+        assert!(
+            parse_repos("10 https://r/current (RSA signed) (Staged)\n").is_err(),
+            "the staged marker comes before the signature note, not after it"
+        );
     }
 
     #[test]
     fn repos_rejects_empty_output() {
         assert_eq!(parse_repos(""), Err(XbpsError::Empty));
+    }
+
+    #[test]
+    fn repos_accepts_the_staged_marker_xbps_prints() {
+        let repos =
+            parse_repos("14837 https://repo-fi.voidlinux.org/current (Staged) (RSA signed)\n")
+                .expect("a staged repository parses");
+        assert_eq!(repos.len(), 1);
+        assert_eq!(repos[0].count, 14837);
+        assert_eq!(repos[0].url, "https://repo-fi.voidlinux.org/current");
+        assert!(
+            repos[0].signed,
+            "the signature note behind the staged marker is still read"
+        );
+    }
+
+    #[test]
+    fn a_staged_maybe_signed_repository_is_not_signed() {
+        let repos = parse_repos(
+            "   -1 https://repo-fi.voidlinux.org/current (Staged) (RSA maybe-signed)\n",
+        )
+        .expect("a staged maybe-signed repository parses");
+        assert_eq!(repos[0].count, -1);
+        assert_eq!(repos[0].url, "https://repo-fi.voidlinux.org/current");
+        assert!(
+            !repos[0].signed,
+            "maybe-signed is not verified locally, so it is not signed"
+        );
+    }
+
+    #[test]
+    fn a_staged_repository_without_a_signature_note_parses() {
+        let repos = parse_repos("10 https://repo.example.invalid/current (Staged)\n")
+            .expect("a staged repository without a signature note parses");
+        assert_eq!(repos[0].count, 10);
+        assert_eq!(repos[0].url, "https://repo.example.invalid/current");
+        assert!(!repos[0].signed);
+    }
+
+    #[test]
+    fn a_mixed_listing_with_a_staged_repository_parses_every_entry() {
+        let repos = parse_repos(
+            "14837 https://repo-fi.voidlinux.org/current (Staged) (RSA signed)\n\
+             5 https://khame.github.io/void-packages/ (RSA signed)\n\
+             67 https://repo-de.voidlinux.org/current/nonfree (RSA signed)\n",
+        )
+        .expect("a mixed listing parses");
+        assert_eq!(repos.len(), 3);
+        assert_eq!(repos[0].url, "https://repo-fi.voidlinux.org/current");
+        assert_eq!(repos[0].count, 14837);
+        assert!(repos[0].signed);
+        assert_eq!(repos[1].url, "https://khame.github.io/void-packages/");
+        assert_eq!(
+            repos[2].url,
+            "https://repo-de.voidlinux.org/current/nonfree"
+        );
+        assert!(repos[2].signed);
     }
 
     #[test]
