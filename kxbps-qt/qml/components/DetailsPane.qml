@@ -10,9 +10,10 @@
 // The pane is a header, a body of two columns and one row of actions. The
 // header names the package and says what it is; the left column is a fact grid
 // where every row has the same shape — a muted label, then the value, both
-// left-aligned — and the right column holds the two xbps lists. The actions
-// sit together at the bottom right, in one group, so the pane has one place to
-// act and one place to read.
+// left-aligned — and the right column holds the two xbps lists, one name per
+// token so a version constraint stays with its package. The action row is the
+// one place to act: the queue action on the left, where a destructive action
+// belongs, and the two look-up buttons on the right.
 //
 // Below the wide form the columns stack, which is the form the narrow drawer
 // shows.
@@ -62,6 +63,11 @@ Item {
     readonly property bool installed: pane.info.installed === true
     readonly property var dependents: pane.info.requiredBy !== undefined && pane.info.requiredBy.length > 0
                                      ? pane.info.requiredBy.split(", ") : []
+    // xbps hands the dependencies over as one comma-separated string. Split into
+    // tokens so each name keeps its own version constraint next to it and the
+    // list can wrap in columns instead of running as a paragraph.
+    readonly property var dependsList: pane.info.depends !== undefined && pane.info.depends.length > 0
+                                       ? pane.info.depends.split(", ") : []
     readonly property bool orphan: pane.installed && !pane.info.explicit && pane.dependents.length === 0
 
     // The version, even before the facts arrive: the pkgver carries it.
@@ -192,12 +198,21 @@ Item {
         }
     }
 
-    // A list of xbps names: monospace, wrapped, and a sentence when empty, so a
-    // blank field never reads as "not read".
-    component NameList: QQC2.Label {
+    // A list of xbps names: monospace, one token per name, two aligned columns
+    // so the names line up with each other the way the facts on the left do.
+    // A positioner derives its own implicit size from the placed tokens, which
+    // is what the scroll body reads.
+    component NameGrid: Grid {
         Layout.fillWidth: true
         Layout.minimumWidth: 0
-        wrapMode: Text.WordWrap
+        columns: 2
+        rowSpacing: Kirigami.Units.smallSpacing
+        columnSpacing: Kirigami.Units.largeSpacing * 2
+    }
+
+    // The monospace label a name in the flow is written with, kept in one place
+    // so both lists read the same.
+    component NameToken: QQC2.Label {
         font: Qt.font({
             family: "monospace",
             pixelSize: Kirigami.Theme.smallFont.pixelSize
@@ -290,11 +305,24 @@ Item {
             color: Kirigami.Theme.disabledTextColor
         }
 
-        NameList {
-            text: pane.info.depends !== undefined && pane.info.depends.length > 0
-                  ? pane.info.depends : i18nd("kxbps", "No dependencies")
-            color: pane.info.depends !== undefined && pane.info.depends.length > 0
-                   ? Kirigami.Theme.textColor : Kirigami.Theme.disabledTextColor
+        NameGrid {
+            visible: pane.dependsList.length > 0
+            Repeater {
+                model: pane.dependsList
+                NameToken {
+                    text: modelData
+                }
+            }
+        }
+
+        // An empty field reads as "not read"; say it instead.
+        QQC2.Label {
+            Layout.fillWidth: true
+            Layout.minimumWidth: 0
+            visible: pane.dependsList.length === 0
+            text: i18nd("kxbps", "No dependencies")
+            font: Kirigami.Theme.smallFont
+            color: Kirigami.Theme.disabledTextColor
         }
 
         QQC2.Label {
@@ -306,11 +334,23 @@ Item {
             color: Kirigami.Theme.disabledTextColor
         }
 
-        NameList {
-            text: pane.dependents.length > 0 ? pane.dependents.join(", ")
-                                             : i18nd("kxbps", "Nothing depends on it")
-            color: pane.dependents.length > 0 ? Kirigami.Theme.textColor
-                                              : Kirigami.Theme.disabledTextColor
+        NameGrid {
+            visible: pane.dependents.length > 0
+            Repeater {
+                model: pane.dependents
+                NameToken {
+                    text: modelData
+                }
+            }
+        }
+
+        QQC2.Label {
+            Layout.fillWidth: true
+            Layout.minimumWidth: 0
+            visible: pane.dependents.length === 0
+            text: i18nd("kxbps", "Nothing depends on it")
+            font: Kirigami.Theme.smallFont
+            color: Kirigami.Theme.disabledTextColor
         }
     }
 
@@ -403,14 +443,14 @@ Item {
 
                 Facts {
                     Layout.fillWidth: true
-                    Layout.preferredWidth: Kirigami.Units.gridUnit * 30
+                    Layout.preferredWidth: Kirigami.Units.gridUnit * 26
                 }
 
                 VSeparator {}
 
                 Deps {
                     Layout.fillWidth: true
-                    Layout.preferredWidth: Kirigami.Units.gridUnit * 26
+                    Layout.preferredWidth: Kirigami.Units.gridUnit * 32
                 }
             }
 
@@ -427,9 +467,10 @@ Item {
         }
     }
 
-    // The actions, together at the bottom right: one place to act, and the
-    // queue action last, where a dialog puts its default button. Pinned, so a
-    // long dependency list scrolls under them instead of carrying them away.
+    // The actions, pinned so a long dependency list scrolls under them instead
+    // of carrying them away. The queue action sits on the left, apart from the
+    // two buttons that only look something up: it is the one that changes what
+    // Apply will do, and it is the one that removes.
     RowLayout {
         id: actions
         anchors.left: parent.left
@@ -437,6 +478,19 @@ Item {
         anchors.bottom: parent.bottom
         anchors.margins: Kirigami.Units.largeSpacing
         spacing: Kirigami.Units.smallSpacing
+
+        DenseButton {
+            text: pane.actionLabel
+            icon.name: pane.actionIcon
+            enabled: pane.packageName.length > 0 && pane.factsReady
+            onClicked: {
+                if (pane.queuedAction.length > 0) {
+                    pane.installedBackend.removeQueued(pane.name)
+                } else {
+                    pane.installedBackend.toggleQueue(pane.name, pane.actionToken)
+                }
+            }
+        }
 
         Item {
             Layout.fillWidth: true
@@ -454,19 +508,6 @@ Item {
             text: pane.info.held ? i18nd("kxbps", "Unhold") : i18nd("kxbps", "Hold")
             icon.name: pane.info.held ? "object-unlocked" : "object-locked"
             onClicked: pane.installedBackend.toggleHold(pane.name)
-        }
-
-        DenseButton {
-            text: pane.actionLabel
-            icon.name: pane.actionIcon
-            enabled: pane.packageName.length > 0 && pane.factsReady
-            onClicked: {
-                if (pane.queuedAction.length > 0) {
-                    pane.installedBackend.removeQueued(pane.name)
-                } else {
-                    pane.installedBackend.toggleQueue(pane.name, pane.actionToken)
-                }
-            }
         }
     }
 
