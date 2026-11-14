@@ -22,15 +22,21 @@ use cxx_qt::Threading;
 use cxx_qt::casting::Upcast;
 use cxx_qt_lib::{QObjectMutPtr, QString, QStringList};
 use kxbps_core::{
-    InstalledMap, Plan, PlanItem, QueueAction, QueueItem, Store, StoreError, effective_updates,
-    held_updates_in, installs_as_updates, not_installed, update_signature_of,
+    AUTO_GAP_MS, CheckOutcome, CheckStatus, InstalledMap, Plan, PlanItem, QueueAction, QueueItem,
+    Store, StoreError, UpdatesOrigin, check_status, effective_updates, held_updates_in,
+    installs_as_updates, is_due, is_offline, local_replaces, not_installed, update_signature_of,
 };
 
 use crate::job_backend::JobPayload;
+use crate::network::ReachabilityFn;
 use crate::plan_backend::{PlanPayload, keys as plan_keys};
 use crate::xbps_plan;
-use crate::xbps_snapshot::{SharedInvoke, Snapshot, SnapshotError, read_snapshot};
+use crate::xbps_runner::{READ_TIMEOUT_MS, repos_argv, run};
+use crate::xbps_snapshot::{
+    SharedInvoke, Snapshot, SnapshotError, read_remote_updates, read_snapshot,
+};
 use kxbps_core::UpdateEntry;
+use kxbps_core::xbps::parse_repos;
 
 #[cxx_qt::bridge]
 pub mod qobject {
@@ -144,6 +150,22 @@ pub mod qobject {
         // against the dismissed marker. Empty until the first read answers.
         // `refresh()` is the only writer and only emits when it moves.
         #[qproperty(QString, pending_signature, READ, NOTIFY)]
+        // Whether a fresh check is running; the Check button and the tray
+        // action are disabled while it is and show a spinner.
+        #[qproperty(bool, checking, READ, NOTIFY)]
+        // When the last check succeeded, epoch milliseconds; `0` is never. The
+        // window reads it to decide whether the show-time check is due, and the
+        // status sentence words the age from it.
+        #[qproperty(i64, last_check_at, READ, NOTIFY)]
+        // The last check's sentence as an i18n key plus its `%1…%4` arguments;
+        // empty means no sentence to add. QML words it, never this side.
+        #[qproperty(QString, check_key, READ, NOTIFY)]
+        #[qproperty(QStringList, check_args, READ, NOTIFY)]
+        // Why the last check could not refresh the list; empty when it
+        // succeeded. Kept apart from `check_key` so the strip can say what
+        // happened after the sentence that announced it has gone.
+        #[qproperty(QString, check_error_key, READ, NOTIFY)]
+        #[qproperty(QStringList, check_error_args, READ, NOTIFY)]
         type InstalledBackend = super::InstalledBackendRust;
 
         #[qinvokable]
@@ -237,6 +259,16 @@ pub mod qobject {
         // "reload" button; the previous rows stay visible until it answers.
         #[qinvokable]
         fn reload(self: Pin<&mut InstalledBackend>);
+
+        /// Asks the repositories for updates: `xbps-install -M -un`, on a worker
+        /// thread.
+        ///
+        /// `force` is the manual button and the tray action: it ignores the
+        /// clock and the reachability reading. `false` is the timer and the
+        /// window-show hook, which do nothing inside the gap and nothing at all
+        /// when Qt reports no connection.
+        #[qinvokable]
+        fn check_updates(self: Pin<&mut InstalledBackend>, force: bool);
 
         #[qinvokable]
         fn reset(self: Pin<&mut InstalledBackend>);
@@ -334,6 +366,33 @@ pub struct InstalledBackendRust {
     /// The process transport. Tests install a fake here, so the suite never
     /// starts xbps; production installs [`crate::xbps_bridge::production_invoke`].
     invoke: SharedInvoke,
+    /// Network reachability, as `QNetworkInformation::Reachability` reports it.
+    ///
+    /// Injected like [`Self::invoke`] so a test can say "Disconnected" without a
+    /// D-Bus or a NetworkManager; production installs [`crate::network_reachability`].
+    /// `-1` means no backend loaded, which is not offline.
+    reachability: ReachabilityFn,
+    /// Where the pending-update list came from, in memory only.
+    ///
+    /// A local read cannot see anything the last fresh check did not; the caller
+    /// uses this to keep a young remote list from being overwritten by it.
+    updates_origin: UpdatesOrigin,
+    /// Whether a check is running; the Checks button is disabled while it is.
+    checking: bool,
+    /// The last successful check, epoch milliseconds; `0` is never. Mirrors
+    /// `prefs.last_check_at` for the property, since QML cannot read prefs from
+    /// here and the store's copy is the persisted one.
+    last_check_at: i64,
+    /// The sentence the last check produced: the key and its `%1…%4` arguments.
+    check_key: QString,
+    check_args: QStringList,
+    /// The failure sentence of the last check: an i18n key, empty when the last
+    /// check succeeded. Kept beside the status so the strip can show the reason
+    /// after the sentence that announced it is gone.
+    check_error_key: QString,
+    check_error_args: QStringList,
+    /// How many checks were started; only the newest may write its answer.
+    check_generation: Arc<AtomicU64>,
     /// The mirror backend waiting for the next job to end, as an address: a job
     /// is created with this owner and has no other way back to its caller.
     mirror_waiter: usize,
@@ -363,6 +422,15 @@ impl Default for InstalledBackendRust {
             generation: Arc::new(AtomicU64::new(0)),
             plan_generation: Arc::new(AtomicU64::new(0)),
             invoke: crate::xbps_bridge::production_invoke(),
+            reachability: crate::network::production_reachability(),
+            updates_origin: UpdatesOrigin::Local,
+            checking: false,
+            last_check_at: 0,
+            check_key: QString::from(""),
+            check_args: QStringList::default(),
+            check_error_key: QString::from(""),
+            check_error_args: QStringList::default(),
+            check_generation: Arc::new(AtomicU64::new(0)),
             mirror_waiter: 0,
         }
     }
@@ -410,6 +478,7 @@ impl cxx_qt::Initialize for qobject::InstalledBackend {
             .iter()
             .map(|arg| QString::from(arg.as_str()))
             .collect::<QStringList>();
+        data.last_check_at = data.store.prefs.last_check_at;
     }
 }
 
@@ -441,6 +510,109 @@ impl InstalledBackendRust {
                 });
             }
         }
+    }
+
+    /// Runs one update check and returns the sentence it produced.
+    ///
+    /// `force` is the manual button: it ignores the clock and the reachability
+    /// reading, because the user asked and xbps' own answer is the best one
+    /// available. An automatic check respects both — it does nothing inside the
+    /// gap, and nothing at all when the system is `Disconnected`.
+    ///
+    /// Only a successful remote read replaces the list; a failure leaves it
+    /// exactly as it was, which is what makes the age in the sentence truthful.
+    /// The returned status is also stored in `check_key`/`check_args`, so the
+    /// QObject properties describe the same run this call reports.
+    #[cfg_attr(not(test), allow(dead_code))]
+    fn run_check(&mut self, force: bool, now: i64) -> CheckStatus {
+        let status = self.decide_and_check(force, now);
+        self.check_key = QString::from(status.key);
+        self.check_args = strings_list(&status.args);
+        self.last_check_at = self.store.prefs.last_check_at;
+        status
+    }
+
+    /// The decision and the process, without touching the property fields.
+    #[cfg_attr(not(test), allow(dead_code))]
+    fn decide_and_check(&mut self, force: bool, now: i64) -> CheckStatus {
+        if self.checking {
+            return CheckStatus::none();
+        }
+        if !force && !is_due(self.store.prefs.last_check_at, now, AUTO_GAP_MS) {
+            return CheckStatus::none();
+        }
+        let offline = is_offline((self.reachability)());
+        if !force && offline {
+            // Only an automatic check refuses to try; a manual one may be
+            // right when Qt's backend is wrong, and xbps will say so itself.
+            self.finish_check_error("checkOffline", Vec::new());
+            return check_status(&CheckOutcome::Offline, &self.check_age(now));
+        }
+        self.checking = true;
+        let invoke = self.invoke.clone();
+        let result = check_remote(&*invoke);
+        self.checking = false;
+        let age = self.check_age(now);
+        match result {
+            Ok(updates) => {
+                let count = updates.len();
+                self.store.replace_updates(updates.clone());
+                if let Some(snapshot) = self.snapshot.as_mut() {
+                    snapshot.updates = updates;
+                }
+                self.updates_origin = UpdatesOrigin::Remote { at: now };
+                self.store.set_pref_last_check_at(now);
+                self.check_error_key = QString::from("");
+                self.check_error_args = QStringList::default();
+                let outcome = if count == 0 {
+                    CheckOutcome::UpToDate
+                } else {
+                    CheckOutcome::Updates { count }
+                };
+                check_status(&outcome, &age)
+            }
+            Err(SnapshotError::Repositories {
+                failed,
+                total,
+                detail,
+                ..
+            }) => {
+                self.finish_check_error("checkRepositoriesFailed", Vec::new());
+                check_status(
+                    &CheckOutcome::RepositoriesFailed {
+                        failed,
+                        total,
+                        detail,
+                    },
+                    &age,
+                )
+            }
+            Err(err) => {
+                self.finish_check_error(err.key(), err.args());
+                check_status(&CheckOutcome::ReadFailed { key: err.key() }, &age)
+            }
+        }
+    }
+
+    /// Records a failed check: the list stays, the sentence is kept.
+    #[cfg_attr(not(test), allow(dead_code))]
+    fn finish_check_error(&mut self, key: &str, args: Vec<String>) {
+        self.check_error_key = QString::from(key);
+        self.check_error_args = strings_list(&args);
+    }
+
+    /// How old the last successful check is, worded for the sentence.
+    ///
+    /// The age is spelled in words rather than seconds so the caller can
+    /// pluralise it in QML's translation; an unreadable clock and a stamp in
+    /// the future both read as "not checked yet", because neither can be
+    /// trusted to produce a sane age.
+    fn check_age(&self, now: i64) -> String {
+        let last = self.store.prefs.last_check_at;
+        if last <= 0 || last > now {
+            return String::from("0");
+        }
+        (now - last).to_string()
     }
 }
 
@@ -842,6 +1014,157 @@ impl qobject::InstalledBackend {
         });
     }
 
+    /// Asks the repositories for updates, on a worker thread.
+    ///
+    /// The GUI thread only decides whether to start and marks `checking`; the
+    /// process and the reachability read happen on the worker, and the answer
+    /// arrives through `qt_thread().queue(...)` — the only way a background
+    /// thread may touch this object. A check that finishes after a newer one
+    /// started is dropped, so a slow repository can never overwrite the answer
+    /// the user is waiting for.
+    fn check_updates(mut self: Pin<&mut Self>, force: bool) {
+        let now = now_ms();
+        let already = self.checking;
+        if already {
+            return;
+        }
+        if !force && !is_due(self.store.prefs.last_check_at, now, AUTO_GAP_MS) {
+            return;
+        }
+        let offline = is_offline((self.reachability)());
+        if !force && offline {
+            // Nothing to run: the sentence is built here, on the GUI thread,
+            // and reported like any other finished check.
+            let status = self.check_age(now);
+            let status = check_status(&CheckOutcome::Offline, &status);
+            self.finish_check_offline(&status);
+            return;
+        }
+
+        let generation = self.check_generation.fetch_add(1, Ordering::SeqCst) + 1;
+        {
+            let data = Pin::get_mut(self.as_mut().rust_mut());
+            data.checking = true;
+            data.check_key = QString::from("");
+            data.check_args = QStringList::default();
+        }
+        self.as_mut().checking_changed();
+        self.as_mut().check_key_changed();
+        self.as_mut().check_args_changed();
+
+        let thread = self.qt_thread();
+        let current = self.check_generation.clone();
+        let invoke = self.invoke.clone();
+        std::thread::spawn(move || {
+            let result = check_remote(&*invoke);
+            thread
+                .queue(move |backend| backend.finish_check(generation, &current, now, result))
+                .ok();
+        });
+    }
+
+    /// Applies a finished check, unless a newer one has started since.
+    fn finish_check(
+        mut self: Pin<&mut Self>,
+        generation: u64,
+        current: &Arc<AtomicU64>,
+        now: i64,
+        result: Result<Vec<UpdateEntry>, SnapshotError>,
+    ) {
+        if current.load(Ordering::SeqCst) != generation {
+            return;
+        }
+        let age = self.check_age_at(now);
+        let status = {
+            let data = Pin::get_mut(self.as_mut().rust_mut());
+            data.checking = false;
+            match result {
+                Ok(updates) => {
+                    let count = updates.len();
+                    data.store.replace_updates(updates.clone());
+                    if let Some(snapshot) = data.snapshot.as_mut() {
+                        snapshot.updates = updates;
+                    }
+                    data.updates_origin = UpdatesOrigin::Remote { at: now };
+                    data.store.set_pref_last_check_at(now);
+                    data.last_check_at = now;
+                    data.check_error_key = QString::from("");
+                    data.check_error_args = QStringList::default();
+                    let outcome = if count == 0 {
+                        CheckOutcome::UpToDate
+                    } else {
+                        CheckOutcome::Updates { count }
+                    };
+                    check_status(&outcome, &age)
+                }
+                Err(SnapshotError::Repositories {
+                    failed,
+                    total,
+                    detail,
+                    ..
+                }) => {
+                    data.check_error_key = QString::from("checkRepositoriesFailed");
+                    data.check_error_args = QStringList::default();
+                    check_status(
+                        &CheckOutcome::RepositoriesFailed {
+                            failed,
+                            total,
+                            detail,
+                        },
+                        &age,
+                    )
+                }
+                Err(err) => {
+                    data.check_error_key = QString::from(err.key());
+                    data.check_error_args = strings_list(&err.args());
+                    check_status(&CheckOutcome::ReadFailed { key: err.key() }, &age)
+                }
+            }
+        };
+        {
+            let data = Pin::get_mut(self.as_mut().rust_mut());
+            data.check_key = QString::from(status.key);
+            data.check_args = strings_list(&status.args);
+            data.checking = false;
+        }
+        // The store moved (the list, maybe the stamp), so it is saved and the
+        // models receive it; a failed check changed nothing and `refresh` only
+        // republishes what the window already shows.
+        save_store(self.as_mut());
+        refresh(self.as_mut());
+        self.as_mut().checking_changed();
+        self.as_mut().check_key_changed();
+        self.as_mut().check_args_changed();
+        self.as_mut().check_error_key_changed();
+        self.as_mut().check_error_args_changed();
+        self.as_mut().last_check_at_changed();
+    }
+
+    /// Reports the offline state without starting a process.
+    fn finish_check_offline(mut self: Pin<&mut Self>, status: &CheckStatus) {
+        {
+            let data = Pin::get_mut(self.as_mut().rust_mut());
+            data.check_error_key = QString::from("checkOffline");
+            data.check_error_args = QStringList::default();
+            data.check_key = QString::from(status.key);
+            data.check_args = strings_list(&status.args);
+        }
+        self.as_mut().check_key_changed();
+        self.as_mut().check_args_changed();
+        self.as_mut().check_error_key_changed();
+        self.as_mut().check_error_args_changed();
+    }
+
+    /// How old the last successful check is, as the number of milliseconds the
+    /// sentence pluralises; `0` when no check ever succeeded.
+    fn check_age_at(&self, now: i64) -> String {
+        let last = self.store.prefs.last_check_at;
+        if last <= 0 || last > now {
+            return String::from("0");
+        }
+        (now - last).to_string()
+    }
+
     /// Applies a finished read, unless a newer one has started since.
     fn finish_read(
         mut self: Pin<&mut Self>,
@@ -878,8 +1201,24 @@ impl qobject::InstalledBackend {
         self.as_mut().read_error_args_changed();
 
         let applied = {
+            let now = now_ms();
             let data = Pin::get_mut(self.as_mut().rust_mut());
-            apply_read(&mut data.store, &mut data.snapshot, result)
+            // A fresh remote list outranks this read: the local index cannot
+            // see anything the check did not already see, so replacing it here
+            // would make the repositories look older than they are.
+            let keep_remote = !local_replaces(data.updates_origin, now, AUTO_GAP_MS);
+            let result = match result {
+                Ok(mut snapshot) if keep_remote => {
+                    snapshot.updates = data.store.pending_updates().to_vec();
+                    Ok(snapshot)
+                }
+                other => other,
+            };
+            let applied = apply_read(&mut data.store, &mut data.snapshot, result);
+            if applied && !keep_remote {
+                data.updates_origin = UpdatesOrigin::Local;
+            }
+            applied
         };
         if applied {
             // The installed set changed, and the next start shows it before a
@@ -932,6 +1271,21 @@ impl qobject::InstalledBackend {
             )
         }
     }
+}
+
+/// Reads the repository count and then the fresh update list.
+///
+/// Runs on the worker thread: two processes, the second the network one. The
+/// count is only for the sentence, so a listing this version cannot read costs
+/// the number and not the check.
+fn check_remote(invoke: &crate::xbps_snapshot::Invoke) -> Result<Vec<UpdateEntry>, SnapshotError> {
+    let total = match run(&repos_argv(), READ_TIMEOUT_MS, invoke) {
+        Ok(output) if output.success() => parse_repos(&output.stdout)
+            .map(|entries| entries.len())
+            .unwrap_or(0),
+        _ => 0,
+    };
+    read_remote_updates(invoke, total)
 }
 
 /// What one `open*` asks the worker to plan, and how it becomes a payload.
@@ -1394,6 +1748,13 @@ fn set_store_error(mut self_: Pin<&mut qobject::InstalledBackend>, key: &str, ar
     }
     self_.as_mut().error_changed();
     self_.as_mut().error_args_changed();
+}
+
+/// The Qt list form of a sentence's arguments, for the properties QML reads.
+fn strings_list(args: &[String]) -> QStringList {
+    args.iter()
+        .map(|arg| QString::from(arg.as_str()))
+        .collect::<QStringList>()
 }
 
 fn strings_of(list: &cxx_qt_lib::QStringList) -> Vec<String> {
@@ -2360,5 +2721,323 @@ mod tests {
         assert_eq!(queued[0].action, QueueAction::Remove);
         assert_eq!(queued[1].name, "mesa");
         assert_eq!(queued[1].action, QueueAction::Update);
+    }
+
+    // ---- the fresh check (task 27) ----
+
+    /// A transport that answers the fresh check and refuses every other read.
+    ///
+    /// The check is the only process these tests are allowed to ask for; a
+    /// `reload()` running beside it would make the count meaningless, so any
+    /// other argv panics.
+    fn check_transport(remote: String) -> (SharedInvoke, Arc<Mutex<usize>>, Arc<Mutex<String>>) {
+        let calls = Arc::new(Mutex::new(0usize));
+        let last = Arc::new(Mutex::new(String::new()));
+        let seen_calls = calls.clone();
+        let seen_last = last.clone();
+        let invoke: SharedInvoke = Arc::new(move |request: &str, _timeout: u32| {
+            if request.contains("\"-L\"") {
+                // The repository count the failure sentence names.
+                return ok_reply(
+                    "  10 https://a/current (RSA signed)\n   5 https://b/current (RSA signed)\n",
+                );
+            }
+            assert!(
+                request.contains("\"-M\""),
+                "the check is the only other process this test allows, got {request}"
+            );
+            *seen_calls.lock().expect("lock") += 1;
+            *seen_last.lock().expect("lock") = request.to_owned();
+            remote.clone()
+        });
+        (invoke, calls, last)
+    }
+
+    #[test]
+    fn a_failed_check_keeps_the_list_and_reports_the_error() {
+        // The reply is the measured shape: one repository failed, exit 0.
+        let remote = Box::leak(
+            concat!(
+                r#"{"exitCode":0,"stdout":"vim-9.2.2000_1 update x86_64 https://r/current 10 20\n","stderr":"#,
+                r#""ERROR: failed to open repository: https://a/current: Input/output error\n","timedOut":false}"#
+            )
+            .to_owned()
+            .into_boxed_str(),
+        );
+        let (invoke, _, _) = check_transport(remote.to_owned());
+        let installed = installed_set();
+        let before = update_entry("vim", "9.2.1500_1");
+        let mut store = store_with(&installed, Vec::new());
+        store.replace_updates(vec![before.clone()]);
+        let mut backend = InstalledBackendRust {
+            store,
+            snapshot: Some(Snapshot {
+                updates: vec![before.clone()],
+                ..store_snapshot(&installed)
+            }),
+            invoke,
+            ..Default::default()
+        };
+
+        let status = backend.run_check(true, 1_700_000_000_000);
+
+        assert_eq!(
+            backend.store.pending_updates(),
+            [before],
+            "a failed check must not touch the list"
+        );
+        assert_eq!(status.key, "checkRepositoriesFailed");
+        assert_ne!(status.key, "checkUpToDate");
+        assert_eq!(
+            backend.store.prefs.last_check_at, 0,
+            "a failed check is not a successful one"
+        );
+        assert_eq!(
+            backend.check_error_key.to_string(),
+            "checkRepositoriesFailed",
+            "the failure sentence is kept for the strip"
+        );
+        assert!(!backend.checking);
+    }
+
+    #[test]
+    fn a_successful_check_replaces_the_list_and_stamps_the_time() {
+        let remote = r#"{"exitCode":0,"stdout":"vim-9.2.2000_1 update x86_64 https://r/current 10 20\n","stderr":"","timedOut":false}"#;
+        let (invoke, calls, seen) = check_transport(remote.to_owned());
+        let installed = installed_set();
+        let mut backend = InstalledBackendRust {
+            store: store_with(&installed, Vec::new()),
+            snapshot: Some(store_snapshot(&installed)),
+            invoke,
+            ..Default::default()
+        };
+
+        let status = backend.run_check(true, 1_700_000_000_000);
+
+        assert_eq!(*calls.lock().expect("lock"), 1);
+        let request = seen.lock().expect("lock").clone();
+        assert_eq!(request, r#"["xbps-install","-M","-un"]"#);
+        assert_eq!(backend.store.pending_updates().len(), 1);
+        assert_eq!(backend.store.pending_updates()[0].version, "9.2.2000_1");
+        assert_eq!(backend.store.prefs.last_check_at, 1_700_000_000_000);
+        assert_eq!(status.key, "checkUpdatesFound");
+        assert_eq!(
+            backend.check_error_key.to_string(),
+            "",
+            "a good check clears the error"
+        );
+    }
+
+    #[test]
+    fn a_check_that_found_nothing_is_the_only_way_to_say_up_to_date() {
+        let remote = r#"{"exitCode":0,"stdout":"","stderr":"","timedOut":false}"#;
+        let (invoke, _, _) = check_transport(remote.to_owned());
+        let installed = installed_set();
+        let mut backend = InstalledBackendRust {
+            store: store_with(&installed, Vec::new()),
+            snapshot: Some(store_snapshot(&installed)),
+            invoke,
+            ..Default::default()
+        };
+
+        let status = backend.run_check(true, 1_700_000_000_000);
+
+        assert_eq!(status.key, "checkUpToDate");
+        assert!(backend.store.pending_updates().is_empty());
+        assert_eq!(backend.check_error_key.to_string(), "");
+    }
+
+    #[test]
+    fn a_manual_check_ignores_the_clock() {
+        let remote = r#"{"exitCode":0,"stdout":"","stderr":"","timedOut":false}"#;
+        let (invoke, calls, _) = check_transport(remote.to_owned());
+        let installed = installed_set();
+        let mut store = store_with(&installed, Vec::new());
+        store.set_pref_last_check_at(1_699_999_999_000);
+        let mut backend = InstalledBackendRust {
+            store,
+            snapshot: Some(store_snapshot(&installed)),
+            invoke,
+            ..Default::default()
+        };
+
+        backend.run_check(true, 1_699_999_999_500);
+
+        assert_eq!(
+            *calls.lock().expect("lock"),
+            1,
+            "a manual check runs though the last one is a moment old"
+        );
+    }
+
+    #[test]
+    fn an_automatic_check_inside_the_gap_does_nothing() {
+        let remote = r#"{"exitCode":0,"stdout":"","stderr":"","timedOut":false}"#;
+        let (invoke, calls, _) = check_transport(remote.to_owned());
+        let installed = installed_set();
+        let mut store = store_with(&installed, Vec::new());
+        store.set_pref_last_check_at(1_699_999_999_000);
+        let mut backend = InstalledBackendRust {
+            store,
+            snapshot: Some(store_snapshot(&installed)),
+            invoke,
+            ..Default::default()
+        };
+
+        let status = backend.run_check(false, 1_699_999_999_500);
+
+        assert_eq!(*calls.lock().expect("lock"), 0, "not due, so no process");
+        assert_eq!(status.key, "", "a skipped check says nothing");
+    }
+
+    #[test]
+    fn an_automatic_check_offline_does_not_start_a_process() {
+        let remote = r#"{"exitCode":0,"stdout":"","stderr":"","timedOut":false}"#;
+        let (invoke, calls, _) = check_transport(remote.to_owned());
+        let installed = installed_set();
+        let mut backend = InstalledBackendRust {
+            store: store_with(&installed, Vec::new()),
+            snapshot: Some(store_snapshot(&installed)),
+            invoke,
+            reachability: Arc::new(|| 1),
+            ..Default::default()
+        };
+
+        let status = backend.run_check(false, 1_700_000_000_000);
+
+        assert_eq!(*calls.lock().expect("lock"), 0, "offline: no xbps run");
+        assert_eq!(status.key, "checkOffline");
+        assert_eq!(backend.check_error_key.to_string(), "checkOffline");
+    }
+
+    #[test]
+    fn a_manual_check_offline_still_tries_the_network() {
+        let remote = r#"{"exitCode":0,"stdout":"","stderr":"","timedOut":false}"#;
+        let (invoke, calls, _) = check_transport(remote.to_owned());
+        let installed = installed_set();
+        let mut backend = InstalledBackendRust {
+            store: store_with(&installed, Vec::new()),
+            snapshot: Some(store_snapshot(&installed)),
+            invoke,
+            reachability: Arc::new(|| 1),
+            ..Default::default()
+        };
+
+        let status = backend.run_check(true, 1_700_000_000_000);
+
+        assert_eq!(
+            *calls.lock().expect("lock"),
+            1,
+            "the user asked, so xbps runs and its own answer decides"
+        );
+        assert_eq!(status.key, "checkUpToDate");
+    }
+
+    #[test]
+    fn an_unknown_reachability_lets_the_check_run() {
+        let remote = r#"{"exitCode":0,"stdout":"","stderr":"","timedOut":false}"#;
+        let (invoke, calls, _) = check_transport(remote.to_owned());
+        let installed = installed_set();
+        let mut backend = InstalledBackendRust {
+            store: store_with(&installed, Vec::new()),
+            snapshot: Some(store_snapshot(&installed)),
+            invoke,
+            reachability: Arc::new(|| -1),
+            ..Default::default()
+        };
+
+        backend.run_check(false, 1_700_000_000_000);
+
+        assert_eq!(
+            *calls.lock().expect("lock"),
+            1,
+            "no backend is not the same as offline"
+        );
+    }
+
+    /// The merge `finish_read` performs, without a QObject: a local list
+    /// replaces the current one only when no fresh remote list outranks it.
+    fn apply_local_read(
+        backend: &mut InstalledBackendRust,
+        updates: Vec<UpdateEntry>,
+        now: i64,
+    ) -> bool {
+        if !local_replaces(backend.updates_origin, now, AUTO_GAP_MS) {
+            return false;
+        }
+        backend.store.replace_updates(updates.clone());
+        if let Some(snapshot) = backend.snapshot.as_mut() {
+            snapshot.updates = updates;
+        }
+        backend.updates_origin = UpdatesOrigin::Local;
+        true
+    }
+
+    #[test]
+    fn a_local_read_does_not_replace_a_young_remote_list() {
+        let installed = installed_set();
+        let remote = update_entry("vim", "9.2.2000_1");
+        let local = update_entry("vim", "9.2.1500_1");
+        let mut store = store_with(&installed, Vec::new());
+        store.replace_updates(vec![remote.clone()]);
+        let mut backend = InstalledBackendRust {
+            store,
+            snapshot: Some(Snapshot {
+                updates: vec![remote.clone()],
+                ..store_snapshot(&installed)
+            }),
+            updates_origin: UpdatesOrigin::Remote {
+                at: 1_700_000_000_000,
+            },
+            ..Default::default()
+        };
+
+        assert!(!apply_local_read(
+            &mut backend,
+            vec![local],
+            1_700_000_060_000
+        ));
+
+        assert_eq!(
+            backend.store.pending_updates(),
+            [remote],
+            "the fresh remote list survives a local read"
+        );
+    }
+
+    #[test]
+    fn a_local_read_replaces_a_stale_remote_list() {
+        let installed = installed_set();
+        let remote = update_entry("vim", "9.2.2000_1");
+        let local = update_entry("vim", "9.2.1500_1");
+        let mut store = store_with(&installed, Vec::new());
+        store.replace_updates(vec![remote.clone()]);
+        let mut backend = InstalledBackendRust {
+            store,
+            snapshot: Some(Snapshot {
+                updates: vec![remote],
+                ..store_snapshot(&installed)
+            }),
+            updates_origin: UpdatesOrigin::Remote {
+                at: 1_700_000_000_000,
+            },
+            ..Default::default()
+        };
+
+        assert!(apply_local_read(
+            &mut backend,
+            vec![local.clone()],
+            1_700_000_900_000
+        ));
+
+        assert_eq!(
+            backend.store.pending_updates(),
+            std::slice::from_ref(&local)
+        );
+        assert_eq!(
+            backend.updates_origin,
+            UpdatesOrigin::Local,
+            "the list is local now, so the next local read may replace it"
+        );
     }
 }

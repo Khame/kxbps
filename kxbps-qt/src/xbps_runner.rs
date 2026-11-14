@@ -87,6 +87,20 @@ pub fn updates_argv() -> Vec<String> {
     argv(XPBS_INSTALL, &["-un"])
 }
 
+/// `xbps-install -M -un`: pending updates against freshly fetched indexes.
+///
+/// `-M` makes xbps download the repository indexes into memory and write
+/// nothing, which is what turns a stale local read into a real check. It needs
+/// no root and changes no file, so it runs like any other read.
+pub fn updates_remote_argv() -> Vec<String> {
+    argv(XPBS_INSTALL, &["-M", "-un"])
+}
+
+/// Timeout for the fresh check: the indexes come over the network, so the
+/// local read's 30 s is not enough heat, and a repository that hangs must still
+/// give the window back.
+pub const REMOTE_TIMEOUT_MS: u32 = 120_000;
+
 /// `xbps-query -Rs <pattern>`: repository search.
 ///
 /// The pattern stays one argument even when it contains spaces; xbps never
@@ -201,6 +215,11 @@ mod tests {
     fn read_commands_have_the_documented_argv() {
         assert_eq!(installed_argv(), ["xbps-query", "-l"]);
         assert_eq!(updates_argv(), ["xbps-install", "-un"]);
+        assert_eq!(
+            updates_remote_argv(),
+            ["xbps-install", "-M", "-un"],
+            "the fresh check fetches the indexes into memory"
+        );
         assert_eq!(repos_argv(), ["xbps-query", "-L"]);
         assert_eq!(search_argv("vim"), ["xbps-query", "-Rs", "vim"]);
         assert_eq!(

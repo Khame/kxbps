@@ -917,6 +917,35 @@ Item {
             elide: Text.ElideRight
         }
 
+        // The fresh check, on the page whose rows it produces. It fetches the
+        // repository indexes into memory (`xbps-install -M`), which costs a
+        // network round trip, so it is a button and not part of every reload.
+        RowLayout {
+            visible: view.packages !== null && view.packages.filter === "updates"
+            Layout.rightMargin: Kirigami.Units.largeSpacing
+            Layout.topMargin: Kirigami.Units.smallSpacing
+            Layout.bottomMargin: Kirigami.Units.smallSpacing
+            spacing: Kirigami.Units.smallSpacing
+
+            QQC2.BusyIndicator {
+                visible: view.installedBackend.checking
+                running: view.installedBackend.checking
+                implicitWidth: Kirigami.Units.gridUnit * 1.5
+                implicitHeight: Kirigami.Units.gridUnit * 1.5
+            }
+
+            QQC2.Button {
+                enabled: !view.installedBackend.checking
+                icon.name: "view-refresh"
+                text: view.installedBackend.checking
+                      ? i18nd("kxbps", "Checking for updates…")
+                      : i18nd("kxbps", "Check for updates")
+                font: Kirigami.Theme.smallFont
+                Accessible.name: i18nd("kxbps", "Check for updates")
+                onClicked: view.installedBackend.checkUpdates(true)
+            }
+        }
+
         // The details of the selected row, under the table. The panels take
         // height, not width, so the columns keep their sizes.
         Kirigami.Separator {

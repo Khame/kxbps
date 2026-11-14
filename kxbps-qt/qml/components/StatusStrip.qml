@@ -25,6 +25,11 @@ Rectangle {
     // found nothing to do.
     property string message: ""
     property bool messageIsError: false
+    // The last update check's sentence. It sits below a running job and below
+    // a dry-run message, because the user's own action is the more recent
+    // fact; it replaces "Ready" so a quiet strip still says how old the list is.
+    property string checkMessage: ""
+    property bool checkIsError: false
     // Whether the log drawer below is open.
     property bool logOpen: false
     // False before the first transaction: there is no output to show yet.
@@ -37,13 +42,16 @@ Rectangle {
     readonly property bool resultVisible: !running && showResult && job !== null && job.done
 
     // One sentence, by precedence: the job, its result, the reason nothing
-    // started, or "Ready".
+    // started, the last update check, or "Ready".
     readonly property string statusText: {
         if (running || resultVisible) {
             return bar.jobLabel
         }
         if (message.length > 0) {
             return message
+        }
+        if (checkMessage.length > 0) {
+            return checkMessage
         }
         return i18nd("kxbps", "Ready")
     }
@@ -52,7 +60,10 @@ Rectangle {
         if (running || resultVisible) {
             return job !== null && job.failed === true
         }
-        return message.length > 0 && messageIsError
+        if (message.length > 0) {
+            return messageIsError
+        }
+        return checkMessage.length > 0 && checkIsError
     }
 
     color: Kirigami.Theme.alternateBackgroundColor

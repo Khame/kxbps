@@ -24,10 +24,10 @@ use kxbps_core::{
 };
 
 use crate::xbps_runner::{
-    READ_TIMEOUT_MS, XPBS_QUERY, argv, depends_argv, held_argv, installed_argv,
+    READ_TIMEOUT_MS, REMOTE_TIMEOUT_MS, XPBS_QUERY, argv, depends_argv, held_argv, installed_argv,
     installed_search_argv, installed_sizes_argv, manual_argv, orphans_argv, property_argv,
     property_repo_argv, repo_filename_sizes_argv, repo_installed_sizes_argv, required_by_argv, run,
-    search_argv, updates_argv,
+    search_argv, updates_argv, updates_remote_argv,
 };
 
 /// The injectable process transport: the encoded argv and the timeout go in,
@@ -122,6 +122,17 @@ pub enum SnapshotError {
         line: usize,
         text: String,
     },
+    /// A fresh check ran but at least one repository could not be read.
+    ///
+    /// `xbps-install -M -un` exits 0 for this, so the exit code cannot say it:
+    /// the stderr lines do. `failed` of `total` repositories failed and `detail`
+    /// is the first line verbatim, untranslated.
+    Repositories {
+        program: String,
+        failed: usize,
+        total: usize,
+        detail: String,
+    },
     /// The command printed nothing where output was expected.
     Empty { program: String },
     /// The shim's reply could not be decoded; an internal error.
@@ -137,6 +148,7 @@ impl SnapshotError {
             Self::Timeout { .. } => "errorXbpsTimeout",
             Self::Exit { .. } => "errorXbpsExit",
             Self::Output { .. } => "errorXbpsOutput",
+            Self::Repositories { .. } => "checkRepositoriesFailed",
             Self::Empty { .. } => "errorXbpsEmpty",
             Self::Reply { .. } => "errorXbpsReply",
         }
@@ -165,6 +177,12 @@ impl SnapshotError {
                 line,
                 text,
             } => vec![program.clone(), line.to_string(), text.clone()],
+            Self::Repositories {
+                failed,
+                total,
+                detail,
+                ..
+            } => vec![failed.to_string(), total.to_string(), detail.clone()],
             Self::Empty { program } => vec![program.clone()],
             Self::Reply { reason } => vec![reason.clone()],
         }
@@ -186,6 +204,15 @@ impl std::fmt::Display for SnapshotError {
                 line,
                 text,
             } => write!(f, "{program} printed an unparsable line {line}: {text:?}"),
+            Self::Repositories {
+                program,
+                failed,
+                total,
+                detail,
+            } => write!(
+                f,
+                "{program} could not read {failed} of {total} repositories: {detail}"
+            ),
             Self::Empty { program } => write!(f, "{program} printed no output"),
             Self::Reply { reason } => write!(f, "invalid runner reply: {reason}"),
         }
@@ -230,6 +257,80 @@ pub(crate) fn run_parsed<T>(
     parse(&output.stdout).map_err(|err| match err {
         XbpsError::MalformedLine { line, text, .. } => {
             eprintln!("kxbps: {program} line {line} was not understood: {text}");
+            SnapshotError::Output {
+                program,
+                line,
+                text,
+            }
+        }
+        XbpsError::Empty => SnapshotError::Empty { program },
+    })
+}
+
+/// Reads the pending updates against freshly fetched repository indexes.
+///
+/// `xbps-install -M -un` downloads the indexes into memory, so this is the only
+/// read that can notice an update published since the last sync. It exits 0
+/// even when a repository fails, so the decision comes from stderr: any line
+/// starting with `ERROR` is one unreadable repository, and no list is trusted
+/// when even one is missing. The first such line is logged verbatim and carried
+/// in the error, because xbps' own wording is what a bug report needs.
+///
+/// `total` is the number of configured repositories, which only `xbps-query -L`
+/// knows; the caller reads it, so the sentence can name both numbers.
+pub fn read_remote_updates(
+    invoke: &Invoke,
+    total: usize,
+) -> Result<Vec<UpdateEntry>, SnapshotError> {
+    let argv = updates_remote_argv();
+    let program = argv[0].clone();
+    let output = run(&argv, REMOTE_TIMEOUT_MS, invoke).map_err(|err| SnapshotError::Reply {
+        reason: err.to_string(),
+    })?;
+    if output.timed_out {
+        return Err(SnapshotError::Timeout { program });
+    }
+    if output.exit_code == -1 {
+        return Err(SnapshotError::Start {
+            program,
+            reason: output.stderr.trim().to_owned(),
+        });
+    }
+    let errors: Vec<&str> = output
+        .stderr
+        .lines()
+        .map(str::trim)
+        .filter(|line| line.starts_with("ERROR"))
+        .collect();
+    if let Some(first) = errors.first() {
+        eprintln!("kxbps: {program} -M: {first}");
+        // One error line per repository. `total` comes from `xbps-query -L`,
+        // which may itself have failed; never report more failures than the
+        // total the sentence claims.
+        let failed = errors.len();
+        let total = total.max(failed);
+        return Err(SnapshotError::Repositories {
+            program,
+            failed,
+            total,
+            detail: (*first).to_owned(),
+        });
+    }
+    if output.exit_code != 0 {
+        return Err(SnapshotError::Exit {
+            program,
+            code: output.exit_code,
+            stderr: output.stderr.trim().to_owned(),
+        });
+    }
+    if !output.stderr.trim().is_empty() {
+        // Not a failure, but xbps said something; the log keeps it for the
+        // report without turning it into a sentence.
+        eprintln!("kxbps: {program} -M: {}", output.stderr.trim());
+    }
+    parse_updates(&output.stdout).map_err(|err| match err {
+        XbpsError::MalformedLine { line, text, .. } => {
+            eprintln!("kxbps: {program} -M line {line} was not understood: {text}");
             SnapshotError::Output {
                 program,
                 line,
@@ -650,6 +751,126 @@ mod tests {
     /// A shim reply for a process that could not be started.
     const START_FAILURE: &str =
         r#"{"exitCode":-1,"stdout":"","stderr":"No such file or directory","timedOut":false}"#;
+
+    /// A shim reply with a given exit code, stdout and stderr; the shape xbps
+    /// uses when a repository fails but it still exits 0.
+    fn reply_of(exit_code: i32, stdout: &str, stderr: &str, timed_out: bool) -> String {
+        format!(
+            r#"{{"exitCode":{exit_code},"stdout":{},"stderr":{},"timedOut":{timed_out}}}"#,
+            serde_json::json!(stdout),
+            serde_json::json!(stderr)
+        )
+    }
+
+    /// The documented answer of a fresh check: one line per pending update.
+    const REMOTE_ONE_UPDATE: &str = "vim-9.2.2000_1 update x86_64 https://r/current 10 20\n";
+
+    /// A transport that answers every request with the reply.
+    fn fixed(reply: String) -> impl Fn(&str, u32) -> String {
+        move |_, _| reply.clone()
+    }
+
+    #[test]
+    fn a_fresh_check_reads_the_update_lines() {
+        let remote = read_remote_updates(&fixed(ok_reply(REMOTE_ONE_UPDATE)), 2)
+            .expect("a clean answer lands");
+        assert_eq!(remote.len(), 1);
+        assert_eq!(remote[0].name, "vim");
+        assert_eq!(remote[0].version, "9.2.2000_1");
+    }
+
+    #[test]
+    fn a_fresh_check_with_nothing_pending_is_an_empty_list() {
+        let remote = read_remote_updates(&fixed(ok_reply("")), 2).expect("lands");
+        assert!(remote.is_empty());
+    }
+
+    #[test]
+    fn a_failing_repository_fails_the_check_even_with_exit_zero() {
+        // Measured on this machine: xbps prints the error and exits 0.
+        let reply = reply_of(
+            0,
+            REMOTE_ONE_UPDATE,
+            "ERROR: failed to open repository: https://r/current: Input/output error\n",
+            false,
+        );
+        let error =
+            read_remote_updates(&fixed(reply), 2).expect_err("a failed repo fails the read");
+        match &error {
+            SnapshotError::Repositories {
+                failed,
+                total,
+                detail,
+                ..
+            } => {
+                assert_eq!(
+                    (*failed, *total),
+                    (1, 2),
+                    "one of the two repositories failed"
+                );
+                assert_eq!(
+                    detail,
+                    "ERROR: failed to open repository: https://r/current: Input/output error"
+                );
+            }
+            other => panic!("expected the repository error, got {other:?}"),
+        }
+        assert_eq!(error.key(), "checkRepositoriesFailed");
+    }
+
+    #[test]
+    fn every_repository_failing_reports_the_count() {
+        let reply = reply_of(
+            0,
+            "",
+            "ERROR: failed to open repository: https://a/current: Input/output error\n\
+             ERROR: failed to open repository: https://b/current: Input/output error\n",
+            false,
+        );
+        let error = read_remote_updates(&fixed(reply), 2).expect_err("both repos failed");
+        match error {
+            SnapshotError::Repositories { failed, total, .. } => {
+                assert_eq!((failed, total), (2, 2));
+            }
+            other => panic!("expected the repository error, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn a_timed_out_check_is_reported_as_a_timeout() {
+        let error = read_remote_updates(&fixed(reply_of(-1, "", "", true)), 2)
+            .expect_err("a timeout fails the read");
+        assert!(matches!(error, SnapshotError::Timeout { .. }));
+    }
+
+    #[test]
+    fn an_unparsable_line_fails_the_check_and_is_logged() {
+        let error = read_remote_updates(&fixed(ok_reply("this is not a plan line\n")), 2)
+            .expect_err("garbage fails the read");
+        assert!(matches!(error, SnapshotError::Output { line: 1, .. }));
+    }
+
+    #[test]
+    fn silent_empty_output_is_reported_as_empty() {
+        let error = read_remote_updates(&fixed(ok_reply("")), 0)
+            .map(|updates| updates.len())
+            .err();
+        assert!(error.is_none(), "an empty list is a valid answer");
+    }
+
+    #[test]
+    fn a_fresh_check_uses_the_remote_argv_and_its_own_timeout() {
+        let seen = std::sync::Arc::new(std::sync::Mutex::new((String::new(), 0)));
+        let recorder = seen.clone();
+        let invoke = move |request: &str, timeout: u32| {
+            *recorder.lock().expect("lock") = (request.to_owned(), timeout);
+            ok_reply("").to_owned()
+        };
+        read_remote_updates(&invoke, 5).expect("lands");
+        let (request, timeout) = &*seen.lock().expect("lock");
+        assert_eq!(request, r#"["xbps-install","-M","-un"]"#);
+        assert_eq!(*timeout, REMOTE_TIMEOUT_MS);
+    }
 
     /// The command an argv selects, as the fake's table spells it: the program
     /// is dropped and every leading flag kept, because `-R -p` and `-R` are

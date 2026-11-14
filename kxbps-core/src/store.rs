@@ -476,6 +476,18 @@ impl Store {
         &self.updates
     }
 
+    /// Replaces the pending-update list with one a check just fetched.
+    ///
+    /// Only the list moves: the installed set, the queue and the preferences are
+    /// what the caller decides separately, because a check that answered says
+    /// nothing about them. The list is memory-only, so this never changes what
+    /// the next start reads; it only marks the store dirty for the caller's
+    /// bookkeeping.
+    pub fn replace_updates(&mut self, updates: Vec<UpdateEntry>) {
+        self.updates = updates;
+        self.dirty = true;
+    }
+
     /// The pending update of `name`, if there is one.
     pub fn update_of(&self, name: &str) -> Option<&UpdateEntry> {
         self.updates.iter().find(|entry| entry.name == name)
@@ -1416,6 +1428,34 @@ mod tests {
             installed_size: 10,
             download_size: 20,
         }
+    }
+
+    /// A check replaced the list: only the list moves.
+    #[test]
+    fn replace_updates_touches_only_the_pending_list() {
+        let mut store = Store::fresh();
+        put(&mut store, "vim", "9.1.1700_1", true, 7);
+        store.queue.push(crate::types::QueueItem {
+            name: String::from("htop"),
+            action: crate::types::QueueAction::Install,
+        });
+        let installed = store.installed.clone();
+        let queue = store.queue.clone();
+        let prefs = store.prefs.clone();
+
+        store.replace_updates(vec![update("vim-9.2.1031_2")]);
+
+        assert_eq!(store.pending_updates(), [update("vim-9.2.1031_2")]);
+        assert_eq!(
+            store.installed, installed,
+            "the installed set is not the list"
+        );
+        assert_eq!(store.queue, queue, "the queue is not the list");
+        assert_eq!(
+            store.prefs, prefs,
+            "a check writes no preference of its own"
+        );
+        assert!(store.is_dirty());
     }
 
     #[test]

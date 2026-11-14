@@ -55,6 +55,7 @@ fn main() {
         "src/mirror_model.rs",
         "src/mirror_backend.rs",
         "src/xbps_bridge.rs",
+        "src/network.rs",
     ])
     // `QFile` access to the protected `QAbstractItemModel` members the Rust
     // model cannot reach.
@@ -68,7 +69,11 @@ fn main() {
     .cpp_file("src/backend_shim.cpp")
     // The read-only xbps runner: one `QProcess` per call with an explicit argv
     // list and a hard timeout, driven from a worker thread.
-    .cpp_file("src/xbps_shim.cpp");
+    .cpp_file("src/xbps_shim.cpp")
+    // Network reachability for the update check: `QNetworkInformation` has no
+    // `cxx-qt-lib` binding, and xbps cannot tell a DNS failure from an empty
+    // answer.
+    .cpp_file("src/network_shim.cpp");
 
     // `cxx-qt-build` has no `include_path` helper, so add the KI18n header
     // directory through the underlying `cc::Build`. The crate's own `src` dir is

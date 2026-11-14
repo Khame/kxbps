@@ -225,6 +225,10 @@ Kirigami.ApplicationWindow {
         // catalog fills the first frame rather than an empty window.
         installedBackend.packages.filter = "installed"
         installedBackend.reload()
+        // The local read above only knows the last sync; the fresh check fills
+        // the gap when it is due. It runs after the read so the table appears
+        // immediately and the check never delays the first frame.
+        installedBackend.checkUpdates(false)
         // `--filter <token>` opens on a given page, which is what a launcher
         // entry or the tray's "show updates" needs without a second window.
         const at = Qt.application.arguments.indexOf("--filter")
@@ -291,17 +295,33 @@ Kirigami.ApplicationWindow {
         }
     }
 
-    // A re-check while the app sits in the tray: a long-running instance must
-    // still notice new updates. The interval is the preference the settings
-    // page offers, and only a changed signature notifies, so a quiet timer
-    // stays quiet. Changing the preference restarts the timer, so the new
-    // interval counts from the change rather than from the last fire.
+    // The fresh check: the repositories are asked for updates, and the answer
+    // replaces the list when it succeeds. It runs in the tray too — a long-lived
+    // instance must still notice new updates — so the timer never stops. The
+    // backend decides whether the check is due and whether the network is
+    // reachable; QML only says "now would be a good time".
     Timer {
         interval: prefsBackend.updateCheckMinutes * 60 * 1000
-        running: !root.visible
+        running: true
         repeat: true
-        onTriggered: installedBackend.reload()
+        onTriggered: {
+            // The list on screen ages too: refresh the installed set, then ask
+            // the repositories. A local read that lands after a fresh remote
+            // one keeps the remote list (the backend decides).
+            installedBackend.reload()
+            installedBackend.checkUpdates(false)
+        }
         onIntervalChanged: restart()
+    }
+
+    // The same check after a local read: the index only knows what the last
+    // sync left, so the list on screen is as old as that. The backend skips it
+    // when the last check is younger than its gap.
+    function checkOnShow() {
+        if (root.visible) {
+            installedBackend.reload()
+            installedBackend.checkUpdates(false)
+        }
     }
 
     // The header follows the filter, not the sidebar entry: clicking "Orphans"
@@ -618,6 +638,61 @@ Kirigami.ApplicationWindow {
     // sentence comes from the same mapping the plan dialog uses, so the strip
     // and the dialog never word the same answer differently. A null plan means
     // the payload could not be built at all.
+    // The age of the last successful check, in words: the one number every
+    // failure sentence ends with. Pluralised with `i18ndp`, never glued from
+    // fragments. `0` means no check ever succeeded.
+    function ageText(milliseconds) {
+        if (milliseconds <= 0) {
+            return i18nd("kxbps", "Not checked yet")
+        }
+        const minutes = Math.floor(milliseconds / 60000)
+        if (minutes < 60) {
+            return i18ndp("kxbps", "%1 minute ago", "%1 minutes ago", Math.max(1, minutes))
+        }
+        const hours = Math.floor(minutes / 60)
+        if (hours < 24) {
+            return i18ndp("kxbps", "%1 hour ago", "%1 hours ago", hours)
+        }
+        const days = Math.floor(hours / 24)
+        return i18ndp("kxbps", "%1 day ago", "%1 days ago", days)
+    }
+
+    // The sentence the last check produced. The backend hands a key and its
+    // arguments; only the age needs wording here, because only QML can
+    // pluralise it, and the backend always puts it last.
+    function checkText() {
+        const key = installedBackend.checkKey
+        if (key.length === 0) {
+            return ""
+        }
+        const args = installedBackend.checkArgs
+        const age = args.length > 0 ? root.ageText(Number(args[args.length - 1])) : ""
+        const head = args.length > 1 ? args.slice(0, args.length - 1) : []
+        switch (key) {
+        case "checkUpToDate":
+            return i18nd("kxbps", "System is up to date")
+        case "checkUpdatesFound":
+            return i18ndp("kxbps", "%1 update available", "%1 updates available", Number(head[0]))
+        case "checkOffline":
+            return i18nd("kxbps", "No network connection. The update list could not be refreshed; it is from the last successful check (%1).", age)
+        case "checkRepositoriesFailed":
+            return i18nd("kxbps", "Could not read %1 of %2 repositories (%3). Last successful check: %4.", head[0], head[1], head[2], age)
+        case "checkReadFailed":
+            return i18nd("kxbps", "The repositories could not be read. The list below is unchanged. Last successful check: %1.", age)
+        }
+        return ""
+    }
+
+    // The strip's sentence: a running check says so, then the last answer.
+    // A binding, not a function call at the call site, so the strip follows
+    // every property change the backend emits.
+    readonly property string checkSentence: {
+        if (installedBackend.checking) {
+            return i18nd("kxbps", "Checking for updates…")
+        }
+        return root.checkText()
+    }
+
     function showPlanMessage(plan) {
         let text = ""
         let failed = true
@@ -1009,6 +1084,9 @@ Kirigami.ApplicationWindow {
                     showResult: root.showJobResult
                     message: root.stripMessage
                     messageIsError: root.stripMessageIsError
+                    checkMessage: root.checkSentence
+                    checkIsError: !installedBackend.checking
+                                  && installedBackend.checkErrorKey.length > 0
                     logOpen: logDrawer.expanded
                     logAvailable: root.job !== null
                     onCancelRequested: {
@@ -1033,6 +1111,9 @@ Kirigami.ApplicationWindow {
     onVisibleChanged: {
         if (visible) {
             mirrorBackend.refreshSystem()
+            // A window brought back from the tray shows a list as old as the
+            // last check; the backend skips this when that check is fresh.
+            root.checkOnShow()
         }
     }
 

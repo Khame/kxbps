@@ -18,6 +18,7 @@ pub mod log_model;
 pub mod mirror_backend;
 pub mod mirror_model;
 pub mod mirror_system;
+pub mod network;
 pub mod notification;
 pub mod package_model;
 pub mod plan_backend;
