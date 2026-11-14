@@ -3,6 +3,19 @@
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 the project uses semantic versioning.
 
+## [Unreleased]
+
+### Added
+
+- Update-check interval in Settings: 30 minutes, 1, 3, 6, 12 or 24 hours,
+  default 6 hours. The tray re-check follows the same preference.
+
+### Changed
+
+- New icon set: a stack of packages for the application, and a monochrome tray
+  icon that switches to the update variant while updates are waiting. The tray
+  icon is a theme name, so Plasma recolours it for the panel.
+
 ## [1.0.0] - 2026-11-13
 
 First release.

@@ -4,11 +4,12 @@
 // module, and a missing one must cost the tray icon, not the window. The
 // `Loader`'s error status is the only thing that sees the failure.
 //
-// The icon is the application tile, not a symbolic outline: the user chose it,
-// and it is the same file the desktop entry and the header use. `icon.source`
-// takes the file; a name would resolve to whatever the theme thinks KXbps looks
-// like. The tooltip carries the update count, which makes the icon useful on a
-// panel with no room for the window.
+// The icon is the KDE symbolic name, not a qrc file: the StatusNotifierItem
+// protocol carries an icon *name*, and a pixmap the host cannot resolve leaves an
+// empty slot in the panel. The `-symbolic` suffix is what makes KIconLoader
+// recolour the icon for the panel's palette; the plain names are installed for
+// hosts that look them up literally. The tooltip carries the update count, which
+// makes the icon useful on a panel with no room for the window.
 //
 // Activation is deliberately narrow: Trigger and DoubleClick raise the window.
 // MiddleClick and Context do nothing here, because the context menu is the
@@ -33,10 +34,10 @@ SystemTrayIcon {
 
     // A theme name, not the qrc file: the StatusNotifierItem protocol carries
     // an icon *name*, and a pixmap the host cannot resolve leaves an empty
-    // slot in the panel. The name resolves through hicolor, where the
-    // application tile is installed. While updates wait, the icon becomes the
-    // update glyph, so the panel says what the tooltip says.
-    icon.name: updateCount > 0 ? "system-software-update" : "io.github.khame.kxbps"
+    // slot in the panel. The `-symbolic` name resolves through the symbolic
+    // tray entries; while updates wait, the icon becomes the update glyph, so
+    // the panel says what the tooltip says.
+    icon.name: updateCount > 0 ? "kxbps-tray-updates-symbolic" : "kxbps-tray-symbolic"
     tooltip: updateCount > 0
              ? i18ndp("kxbps", "%1 package can be updated.", "%1 packages can be updated.", updateCount)
              : i18nd("kxbps", "KXbps")

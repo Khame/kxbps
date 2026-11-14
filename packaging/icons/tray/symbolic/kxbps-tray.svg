@@ -1,0 +1,9 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24">
+  <title>KXbps tray — bez aktualizacji</title>
+  <desc>Zestaw 3. Monochromatyczny stos pakietów. Przezroczyste tło; strzałka ma ten sam kolor co warstwy.</desc>
+  <style id="current-color-scheme" type="text/css">
+    .ColorScheme-Text { color: #232629; }
+  </style>
+  <path class="ColorScheme-Text" stroke="currentColor" fill="none" stroke-width="1.65" stroke-linecap="round" stroke-linejoin="round"
+    d="M3 7.5L12 3L21 7.5L12 12Z M3 11.75L12 16.25L21 11.75 M3 16L12 20.5L21 16"/>
+</svg>

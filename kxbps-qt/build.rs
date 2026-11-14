@@ -1,7 +1,8 @@
 fn main() {
-    // `qrc` only watches the `.qrc` itself; without this line a replaced icon
+    // `qrc` only watches the `.qrc` itself; without these lines a replaced icon
     // would not trigger a rebuild.
-    println!("cargo:rerun-if-changed=../packaging/io.github.khame.kxbps.svg");
+    println!("cargo:rerun-if-changed=../packaging/icons/app/kxbps.svg");
+    println!("cargo:rerun-if-changed=../packaging/icons/app/kxbps-updates.svg");
 
     // Hand-written C++ shim that installs KI18n's `KLocalizedContext` on the QML
     // engine's root context, which is what makes `i18nd()` callable in QML.

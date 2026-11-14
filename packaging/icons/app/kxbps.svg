@@ -1,0 +1,7 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="64" height="64" viewBox="0 0 64 64">
+  <title>KXbps — stos pakietów</title>
+  <desc>Zestaw 3. Trzy zielone warstwy bez liter. Przezroczyste tło.</desc>
+  <path d="M32 6L56 18L32 30L8 18Z" fill="#b0d78c"/>
+  <path d="M8 25L32 37L56 25V32L32 44L8 32Z" fill="#50a16a"/>
+  <path d="M8 39L32 51L56 39V46L32 58L8 46Z" fill="#2f7850"/>
+</svg>

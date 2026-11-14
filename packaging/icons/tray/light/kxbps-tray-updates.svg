@@ -1,0 +1,7 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24">
+  <title>KXbps tray — dostępne aktualizacje</title>
+  <desc>Zestaw 3. Monochromatyczny stos pakietów. Przezroczyste tło; strzałka ma ten sam kolor co warstwy.</desc>
+  <path stroke="#232629" fill="none" stroke-width="1.65" stroke-linecap="round" stroke-linejoin="round"
+    d="M3 7.5L12 3L21 7.5L12 12Z M3 11.75L12 16.25L21 11.75 M3 16L12 20.5L13.40308 19.79846"/>
+  <path fill="#232629" d="M18.5 22.5V18.65L17.2 19.95L15.95 18.7L19.5 15.15L23.05 18.7L21.8 19.95L20.5 18.65V22.5Z"/>
+</svg>

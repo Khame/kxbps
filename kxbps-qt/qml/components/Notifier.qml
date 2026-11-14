@@ -42,7 +42,7 @@ QtObject {
                                  "%1 package can be updated.",
                                  "%1 packages can be updated.",
                                  count),
-                          "system-software-update")
+                          "kxbps-updates")
         delivered(signature)
     }
 

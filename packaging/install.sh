@@ -72,7 +72,10 @@ printf 'Building release binaries in %s\n' "$repo"
 app_bin=$repo/target/release/kxbps
 helper_bin=$repo/target/release/kxbps-mirror-apply
 repo_helper_bin=$repo/target/release/kxbps-repo-apply
-icon=$here/io.github.khame.kxbps.svg
+app_icon=$here/icons/app/kxbps.svg
+app_icon_updates=$here/icons/app/kxbps-updates.svg
+icon_tray=$here/icons/tray/symbolic/kxbps-tray.svg
+icon_tray_updates=$here/icons/tray/symbolic/kxbps-tray-updates.svg
 desktop=$here/io.github.khame.kxbps.desktop
 metainfo=$here/io.github.khame.kxbps.metainfo.xml
 policy=$here/io.github.khame.kxbps.policy
@@ -80,7 +83,10 @@ policy=$here/io.github.khame.kxbps.policy
 require_file "$app_bin"
 require_file "$helper_bin"
 require_file "$repo_helper_bin"
-require_file "$icon"
+require_file "$app_icon"
+require_file "$app_icon_updates"
+require_file "$icon_tray"
+require_file "$icon_tray_updates"
 require_file "$desktop"
 require_file "$metainfo"
 require_file "$policy"
@@ -97,8 +103,18 @@ install_file "$repo_helper_bin" 755 "$DESTDIR$LIBEXECDIR/kxbps-repo-apply"
 # a shared object: the types are registered in the executable. A copy under
 # `QT_INSTALL_QML` would be read by nothing.
 
-install_file "$icon" 644 \
-    "$DESTDIR$PREFIX/share/icons/hicolor/scalable/apps/io.github.khame.kxbps.svg"
+install_file "$app_icon" 644 \
+    "$DESTDIR$PREFIX/share/icons/hicolor/scalable/apps/kxbps.svg"
+install_file "$app_icon_updates" 644 \
+    "$DESTDIR$PREFIX/share/icons/hicolor/scalable/apps/kxbps-updates.svg"
+install_file "$icon_tray" 644 \
+    "$DESTDIR$PREFIX/share/icons/hicolor/scalable/status/kxbps-tray.svg"
+install_file "$icon_tray_updates" 644 \
+    "$DESTDIR$PREFIX/share/icons/hicolor/scalable/status/kxbps-tray-updates.svg"
+install_file "$icon_tray" 644 \
+    "$DESTDIR$PREFIX/share/icons/hicolor/scalable/status/kxbps-tray-symbolic.svg"
+install_file "$icon_tray_updates" 644 \
+    "$DESTDIR$PREFIX/share/icons/hicolor/scalable/status/kxbps-tray-updates-symbolic.svg"
 install_file "$desktop" 644 \
     "$DESTDIR$PREFIX/share/applications/io.github.khame.kxbps.desktop"
 install_file "$metainfo" 644 \
