@@ -303,13 +303,17 @@ impl qobject::QueryBackend {
     /// package to ask about, and a stale list would read as an answer.
     fn read_package_files(mut self: Pin<&mut Self>, pkgver: &cxx_qt_lib::QString) {
         let pkgver = pkgver.to_string().trim().to_owned();
-        let generation = {
+        let started = {
             let data = Pin::get_mut(self.as_mut().rust_mut());
             if pkgver.is_empty() {
                 data.clear_files();
                 None
             } else {
-                Some(data.begin_files(&pkgver))
+                // `-f` reads the installed database, which has no file list
+                // for a package that is not installed; the repository index on
+                // disk does, and `-R` asks it without a network round trip.
+                let repository = data.files_come_from_repository(&pkgver);
+                Some((data.begin_files(&pkgver), repository))
             }
         };
         self.as_mut().files_changed();
@@ -317,8 +321,8 @@ impl qobject::QueryBackend {
         self.as_mut().files_loading_changed();
         self.as_mut().files_error_changed();
         self.as_mut().files_error_args_changed();
-        if let Some(generation) = generation {
-            self.as_mut().run_files(generation, pkgver);
+        if let Some((generation, repository)) = started {
+            self.as_mut().run_files(generation, pkgver, repository);
         }
     }
 
@@ -677,6 +681,24 @@ impl QueryBackendRust {
         Some(self.facts_generation.fetch_add(1, Ordering::SeqCst) + 1)
     }
 
+    /// Whether `-f` has to ask the repository index instead of the installed
+    /// database.
+    ///
+    /// `-f` reads the installed database, which holds no file list for a
+    /// package that is not installed; the repository index on disk has one for
+    /// every package it knows, and `-R` asks it without touching the network.
+    /// The exact pkgver decides, not the name: browsing the repository version
+    /// of an installed package asks about a version that is not on the system.
+    fn files_come_from_repository(&self, pkgver: &str) -> bool {
+        let Some((name, version)) = split_pkgver(pkgver) else {
+            return true;
+        };
+        !self
+            .installed
+            .get(name)
+            .is_some_and(|installed| installed.version == version)
+    }
+
     /// Starts a files read for `pkgver`: the list empties, the error clears and
     /// the read owns the newest generation.
     fn begin_files(&mut self, pkgver: &str) -> u64 {
@@ -783,11 +805,11 @@ impl QueryBackendRust {
 impl qobject::QueryBackend {
     /// Runs `xbps-query -f` on a worker thread and hands the output back on the
     /// GUI thread.
-    fn run_files(self: Pin<&mut Self>, generation: u64, pkgver: String) {
+    fn run_files(self: Pin<&mut Self>, generation: u64, pkgver: String, repository: bool) {
         let thread = self.qt_thread();
         let current = self.files_generation.clone();
         let invoke = self.invoke.clone();
-        let command = files_argv(&pkgver);
+        let command = files_argv(&pkgver, repository);
         std::thread::spawn(move || {
             let result = read_raw(&*invoke, &command);
             // The closure runs on the GUI thread; `thread.queue` fails only
@@ -1019,6 +1041,33 @@ mod tests {
 
     fn lines_of(list: &QStringList) -> Vec<String> {
         list.iter().map(QString::to_string).collect()
+    }
+
+    #[test]
+    fn an_installed_pkgver_reads_the_installed_database_and_any_other_the_index() {
+        let mut backend = QueryBackendRust::default();
+        backend.apply_snapshot(
+            one_installed("neovim", "0.12.6_1", true, false),
+            Vec::new(),
+            Vec::new(),
+            Vec::new(),
+        );
+        assert!(
+            !backend.files_come_from_repository("neovim-0.12.6_1"),
+            "the installed database has this exact version's file list"
+        );
+        assert!(
+            backend.files_come_from_repository("neovim-0.12.7_1"),
+            "a newer repository version is not installed, whatever the name says"
+        );
+        assert!(
+            backend.files_come_from_repository("gimp-3.2.8_2"),
+            "a package that is not installed at all has no list in the database"
+        );
+        assert!(
+            backend.files_come_from_repository("not-a-pkgver"),
+            "a name xbps cannot split is asked of the index, where a miss is reported"
+        );
     }
 
     #[test]

@@ -141,8 +141,17 @@ pub fn required_by_argv(package: &str) -> Vec<String> {
 }
 
 /// `xbps-query -f <package>`: the files a package owns.
-pub fn files_argv(package: &str) -> Vec<String> {
-    argv(XPBS_QUERY, &["-f", package])
+///
+/// `-f` reads the installed database, so a package that is not installed has
+/// no file list there and xbps exits 2 without a word. With `-R` the same
+/// question is answered from the repository index on disk, which carries the
+/// file list of every package it knows; no network is involved.
+pub fn files_argv(package: &str, repository: bool) -> Vec<String> {
+    if repository {
+        argv(XPBS_QUERY, &["-R", "-f", package])
+    } else {
+        argv(XPBS_QUERY, &["-f", package])
+    }
 }
 
 /// `xbps-query -o <path>`: which package owns a file.
@@ -232,7 +241,12 @@ mod tests {
         );
         assert_eq!(repos_argv(), ["xbps-query", "-L"]);
         assert_eq!(search_argv("vim"), ["xbps-query", "-Rs", "vim"]);
-        assert_eq!(files_argv("neovim"), ["xbps-query", "-f", "neovim"]);
+        assert_eq!(files_argv("neovim", false), ["xbps-query", "-f", "neovim"]);
+        assert_eq!(
+            files_argv("gimp-3.2.8_2", true),
+            ["xbps-query", "-R", "-f", "gimp-3.2.8_2"],
+            "a package that is not installed has no file list in the installed database"
+        );
         assert_eq!(
             owner_argv("/usr/bin/nvim"),
             ["xbps-query", "-o", "/usr/bin/nvim"]

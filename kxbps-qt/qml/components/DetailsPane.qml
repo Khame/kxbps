@@ -102,7 +102,12 @@ Item {
         case "errorXbpsTimeout":
             return i18nd("kxbps", "%1 did not answer within %2 seconds.", a, b)
         case "errorXbpsExit":
-            return i18nd("kxbps", "%1 failed with exit code %2: %3", a, b, c)
+            // xbps exits non-zero with an empty stderr when it has nothing to
+            // say — a package the index does not know, for one — and a sentence
+            // ending in a dangling colon would read as a missing detail.
+            return c.length > 0
+                   ? i18nd("kxbps", "%1 failed with exit code %2: %3", a, b, c)
+                   : i18nd("kxbps", "%1 failed with exit code %2.", a, b)
         case "errorXbpsOutput":
             return i18nd("kxbps", "%1 printed a line this version does not understand (line %2): %3", a, b, c)
         case "errorXbpsEmpty":

@@ -40,14 +40,13 @@ QQC2.Dialog {
     // dialog would inherit its height.
     parent: QQC2.Overlay.overlay
     anchors.centerIn: parent
-    // Grid units, capped against the window: about half of it on a normal
-    // screen, never the whole of it.
-    width: Math.min(Kirigami.Units.gridUnit * 46,
-                    parent ? parent.width - Kirigami.Units.gridUnit * 6
-                           : Kirigami.Units.gridUnit * 46)
-    height: Math.min(Kirigami.Units.gridUnit * 34,
-                     parent ? parent.height - Kirigami.Units.gridUnit * 6
-                            : Kirigami.Units.gridUnit * 34)
+    // Most of the window: a package like linux-firmware has thousands of
+    // paths, and the list is what the dialog is for. Still capped, so the
+    // window behind stays visible and this never becomes a second window.
+    width: Math.min(Kirigami.Units.gridUnit * 100,
+                    parent ? parent.width * 0.9 : Kirigami.Units.gridUnit * 100)
+    height: Math.min(Kirigami.Units.gridUnit * 48,
+                     parent ? parent.height * 0.85 : Kirigami.Units.gridUnit * 48)
     padding: Kirigami.Units.largeSpacing
 
     // The one sentence for a failed read, chosen by the key the backend sent.
@@ -61,7 +60,12 @@ QQC2.Dialog {
         case "errorXbpsTimeout":
             return i18nd("kxbps", "%1 did not answer within %2 seconds.", a, b)
         case "errorXbpsExit":
-            return i18nd("kxbps", "%1 failed with exit code %2: %3", a, b, c)
+            // xbps exits non-zero with an empty stderr when it has nothing to
+            // say — a package the index does not know, for one — and a sentence
+            // ending in a dangling colon would read as a missing detail.
+            return c.length > 0
+                   ? i18nd("kxbps", "%1 failed with exit code %2: %3", a, b, c)
+                   : i18nd("kxbps", "%1 failed with exit code %2.", a, b)
         case "errorXbpsOutput":
             return i18nd("kxbps", "%1 printed a line this version does not understand (line %2): %3", a, b, c)
         case "errorXbpsEmpty":
@@ -270,7 +274,6 @@ QQC2.Dialog {
                 QQC2.TextField {
                     id: pathField
                     Layout.fillWidth: true
-                    placeholderText: "/usr/bin/nvim"
                     Accessible.name: i18nd("kxbps", "Path to look up")
                     onAccepted: dialog.catalogBackend.readFileOwner(pathField.text)
                 }
