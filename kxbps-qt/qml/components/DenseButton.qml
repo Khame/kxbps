@@ -17,4 +17,5 @@ QQC2.Button {
     font.pointSize: Math.max(8, Math.round(Kirigami.Theme.defaultFont.pointSize * 0.85))
     implicitHeight: Kirigami.Units.gridUnit * 1.6
     padding: Kirigami.Units.smallSpacing
+
 }

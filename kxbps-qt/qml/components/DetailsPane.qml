@@ -7,13 +7,20 @@
 // and the reverse dependencies are xbps' own lists (`-x` and `-X`), so nothing
 // here scans another list to guess them.
 //
-// Three panels while the table is wide enough: what the package is, what it
-// costs, and what it depends on. Below the wide form the panels stack into one
-// column, which is the form the narrow drawer shows.
+// The pane is a header, a body of two columns and one row of actions. The
+// header names the package and says what it is; the left column is a fact grid
+// where every row has the same shape — a muted label, then the value, both
+// left-aligned — and the right column holds the two xbps lists. The actions
+// sit together at the bottom right, in one group, so the pane has one place to
+// act and one place to read.
 //
-// The button queues and unqueues, like the checkbox in the table: the queue is
-// the one place a transaction is decided, and Apply is the one place it starts.
-// A queued package offers the opposite gesture, read back from the store.
+// Below the wide form the columns stack, which is the form the narrow drawer
+// shows.
+//
+// The queue button queues and unqueues, like the checkbox in the table: the
+// queue is the one place a transaction is decided, and Apply is the one place
+// it starts. A queued package offers the opposite gesture, read back from the
+// store.
 
 import QtQuick
 import QtQuick.Controls as QQC2
@@ -32,8 +39,8 @@ Item {
     // `pkgver` cannot be split on "-", because names like `lib32-glibc` have
     // hyphens of their own.
     property string packageLabel: ""
-    // The row form of the table above. `Wide` lays the three panels side by
-    // side; every narrower form stacks them.
+    // The row form of the table above. `Wide` lays the body out in two columns;
+    // every narrower form stacks them.
     property int rowLayout: 0
 
     // Bumped when the store changes, so `info` re-reads the snapshot: the
@@ -60,6 +67,9 @@ Item {
     // The version, even before the facts arrive: the pkgver carries it.
     readonly property string version: pane.catalogBackend.versionOf(pane.packageName)
     readonly property string name: pane.info.name !== undefined ? pane.info.name : pane.packageLabel
+    // The one-line description xbps keeps for the package. Empty for a package
+    // xbps refused to describe, and the header then shows only the name.
+    readonly property string summary: pane.info.short !== undefined ? pane.info.short : ""
     // The facts failed to load: say so rather than showing blanks.
     readonly property string errorKey: pane.catalogBackend.factsError
     readonly property var errorArgs: pane.catalogBackend.factsErrorArgs
@@ -90,6 +100,17 @@ Item {
                                            : (pane.installed ? "edit-delete" : "document-save"))
 
     readonly property bool wideLayout: pane.rowLayout === 0
+
+    // The pane asks for the height its content needs, so no fact is cut in
+    // half and the table above is not pushed down by a fixed guess. A very long
+    // dependency list is capped and scrolls instead.
+    readonly property real wantedHeight: headerRow.implicitHeight
+                                        + body.implicitHeight
+                                        + actions.implicitHeight
+                                        + Kirigami.Units.largeSpacing * 4
+                                        + Kirigami.Units.smallSpacing * 2
+    implicitHeight: Math.max(Kirigami.Units.gridUnit * 6,
+                             Math.min(wantedHeight, Kirigami.Units.gridUnit * 18))
 
     // The one sentence for failed facts, chosen by the key the backend sent.
     function errorText(key, args) {
@@ -131,8 +152,9 @@ Item {
         }
     }
 
-    // One fact row: a muted label and the value. The value is monospace where
-    // it is a version, a size or a raw xbps token.
+    // One fact row: a muted label in a fixed column, then the value. Both are
+    // left-aligned, so every row starts at the same two places and the eye can
+    // run down the labels without crossing a ragged right edge.
     component Fact: RowLayout {
         id: fact
 
@@ -147,16 +169,14 @@ Item {
 
         Layout.fillWidth: true
         Layout.minimumWidth: 0
-        spacing: Kirigami.Units.smallSpacing
+        spacing: Kirigami.Units.largeSpacing
 
         // The children address the fact by its id: inside a RowLayout the
         // parent is the layout itself, not the component's root.
         QQC2.Label {
             // A fixed share, not a fraction of the row: a binding on the
             // layout's own width from inside it re-triggers layout forever.
-            Layout.preferredWidth: Kirigami.Units.gridUnit * 5
-            Layout.minimumWidth: Kirigami.Units.gridUnit * 3
-            Layout.maximumWidth: Kirigami.Units.gridUnit * 7
+            Layout.preferredWidth: Kirigami.Units.gridUnit * 6
             text: fact.label
             font: Kirigami.Theme.smallFont
             color: Kirigami.Theme.disabledTextColor
@@ -166,28 +186,10 @@ Item {
         QQC2.Label {
             Layout.fillWidth: true
             Layout.minimumWidth: 0
-            horizontalAlignment: Text.AlignRight
             text: fact.value
             font.family: fact.mono ? "monospace" : Kirigami.Theme.defaultFont.family
             elide: fact.elideMode
         }
-    }
-
-    // The panel heading: a small muted uppercase label, so three panels read as
-    // three named groups rather than one wall of values.
-    component PanelTitle: QQC2.Label {
-        // The heading is a group name, not a sentence: uppercase so it reads as
-        // a label above the values. `Font.AllUppercase` is not used, because a
-        // translation that starts with a capital would stay mixed case.
-        property string heading: ""
-        Layout.fillWidth: true
-        Layout.minimumWidth: 0
-        text: heading.toUpperCase()
-        font.family: Kirigami.Theme.smallFont.family
-        font.pixelSize: Kirigami.Theme.smallFont.pixelSize
-        font.bold: true
-        color: Kirigami.Theme.disabledTextColor
-        elide: Text.ElideRight
     }
 
     // A list of xbps names: monospace, wrapped, and a sentence when empty, so a
@@ -202,59 +204,26 @@ Item {
         })
     }
 
-    // A vertical hairline between panels. `Kirigami.Separator` is horizontal
-    // only, so this is a themed rectangle sized in grid units.
+    // A vertical hairline between the two columns. `Kirigami.Separator` is
+    // horizontal only, so this is a themed rectangle sized in grid units.
     component VSeparator: Rectangle {
         Layout.fillHeight: true
         Layout.preferredWidth: Kirigami.Units.smallSpacing / 2
         color: Kirigami.Theme.disabledTextColor
     }
 
-    // Panel 1: what the package is, and the one action it offers.
-    component InfoPanel: ColumnLayout {
-        Layout.fillWidth: true
-        Layout.minimumWidth: Kirigami.Units.gridUnit * 12
+    // The fact grid: one row per fact, the same shape every time.
+    component Facts: ColumnLayout {
+        Layout.minimumWidth: 0
         Layout.alignment: Qt.AlignTop
         spacing: Kirigami.Units.smallSpacing
 
-        PanelTitle {
-            heading: i18nd("kxbps", "Package information")
-        }
-
-        RowLayout {
-            Layout.fillWidth: true
-            Layout.minimumWidth: 0
-            spacing: Kirigami.Units.smallSpacing
-
-            // One generic package icon, never a per-package picture: the
-            // catalogue has none, and an invented one would be decoration.
-            Kirigami.Icon {
-                source: "package-x-generic"
-                implicitWidth: Kirigami.Units.iconSizes.large
-                implicitHeight: Kirigami.Units.iconSizes.large
-            }
-
-            ColumnLayout {
-                Layout.fillWidth: true
-                Layout.minimumWidth: 0
-                spacing: 0
-
-                QQC2.Label {
-                    Layout.fillWidth: true
-                    Layout.minimumWidth: 0
-                    text: pane.name
-                    font.bold: true
-                    elide: Text.ElideRight
-                }
-
-                Fact {
-                    label: i18nd("kxbps", "Version")
-                    value: pane.installed && pane.version.length > 0
-                           ? i18nd("kxbps", "%1 → %2", pane.info.installedVersion, pane.version)
-                           : pane.version
-                    mono: true
-                }
-            }
+        Fact {
+            label: i18nd("kxbps", "Version")
+            value: pane.installed && pane.version.length > 0
+                   ? i18nd("kxbps", "%1 → %2", pane.info.installedVersion, pane.version)
+                   : pane.version
+            mono: true
         }
 
         Fact {
@@ -279,35 +248,11 @@ Item {
             elideMode: Text.ElideMiddle
         }
 
-        // A licence is a phrase, not a value: it wraps under its label
-        // rather than eliding to a fragment of itself. It belongs with
-        // the package's identity, not with its sizes.
-        QQC2.Label {
-            Layout.fillWidth: true
-            Layout.minimumWidth: 0
-            text: pane.info.license !== undefined && pane.info.license.length > 0
-                  ? i18nd("kxbps", "License: %1", pane.info.license) : ""
-            visible: text.length > 0
-            font: Kirigami.Theme.smallFont
-            color: Kirigami.Theme.disabledTextColor
-            wrapMode: Text.WordWrap
+        Fact {
+            label: i18nd("kxbps", "License")
+            value: pane.info.license !== undefined ? pane.info.license : ""
         }
 
-        // A package xbps refused to describe: the sentence, not empty
-        // fields.
-        QQC2.Label {
-            Layout.fillWidth: true
-            Layout.minimumWidth: 0
-            visible: pane.errorKey.length > 0
-            text: visible ? pane.errorText(pane.errorKey, pane.errorArgs) : ""
-            color: Kirigami.Theme.negativeTextColor
-            font: Kirigami.Theme.smallFont
-            wrapMode: Text.WordWrap
-        }
-
-        // One row, not a panel of its own: two numbers on a third of the
-        // width left the pane looking empty. Installed first, then the
-        // download, the order a transaction moves them in.
         Fact {
             label: i18nd("kxbps", "Size")
             value: (pane.info.size !== undefined && pane.info.size !== ""
@@ -318,19 +263,24 @@ Item {
             mono: true
         }
 
+        // A package xbps refused to describe: the sentence, not empty fields.
+        QQC2.Label {
+            Layout.fillWidth: true
+            Layout.minimumWidth: 0
+            visible: pane.errorKey.length > 0
+            text: visible ? pane.errorText(pane.errorKey, pane.errorArgs) : ""
+            color: Kirigami.Theme.negativeTextColor
+            font: Kirigami.Theme.smallFont
+            wrapMode: Text.WordWrap
+        }
     }
 
-    // Panel 2: the two xbps lists, on their own so a long dependency list
-    // wraps inside the panel instead of pushing the others.
-    component DepsPanel: ColumnLayout {
-        Layout.fillWidth: true
-        Layout.minimumWidth: Kirigami.Units.gridUnit * 14
+    // The two xbps lists, on their own so a long dependency list wraps inside
+    // the column instead of pushing the facts.
+    component Deps: ColumnLayout {
+        Layout.minimumWidth: 0
         Layout.alignment: Qt.AlignTop
         spacing: Kirigami.Units.smallSpacing
-
-        PanelTitle {
-            heading: i18nd("kxbps", "Dependencies / required by")
-        }
 
         QQC2.Label {
             Layout.fillWidth: true
@@ -364,28 +314,73 @@ Item {
         }
     }
 
-    // The pane asks for the height its content needs, so no fact is cut in
-    // half and the table above is not pushed down by a fixed guess. A very long
-    // dependency list is capped and scrolls instead.
-    readonly property real wantedHeight: content.implicitHeight
-                                        + actions.implicitHeight
-                                        + Kirigami.Units.largeSpacing * 3
-    implicitHeight: Math.max(Kirigami.Units.gridUnit * 6,
-                             Math.min(wantedHeight, Kirigami.Units.gridUnit * 18))
-
-    // The scroll body: the two panels are taller than the slot on a narrow
-    // window, and a plain layout would draw over the log strip instead of
-    // scrolling. The scrollbar takes its own strip, or it covers the right-aligned
-    // values.
-    Flickable {
+    // The header: what the package is, at a glance.
+    RowLayout {
+        id: headerRow
         anchors.left: parent.left
         anchors.right: parent.right
         anchors.top: parent.top
+        anchors.leftMargin: Kirigami.Units.largeSpacing
+        anchors.rightMargin: Kirigami.Units.largeSpacing
+        anchors.topMargin: Kirigami.Units.largeSpacing
+        spacing: Kirigami.Units.largeSpacing
+
+        // One generic package icon, never a per-package picture: the catalogue
+        // has none, and an invented one would be decoration.
+        Kirigami.Icon {
+            source: "package-x-generic"
+            implicitWidth: Kirigami.Units.iconSizes.medium
+            implicitHeight: Kirigami.Units.iconSizes.medium
+        }
+
+        ColumnLayout {
+            Layout.fillWidth: true
+            Layout.minimumWidth: 0
+            spacing: 0
+
+            QQC2.Label {
+                Layout.fillWidth: true
+                Layout.minimumWidth: 0
+                text: pane.name
+                font.bold: true
+                elide: Text.ElideRight
+            }
+
+            QQC2.Label {
+                Layout.fillWidth: true
+                Layout.minimumWidth: 0
+                visible: text.length > 0
+                text: pane.summary
+                font: Kirigami.Theme.smallFont
+                color: Kirigami.Theme.disabledTextColor
+                elide: Text.ElideRight
+            }
+        }
+    }
+
+    Kirigami.Separator {
+        anchors.left: parent.left
+        anchors.right: parent.right
+        anchors.top: headerRow.bottom
+        anchors.topMargin: Kirigami.Units.smallSpacing
+    }
+
+    // The scroll body: the facts and the lists are taller than the slot on a
+    // narrow window, and a plain layout would draw over the action row instead
+    // of scrolling. The scrollbar takes its own strip, or it covers the values.
+    Flickable {
+        id: bodyFlick
+        anchors.left: parent.left
+        anchors.right: parent.right
+        anchors.top: headerRow.bottom
+        anchors.topMargin: Kirigami.Units.smallSpacing * 3
         anchors.bottom: actions.top
         anchors.bottomMargin: Kirigami.Units.smallSpacing
+        anchors.leftMargin: Kirigami.Units.largeSpacing
+        anchors.rightMargin: Kirigami.Units.largeSpacing
         clip: true
         contentWidth: width - paneBar.width
-        contentHeight: content.implicitHeight + Kirigami.Units.largeSpacing * 2
+        contentHeight: body.implicitHeight
         boundsBehavior: Flickable.StopAtBounds
         QQC2.ScrollBar.vertical: QQC2.ScrollBar {
             id: paneBar
@@ -393,53 +388,48 @@ Item {
         }
 
         ColumnLayout {
-            id: content
-            x: Kirigami.Units.largeSpacing
-            y: Kirigami.Units.largeSpacing
-            width: pane.width - Kirigami.Units.largeSpacing * 2 - paneBar.width
+            id: body
+            width: bodyFlick.contentWidth
             spacing: Kirigami.Units.largeSpacing
 
-        // Two panels on a wide pane, one column on a narrow one. The panels
-        // are inline components, so both forms show the same content instead
-        // of a second copy that could drift.
-        RowLayout {
-            visible: pane.wideLayout
-            Layout.fillWidth: true
-            Layout.minimumWidth: 0
-            // The hairline is a divider, not a border: a gap on both sides
-            // keeps every heading and every right-aligned value off the line.
-            spacing: Kirigami.Units.largeSpacing
-
-            InfoPanel {
+            // Two columns on a wide pane, one on a narrow one. The blocks are
+            // inline components, so both forms show the same content instead
+            // of a second copy that could drift.
+            RowLayout {
+                visible: pane.wideLayout
                 Layout.fillWidth: true
-                Layout.preferredWidth: Kirigami.Units.gridUnit * 30
+                Layout.minimumWidth: 0
+                spacing: Kirigami.Units.largeSpacing
+
+                Facts {
+                    Layout.fillWidth: true
+                    Layout.preferredWidth: Kirigami.Units.gridUnit * 30
+                }
+
+                VSeparator {}
+
+                Deps {
+                    Layout.fillWidth: true
+                    Layout.preferredWidth: Kirigami.Units.gridUnit * 26
+                }
             }
 
-            VSeparator {}
-
-            DepsPanel {
+            ColumnLayout {
+                visible: !pane.wideLayout
                 Layout.fillWidth: true
-                Layout.preferredWidth: Kirigami.Units.gridUnit * 22
+                Layout.minimumWidth: 0
+                spacing: Kirigami.Units.largeSpacing
+
+                Facts {}
+
+                Deps {}
             }
-        }
-
-        ColumnLayout {
-            visible: !pane.wideLayout
-            Layout.fillWidth: true
-            Layout.minimumWidth: 0
-            spacing: Kirigami.Units.largeSpacing
-
-            InfoPanel {}
-
-            DepsPanel {}
-        }
         }
     }
 
-    // The actions, on a line of their own under both panels: inside the
-    // information column they were squeezed by its width, and the pane has the
-    // room for them across its whole width. Pinned, so a long dependency list
-    // scrolls under them instead of carrying them away.
+    // The actions, together at the bottom right: one place to act, and the
+    // queue action last, where a dialog puts its default button. Pinned, so a
+    // long dependency list scrolls under them instead of carrying them away.
     RowLayout {
         id: actions
         anchors.left: parent.left
@@ -448,10 +438,27 @@ Item {
         anchors.margins: Kirigami.Units.largeSpacing
         spacing: Kirigami.Units.smallSpacing
 
+        Item {
+            Layout.fillWidth: true
+        }
+
+        DenseButton {
+            text: i18nd("kxbps", "Files")
+            enabled: pane.packageName.length > 0
+            Accessible.name: i18nd("kxbps", "Files of the package")
+            onClicked: filesDialog.open()
+        }
+
+        DenseButton {
+            visible: pane.installed
+            text: pane.info.held ? i18nd("kxbps", "Unhold") : i18nd("kxbps", "Hold")
+            icon.name: pane.info.held ? "object-unlocked" : "object-locked"
+            onClicked: pane.installedBackend.toggleHold(pane.name)
+        }
+
         DenseButton {
             text: pane.actionLabel
             icon.name: pane.actionIcon
-            font: Kirigami.Theme.smallFont
             enabled: pane.packageName.length > 0 && pane.factsReady
             onClicked: {
                 if (pane.queuedAction.length > 0) {
@@ -461,36 +468,12 @@ Item {
                 }
             }
         }
-
-        // The queue action on the left, the two package-level ones on the
-        // right: a row of buttons at both ends reads as a toolbar, while a
-        // stretched primary button reads as a form.
-        Item {
-            Layout.fillWidth: true
-        }
-
-        DenseButton {
-            visible: pane.installed
-            text: pane.info.held ? i18nd("kxbps", "Unhold") : i18nd("kxbps", "Hold")
-            icon.name: pane.info.held ? "object-unlocked" : "object-locked"
-            font: Kirigami.Theme.smallFont
-            onClicked: pane.installedBackend.toggleHold(pane.name)
-        }
-
-        DenseButton {
-            text: i18nd("kxbps", "Files")
-            font: Kirigami.Theme.smallFont
-            enabled: pane.packageName.length > 0
-            Accessible.name: i18nd("kxbps", "Files of the package")
-            onClicked: filesDialog.open()
-        }
     }
 
-    // Nothing selected, or the facts still on their way: say so rather than
-    // showing a grid of blanks.
+    // Nothing selected: say so rather than showing a grid of blanks.
     QQC2.Label {
         anchors.horizontalCenter: parent.horizontalCenter
-        anchors.top: parent.top
+        anchors.top: headerRow.bottom
         anchors.topMargin: Kirigami.Units.largeSpacing
         width: parent.width - Kirigami.Units.largeSpacing * 2 - paneBar.width
         visible: pane.packageName.length === 0
