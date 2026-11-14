@@ -5,8 +5,8 @@ msgid ""
 msgstr ""
 "Project-Id-Version: kxbps 0.10.0\n"
 "Report-Msgid-Bugs-To: \n"
-"POT-Creation-Date: 2026-11-14 22:20+0000\n"
-"PO-Revision-Date: 2026-11-14 22:20+0000\n"
+"POT-Creation-Date: 2026-11-14 22:59+0000\n"
+"PO-Revision-Date: 2026-11-14 23:00+0000\n"
 "Last-Translator: KXbps translation contributors <khame.dev@protonmail.com>\n"
 "Language-Team: Dutch\n"
 "Language: nl\n"
@@ -133,7 +133,7 @@ msgstr[1] "%1 dagen geleden"
 msgid "%1 did not answer within %2 s."
 msgstr "%1 antwoordde niet binnen %2 s."
 
-#: kxbps-qt/qml/components/DetailsPane.qml:103
+#: kxbps-qt/qml/components/DetailsPane.qml:124
 #: kxbps-qt/qml/components/PackageFilesDialog.qml:58
 #: kxbps-qt/qml/views/PackagesView.qml:477
 msgid "%1 did not answer within %2 seconds."
@@ -143,13 +143,13 @@ msgstr "%1 antwoordde niet binnen %2 seconden."
 msgid "%1 exited with %2: %3"
 msgstr "%1 is gestopt met %2: %3"
 
-#: kxbps-qt/qml/components/DetailsPane.qml:110
+#: kxbps-qt/qml/components/DetailsPane.qml:131
 #: kxbps-qt/qml/components/PackageFilesDialog.qml:65
 #: kxbps-qt/qml/views/PackagesView.qml:484
 msgid "%1 failed with exit code %2."
 msgstr "%1 is mislukt met foutcode %2."
 
-#: kxbps-qt/qml/components/DetailsPane.qml:109
+#: kxbps-qt/qml/components/DetailsPane.qml:130
 #: kxbps-qt/qml/components/PackageFilesDialog.qml:64
 #: kxbps-qt/qml/views/PackagesView.qml:483
 msgid "%1 failed with exit code %2: %3"
@@ -224,7 +224,7 @@ msgid_plural "%1 paths"
 msgstr[0] "%1 pad"
 msgstr[1] "%1 paden"
 
-#: kxbps-qt/qml/components/DetailsPane.qml:112
+#: kxbps-qt/qml/components/DetailsPane.qml:133
 #: kxbps-qt/qml/components/PackageFilesDialog.qml:67
 #: kxbps-qt/qml/views/PackagesView.qml:486
 msgid "%1 printed a line this version does not understand (line %2): %3"
@@ -238,7 +238,7 @@ msgstr "%1 gaf een regel weer waaruit xbps niet kan worden gelezen: %3 (regel %2
 msgid "%1 printed no packages."
 msgstr "%1 gaf geen pakketten weer."
 
-#: kxbps-qt/qml/components/DetailsPane.qml:114
+#: kxbps-qt/qml/components/DetailsPane.qml:135
 #: kxbps-qt/qml/components/PackageFilesDialog.qml:69
 msgid "%1 printed nothing."
 msgstr "%1 gaf niets weer."
@@ -250,7 +250,7 @@ msgid_plural "%1 queued packages"
 msgstr[0] "%1 pakket in de wachtrij"
 msgstr[1] "%1 pakketten in de wachtrij"
 
-#: kxbps-qt/qml/views/RepositoriesView.qml:232
+#: kxbps-qt/qml/views/RepositoriesView.qml:233
 msgid "%1 repository"
 msgid_plural "%1 repositories"
 msgstr[0] "%1 repository"
@@ -274,7 +274,7 @@ msgid_plural "%1 updates available"
 msgstr[0] "%1 update beschikbaar"
 msgstr[1] "%1 updates beschikbaar"
 
-#: kxbps-qt/qml/components/DetailsPane.qml:253
+#: kxbps-qt/qml/components/DetailsPane.qml:224
 msgid "%1 → %2"
 msgstr "%1 → %2"
 
@@ -290,12 +290,12 @@ msgstr "Er bestaat al een bestand voor %1."
 msgid "A graphical front end for xbps, the Void Linux package manager."
 msgstr "Een grafische voorkant voor xbps, de pakketbeheerder van Void Linux."
 
-#: kxbps-qt/qml/views/RepositoriesView.qml:117
+#: kxbps-qt/qml/views/RepositoriesView.qml:118
 msgid "A repository added here is written to %1 and read by xbps for every user."
 msgstr "Een hier toegevoegde repository wordt in %1 geschreven en door xbps voor alle gebruikers gelezen."
 
 #: kxbps-qt/qml/components/AboutDialog.qml:18
-#: kxbps-qt/qml/views/SettingsView.qml:169
+#: kxbps-qt/qml/views/SettingsView.qml:170
 msgid "About KXbps"
 msgstr "Over KXbps"
 
@@ -303,11 +303,11 @@ msgstr "Over KXbps"
 msgid "Action"
 msgstr "Actie"
 
-#: kxbps-qt/qml/views/RepositoriesView.qml:105
+#: kxbps-qt/qml/views/RepositoriesView.qml:106
 msgid "Add repository"
 msgstr "Repository toevoegen"
 
-#: kxbps-qt/qml/views/RepositoriesView.qml:68
+#: kxbps-qt/qml/views/RepositoriesView.qml:69
 msgid "Adding and removing repositories needs %1, which packaging/install.sh installs."
 msgstr "Het toevoegen en verwijderen van repositories vereist %1, dat packaging/install.sh installeert."
 
@@ -315,7 +315,7 @@ msgstr "Het toevoegen en verwijderen van repositories vereist %1, dat packaging/
 msgid "All"
 msgstr "Alles"
 
-#: kxbps-qt/qml/views/SettingsView.qml:37
+#: kxbps-qt/qml/views/SettingsView.qml:38
 msgid "Announce available updates on startup"
 msgstr "Updates bekendmaken bij het opstarten"
 
@@ -389,7 +389,7 @@ msgstr "Kan niet verwijderen"
 msgid "Check for updates"
 msgstr "Controleren op updates"
 
-#: kxbps-qt/qml/views/SettingsView.qml:92
+#: kxbps-qt/qml/views/SettingsView.qml:93
 msgid "Check for updates:"
 msgstr "Controleren op updates:"
 
@@ -419,7 +419,7 @@ msgstr "Kan %1 niet lezen: %2"
 msgid "Could not read the installed packages: %1"
 msgstr "Kan de geïnstalleerde pakketten niet lezen: %1"
 
-#: kxbps-qt/qml/components/DetailsPane.qml:116
+#: kxbps-qt/qml/components/DetailsPane.qml:137
 msgid "Could not read the package: %1"
 msgstr "Kan het pakket niet lezen: %1"
 
@@ -431,7 +431,7 @@ msgstr "Kan de xbps-configuratie niet lezen."
 msgid "Could not read the xbps configuration: %1."
 msgstr "Kan de xbps-configuratie niet lezen: %1."
 
-#: kxbps-qt/qml/components/DetailsPane.qml:101
+#: kxbps-qt/qml/components/DetailsPane.qml:122
 #: kxbps-qt/qml/components/PackageFilesDialog.qml:56
 #: kxbps-qt/qml/views/PackagesView.qml:475
 msgid "Could not run %1: %2"
@@ -465,16 +465,12 @@ msgstr "Kan de xbps-configuratie niet schrijven."
 msgid "Could not write the xbps configuration: %1"
 msgstr "Kan de xbps-configuratie niet schrijven: %1"
 
-#: kxbps-qt/qml/components/DetailsPane.qml:369
-msgid "Dependencies / required by"
-msgstr "Afhankelijkheden / vereist door"
-
-#: kxbps-qt/qml/components/DetailsPane.qml:267
+#: kxbps-qt/qml/components/DetailsPane.qml:236
 #: kxbps-qt/qml/components/PlanDialog.qml:124
 msgid "Dependency"
 msgstr "Afhankelijkheid"
 
-#: kxbps-qt/qml/components/DetailsPane.qml:375
+#: kxbps-qt/qml/components/DetailsPane.qml:288
 msgid "Depends"
 msgstr "Hangt af van"
 
@@ -482,7 +478,7 @@ msgstr "Hangt af van"
 msgid "Description"
 msgstr "Beschrijving"
 
-#: kxbps-qt/qml/views/PackagesView.qml:985
+#: kxbps-qt/qml/views/PackagesView.qml:987
 msgid "Details of %1"
 msgstr "Details van %1"
 
@@ -518,27 +514,27 @@ msgstr "Pakketten worden gedownload…"
 msgid "Europe"
 msgstr "Europa"
 
-#: kxbps-qt/qml/views/SettingsView.qml:113
+#: kxbps-qt/qml/views/SettingsView.qml:114
 msgid "Every 12 hours"
 msgstr "Elke 12 uur"
 
-#: kxbps-qt/qml/views/SettingsView.qml:115
+#: kxbps-qt/qml/views/SettingsView.qml:116
 msgid "Every 24 hours"
 msgstr "Elke 24 uur"
 
-#: kxbps-qt/qml/views/SettingsView.qml:109
+#: kxbps-qt/qml/views/SettingsView.qml:110
 msgid "Every 3 hours"
 msgstr "Elke 3 uur"
 
-#: kxbps-qt/qml/views/SettingsView.qml:105
+#: kxbps-qt/qml/views/SettingsView.qml:106
 msgid "Every 30 minutes"
 msgstr "Elke 30 minuten"
 
-#: kxbps-qt/qml/views/SettingsView.qml:111
+#: kxbps-qt/qml/views/SettingsView.qml:112
 msgid "Every 6 hours"
 msgstr "Elke 6 uur"
 
-#: kxbps-qt/qml/views/SettingsView.qml:107
+#: kxbps-qt/qml/views/SettingsView.qml:108
 msgid "Every hour"
 msgstr "Elk uur"
 
@@ -547,7 +543,7 @@ msgid "Everything is up to date."
 msgstr "Alles is bijgewerkt."
 
 #: kxbps-qt/qml/Main.qml:348 kxbps-qt/qml/Main.qml:681
-#: kxbps-qt/qml/components/DetailsPane.qml:266
+#: kxbps-qt/qml/components/DetailsPane.qml:235
 msgid "Explicit"
 msgstr "Expliciet"
 
@@ -556,11 +552,11 @@ msgstr "Expliciet"
 msgid "Failed"
 msgstr "Mislukt"
 
-#: kxbps-qt/qml/components/DetailsPane.qml:351
+#: kxbps-qt/qml/components/DetailsPane.qml:446
 msgid "Files"
 msgstr "Bestanden"
 
-#: kxbps-qt/qml/components/DetailsPane.qml:354
+#: kxbps-qt/qml/components/DetailsPane.qml:448
 msgid "Files of the package"
 msgstr "Bestanden van het pakket"
 
@@ -580,8 +576,8 @@ msgstr "Paden filteren…"
 msgid "Finished."
 msgstr "Voltooid."
 
-#: kxbps-qt/qml/Main.qml:352 kxbps-qt/qml/components/DetailsPane.qml:271
-#: kxbps-qt/qml/components/DetailsPane.qml:272
+#: kxbps-qt/qml/Main.qml:352 kxbps-qt/qml/components/DetailsPane.qml:240
+#: kxbps-qt/qml/components/DetailsPane.qml:241
 #: kxbps-qt/qml/components/PackageDelegate.qml:236
 msgid "Held"
 msgstr "Vastgehouden"
@@ -598,7 +594,7 @@ msgstr "Hulp"
 msgid "Hide"
 msgstr "Verbergen"
 
-#: kxbps-qt/qml/components/DetailsPane.qml:344
+#: kxbps-qt/qml/components/DetailsPane.qml:454
 msgid "Hold"
 msgstr "Vasthouden"
 
@@ -642,7 +638,7 @@ msgstr "Het installeert, werkt bij en verwijdert pakketten, wisselt de mirror en
 msgid "It runs xbps and shows exactly what xbps reports."
 msgstr "Het voert xbps uit en toont precies wat xbps meldt."
 
-#: kxbps-qt/qml/views/SettingsView.qml:163
+#: kxbps-qt/qml/views/SettingsView.qml:164
 msgid "KXbps is a native KDE package manager for Void Linux. It reads and changes the system through xbps."
 msgstr "KXbps is een native KDE-pakketbeheerder voor Void Linux. Het leest en wijzigt het systeem via xbps."
 
@@ -662,9 +658,9 @@ msgstr "Latentie, snelste eerst"
 msgid "Latency, sorted slowest first"
 msgstr "Latentie, traagste eerst"
 
-#: kxbps-qt/qml/components/DetailsPane.qml:289
-msgid "License: %1"
-msgstr "Licentie: %1"
+#: kxbps-qt/qml/components/DetailsPane.qml:252
+msgid "License"
+msgstr "Licentie"
 
 #: kxbps-qt/qml/components/LogDrawer.qml:98
 #: kxbps-qt/qml/components/StatusStrip.qml:110
@@ -716,7 +712,7 @@ msgstr "Meer"
 msgid "Needed by: %1"
 msgstr "Vereist door: %1"
 
-#: kxbps-qt/qml/components/DetailsPane.qml:382
+#: kxbps-qt/qml/components/DetailsPane.qml:295
 msgid "No dependencies"
 msgstr "Geen afhankelijkheden"
 
@@ -760,7 +756,7 @@ msgstr "Geen pakketten."
 msgid "No path matches the filter."
 msgstr "Geen pad komt overeen met het filter."
 
-#: kxbps-qt/qml/views/RepositoriesView.qml:153
+#: kxbps-qt/qml/views/RepositoriesView.qml:154
 msgid "No repository is configured."
 msgstr "Er is geen repository geconfigureerd."
 
@@ -780,13 +776,13 @@ msgstr "Noord-Amerika"
 msgid "Not checked yet"
 msgstr "Nog niet gecontroleerd"
 
-#: kxbps-qt/qml/components/DetailsPane.qml:272
+#: kxbps-qt/qml/components/DetailsPane.qml:241
 msgid "Not held"
 msgstr "Niet vastgehouden"
 
 #. A package that is not installed is neither explicit nor a
 #. dependency; `explicit` is simply false for it.
-#: kxbps-qt/qml/components/DetailsPane.qml:264
+#: kxbps-qt/qml/components/DetailsPane.qml:233
 msgid "Not installed"
 msgstr "Niet geïnstalleerd"
 
@@ -798,7 +794,7 @@ msgstr "Niet geïnstalleerd: %1"
 msgid "Not probed"
 msgstr "Niet getest"
 
-#: kxbps-qt/qml/components/DetailsPane.qml:398
+#: kxbps-qt/qml/components/DetailsPane.qml:311
 msgid "Nothing depends on it"
 msgstr "Niets hangt ervan af"
 
@@ -818,7 +814,7 @@ msgstr "Niets te verwijderen."
 msgid "Notifications and startup"
 msgstr "Meldingen en opstarten"
 
-#: kxbps-qt/qml/views/SettingsView.qml:36
+#: kxbps-qt/qml/views/SettingsView.qml:37
 msgid "Notifications:"
 msgstr "Meldingen:"
 
@@ -839,7 +835,7 @@ msgstr "Vastgehouden"
 msgid "Open KXbps"
 msgstr "KXbps openen"
 
-#: kxbps-qt/qml/components/DetailsPane.qml:265
+#: kxbps-qt/qml/components/DetailsPane.qml:234
 #: kxbps-qt/qml/components/PlanDialog.qml:128
 msgid "Orphan"
 msgstr "Verweesd"
@@ -856,10 +852,6 @@ msgstr "Pakket"
 #: kxbps-qt/qml/components/PackageFilesDialog.qml:34
 msgid "Package files"
 msgstr "Pakketbestanden"
-
-#: kxbps-qt/qml/components/DetailsPane.qml:221
-msgid "Package information"
-msgstr "Pakketinformatie"
 
 #: kxbps-qt/qml/Main.qml:354
 msgid "Packages"
@@ -881,15 +873,15 @@ msgstr "Bezig met testen"
 msgid "Queue"
 msgstr "Wachtrij"
 
-#: kxbps-qt/qml/components/DetailsPane.qml:87
+#: kxbps-qt/qml/components/DetailsPane.qml:97
 msgid "Queue installation"
 msgstr "Installatie in de wachtrij zetten"
 
-#: kxbps-qt/qml/components/DetailsPane.qml:86
+#: kxbps-qt/qml/components/DetailsPane.qml:96
 msgid "Queue removal"
 msgstr "Verwijdering in de wachtrij zetten"
 
-#: kxbps-qt/qml/components/DetailsPane.qml:85
+#: kxbps-qt/qml/components/DetailsPane.qml:95
 msgid "Queue the update"
 msgstr "Update in de wachtrij zetten"
 
@@ -897,7 +889,7 @@ msgstr "Update in de wachtrij zetten"
 msgid "Quit"
 msgstr "Afsluiten"
 
-#: kxbps-qt/qml/views/RepositoriesView.qml:145
+#: kxbps-qt/qml/views/RepositoriesView.qml:146
 msgid "Reading repositories…"
 msgstr "Repositories worden gelezen…"
 
@@ -945,16 +937,16 @@ msgstr "%1 en zijn afhankelijken verwijderen"
 msgid "Remove %1 from the queue"
 msgstr "%1 uit de wachtrij verwijderen"
 
-#: kxbps-qt/qml/components/DetailsPane.qml:84
+#: kxbps-qt/qml/components/DetailsPane.qml:94
 #: kxbps-qt/qml/components/QueueDelegate.qml:112
 msgid "Remove from the queue"
 msgstr "Uit de wachtrij verwijderen"
 
-#: kxbps-qt/qml/views/RepositoriesView.qml:212
+#: kxbps-qt/qml/views/RepositoriesView.qml:213
 msgid "Remove repository"
 msgstr "Repository verwijderen"
 
-#: kxbps-qt/qml/views/RepositoriesView.qml:215
+#: kxbps-qt/qml/views/RepositoriesView.qml:216
 msgid "Remove the repository %1"
 msgstr "De repository %1 verwijderen"
 
@@ -970,7 +962,7 @@ msgstr "%1 wordt verwijderd…"
 msgid "Repositories"
 msgstr "Repositories"
 
-#: kxbps-qt/qml/components/DetailsPane.qml:276
+#: kxbps-qt/qml/components/DetailsPane.qml:245
 msgid "Repository"
 msgstr "Repository"
 
@@ -990,7 +982,7 @@ msgstr "Repository %1 verwijderd."
 msgid "Requested"
 msgstr "Aangevraagd"
 
-#: kxbps-qt/qml/components/DetailsPane.qml:391
+#: kxbps-qt/qml/components/DetailsPane.qml:304
 msgid "Required by"
 msgstr "Vereist door"
 
@@ -1014,7 +1006,7 @@ msgstr "Pakketten zoeken…"
 msgid "Searching the repositories…"
 msgstr "Repositories worden doorzocht…"
 
-#: kxbps-qt/qml/components/DetailsPane.qml:471
+#: kxbps-qt/qml/components/DetailsPane.qml:480
 msgid "Select a package to see its details."
 msgstr "Selecteer een pakket om de details te zien."
 
@@ -1033,7 +1025,7 @@ msgstr "Instellingen"
 
 #: kxbps-qt/qml/components/LogDrawer.qml:110
 #: kxbps-qt/qml/views/MirrorsView.qml:196
-#: kxbps-qt/qml/views/PackagesView.qml:991
+#: kxbps-qt/qml/views/PackagesView.qml:993
 msgid "Show"
 msgstr "Tonen"
 
@@ -1041,11 +1033,11 @@ msgstr "Tonen"
 msgid "Show KXbps"
 msgstr "KXbps tonen"
 
-#: kxbps-qt/qml/views/RepositoriesView.qml:204
+#: kxbps-qt/qml/views/RepositoriesView.qml:205
 msgid "Signed"
 msgstr "Ondertekend"
 
-#: kxbps-qt/qml/components/DetailsPane.qml:312
+#: kxbps-qt/qml/components/DetailsPane.qml:257
 #: kxbps-qt/qml/components/PlanDialog.qml:331
 #: kxbps-qt/qml/views/PackagesView.qml:771
 msgid "Size"
@@ -1055,15 +1047,15 @@ msgstr "Grootte"
 msgid "South America"
 msgstr "Zuid-Amerika"
 
-#: kxbps-qt/qml/views/SettingsView.qml:75
+#: kxbps-qt/qml/views/SettingsView.qml:76
 msgid "Start with the session"
 msgstr "Met de sessie starten"
 
-#: kxbps-qt/qml/views/SettingsView.qml:74
+#: kxbps-qt/qml/views/SettingsView.qml:75
 msgid "Startup:"
 msgstr "Opstarten:"
 
-#: kxbps-qt/qml/components/DetailsPane.qml:261
+#: kxbps-qt/qml/components/DetailsPane.qml:230
 #: kxbps-qt/qml/views/MirrorsView.qml:288
 msgid "State"
 msgstr "Toestand"
@@ -1128,7 +1120,7 @@ msgstr "Het nieuwe repositoryadres is niet actief: %1"
 msgid "The package owns no files."
 msgstr "Het pakket bevat geen bestanden."
 
-#: kxbps-qt/qml/Main.qml:388 kxbps-qt/qml/views/RepositoriesView.qml:73
+#: kxbps-qt/qml/Main.qml:388 kxbps-qt/qml/views/RepositoriesView.qml:74
 msgid "The polkit policy is missing, so the system cannot ask for a password: run packaging/install.sh."
 msgstr "Het polkit-beleid ontbreekt, dus het systeem kan niet om een wachtwoord vragen: voer packaging/install.sh uit."
 
@@ -1152,11 +1144,11 @@ msgstr "De wachtrij, de voorkeuren en de gekozen mirror staan in ~/.local/share/
 msgid "The repositories could not be read. The list below is unchanged. Last successful check: %1."
 msgstr "De repositories konden niet worden gelezen. De lijst hieronder blijft ongewijzigd. Laatste geslaagde controle: %1."
 
-#: kxbps-qt/qml/views/RepositoriesView.qml:71
+#: kxbps-qt/qml/views/RepositoriesView.qml:72
 msgid "The repository helper at %1 is not executable."
 msgstr "Het repositoryhulpprogramma op %1 is niet uitvoerbaar."
 
-#: kxbps-qt/qml/views/SettingsView.qml:147
+#: kxbps-qt/qml/views/SettingsView.qml:148
 msgid "The switches are saved to the application's state directory and survive a restart."
 msgstr "De schakelaars worden opgeslagen in de toestandsmap van de toepassing en overleven een herstart."
 
@@ -1212,7 +1204,7 @@ msgstr "Transactie mislukt"
 msgid "Transaction plan"
 msgstr "Transactieplan"
 
-#: kxbps-qt/qml/components/DetailsPane.qml:344
+#: kxbps-qt/qml/components/DetailsPane.qml:454
 msgid "Unhold"
 msgstr "Vrijgeven"
 
@@ -1253,11 +1245,11 @@ msgstr "Bijwerkbaar"
 msgid "Use %1"
 msgstr "%1 gebruiken"
 
-#: kxbps-qt/qml/views/SettingsView.qml:54
+#: kxbps-qt/qml/views/SettingsView.qml:55
 msgid "Use desktop notifications"
 msgstr "Gebruik desktopmeldingen"
 
-#: kxbps-qt/qml/components/DetailsPane.qml:251
+#: kxbps-qt/qml/components/DetailsPane.qml:222
 #: kxbps-qt/qml/components/PlanDialog.qml:321
 msgid "Version"
 msgstr "Versie"
@@ -1274,7 +1266,7 @@ msgstr "Wachten op authenticatie…"
 msgid "What KXbps does"
 msgstr "Wat KXbps doet"
 
-#: kxbps-qt/qml/views/SettingsView.qml:55
+#: kxbps-qt/qml/views/SettingsView.qml:56
 msgid "When off, only the tray icon shows available updates."
 msgstr "Indien uit toont alleen het pictogram in het systeemvak beschikbare updates."
 
