@@ -3,7 +3,10 @@
 #include <QtCore/QMetaObject>
 #include <QtCore/QVariant>
 #include <QtDBus/QDBusConnection>
+#include <QtDBus/QDBusInterface>
 #include <QtDBus/QDBusMessage>
+#include <QtDBus/QDBusPendingCallWatcher>
+#include <QtDBus/QDBusPendingReply>
 #include <QtWidgets/QSystemTrayIcon>
 
 #include "kxbps-qt/src/query_backend.cxxqt.h"
@@ -96,12 +99,15 @@ bool kxbps_tray_available()
     return QSystemTrayIcon::isSystemTrayAvailable();
 }
 
-void kxbps_notify(const QString &summary, const QString &body, const QString &icon)
+void kxbps_notify(const QString &summary,
+                  const QString &body,
+                  const QString &icon,
+                  QObject &owner)
 {
-    // The spec's `Notify` call, sent fire-and-forget: the reply is a number the
-    // window has no use for, and waiting on it would block the GUI thread.
-    // `desktop-entry` is what lets the notification settings page group the
-    // popup under KXbps instead of a nameless sender.
+    // The `Notify` call, sent without waiting: blocking the GUI thread on a
+    // hung notification server would freeze the window. `desktop-entry` is
+    // what lets the notification settings page group the popup under KXbps
+    // instead of a nameless sender.
     QDBusMessage message = QDBusMessage::createMethodCall(
         QStringLiteral("org.freedesktop.Notifications"),
         QStringLiteral("/org/freedesktop/Notifications"),
@@ -110,9 +116,65 @@ void kxbps_notify(const QString &summary, const QString &body, const QString &ic
     QVariantMap hints;
     hints.insert(QStringLiteral("desktop-entry"),
                  QStringLiteral("io.github.khame.kxbps"));
+    // One button, and clicking the body activates `default`; both arrive as
+    // `ActionInvoked` with the key `default`.
     message << QStringLiteral("KXbps") << 0u << icon << summary << body
-            << QStringList() << hints << 10000;
-    QDBusConnection::sessionBus().send(message);
+            << QStringList{QStringLiteral("default"), QStringLiteral("Show KXbps")}
+            << hints << 10000;
+    // The watch is set up right before the first popup, when the notification
+    // service is certainly there; a later call is a no-op.
+    kxbps_notification_watch_actions(owner);
+    QDBusPendingCall call = QDBusConnection::sessionBus().asyncCall(message);
+    auto *watcher = new QDBusPendingCallWatcher(call, &owner);
+    QObject::connect(watcher,
+                     &QDBusPendingCallWatcher::finished,
+                     &owner, [owner = &owner](QDBusPendingCallWatcher *finished) {
+                         // The id is the only way to tell which popup an
+                         // `ActionInvoked` belongs to; `none` when the reply
+                         // failed, which no action can match.
+                         const QDBusPendingReply<uint> reply = *finished;
+                         finished->deleteLater();
+                         QString id;
+                         if (!reply.isError()) {
+                             id = QString::number(reply.value());
+                         }
+                         QMetaObject::invokeMethod(owner,
+                                                   "rememberNotificationId",
+                                                   Qt::DirectConnection,
+                                                   Q_ARG(QString, id));
+                     });
+}
+
+void kxbps_notification_watch_actions(QObject &owner)
+{
+    // The signal is a D-Bus signal, and `QDBusConnection::connect` needs a
+    // slot; a CXX-Qt method is only `Q_INVOKABLE`, which the string connect
+    // refuses. `QDBusInterface` exposes the remote signal through its dynamic
+    // meta-object, and QML can connect to that by name, so the interface is
+    // handed to QML through the backend's `notificationWatch` property.
+    static QObject *watched = nullptr;
+    if (watched != nullptr) {
+        return;
+    }
+    auto *iface = new QDBusInterface(
+        QStringLiteral("org.freedesktop.Notifications"),
+        QStringLiteral("/org/freedesktop/Notifications"),
+        QStringLiteral("org.freedesktop.Notifications"),
+        QDBusConnection::sessionBus(),
+        &owner);
+    if (!iface->isValid()) {
+        qWarning("kxbps: notification actions: %s",
+                 qUtf8Printable(iface->lastError().message()));
+        delete iface;
+        return;
+    }
+    if (!owner.setProperty("notificationWatch",
+                           QVariant::fromValue<QObject *>(iface))) {
+        qWarning("kxbps: notification actions: the backend has no watch property");
+        delete iface;
+        return;
+    }
+    watched = &owner;
 }
 
 void kxbps_installed_apply_plan(QObject *owner, const QString &itemsJson)

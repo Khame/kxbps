@@ -200,15 +200,15 @@ Kirigami.ApplicationWindow {
         onLoaded: item.installedBackend = installedBackend
     }
 
-    // The desktop notification, if `org.kde.notification` is installed. The
-    // notifier itself never fails to load; its inner popup does, silently.
+    // The desktop notification. The notifier itself never fails to load: it is
+    // a `QtObject` with no module of its own beyond KI18n, which the window
+    // already imports.
     Loader {
         id: notifierLoader
         source: "components/Notifier.qml"
         asynchronous: true
         onLoaded: {
             item.installedBackend = installedBackend
-            item.prefsBackend = prefsBackend
             item.appBackend = appBackend
             root.updateStartNotified()
         }
@@ -265,14 +265,10 @@ Kirigami.ApplicationWindow {
         requestActivate()
     }
 
-    // The announcement was delivered, seen or ignored: the signature goes into
-    // the marker so the next start stays quiet. The signature is the one
-    // `apply_plan` writes when nothing is left, so both describe one set.
-    function markDelivered(signature) {
-        if (signature.length > 0) {
-            prefsBackend.dismissedVersion = signature
-        }
-    }
+    // The announcement was delivered, seen or ignored: the backend wrote the
+    // bookkeeping in the same call that offered it, so nothing is written here.
+    // The hook stays because the start sequence and the signature watcher both
+    // pass through it.
 
     onClosing: function(close) {
         if (!root.quitting && root.trayAvailable) {
@@ -448,12 +444,51 @@ Kirigami.ApplicationWindow {
     // check at most once.
     property bool startNotified: false
 
+    // Why the last call was silent, when it was silent only because the window
+    // is on screen: the offer was deferred, not dropped, so a timer retries it
+    // once the window is hidden. Rust writes nothing for a deferred offer.
+    property bool announcementDeferred: false
+
     function updateStartNotified() {
         if (root.startNotified || installedBackend.loading || notifierLoader.item === null) {
             return
         }
         root.startNotified = true
-        notifierLoader.item.consider()
+        root.considerAnnouncement()
+    }
+
+    // Offers one announcement and keeps the reminder cycle in step: a delivered
+    // popup arms the one-shot reminder, a deferred one arms the retry, and a
+    // reminder that went out stops both.
+    function considerAnnouncement() {
+        if (notifierLoader.item === null) {
+            return
+        }
+        const kind = notifierLoader.item.consider(root.visible)
+        if (kind === "first") {
+            reminderTimer.restart()
+            root.announcementDeferred = false
+        } else if (kind === "reminder") {
+            reminderTimer.stop()
+            root.announcementDeferred = false
+        } else {
+            // Nothing sent. When the window is on screen the offer was deferred
+            // (the backend writes nothing for it), so it is due the moment the
+            // window is hidden — the handler below. Otherwise nothing is due at
+            // all, and only the reminder timer or a new set can change that.
+            root.announcementDeferred = root.visible
+            reminderTimer.stop()
+        }
+    }
+
+    // The one reminder, three hours after the first popup. A restart past the
+    // three-hour mark is caught by the start call instead; this only covers a
+    // running instance.
+    Timer {
+        id: reminderTimer
+        interval: 3 * 60 * 60 * 1000
+        repeat: false
+        onTriggered: root.considerAnnouncement()
     }
 
     Connections {
@@ -469,17 +504,31 @@ Kirigami.ApplicationWindow {
         // not dismissed yet produces a popup, because the signature moved.
         function onPendingSignatureChanged() {
             root.updateStartNotified()
-            if (!root.startNotified || notifierLoader.item === null) {
+            if (!root.startNotified) {
                 return
             }
-            notifierLoader.item.consider()
+            root.considerAnnouncement()
         }
     }
 
+    // A click on the popup. The bus refuses activation without a token on
+    // Wayland, so the window is shown and raised, and `requestActivate` is only
+    // a request: visibility is what the user is guaranteed.
     Connections {
-        target: notifierLoader.item
-        function onDelivered(signature) {
-            root.markDelivered(signature)
+        target: appBackend
+        function onNotificationActivated() {
+            root.showUpdates()
+        }
+    }
+
+    // The notification server's `ActionInvoked`, carried by the interface the
+    // backend adopts on the first popup. QML can watch a D-Bus signal by name;
+    // the Rust side decides whether the id belongs to this process and whether
+    // the action is `default`.
+    Connections {
+        target: appBackend.notificationWatch
+        function onActionInvoked(id, key) {
+            appBackend.onNotificationAction(id, key)
         }
     }
 
@@ -1114,6 +1163,9 @@ Kirigami.ApplicationWindow {
             // A window brought back from the tray shows a list as old as the
             // last check; the backend skips this when that check is fresh.
             root.checkOnShow()
+        } else if (root.announcementDeferred) {
+            // The window was hidden: the deferred announcement is due now.
+            root.considerAnnouncement()
         }
     }
 

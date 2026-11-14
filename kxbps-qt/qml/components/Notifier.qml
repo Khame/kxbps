@@ -1,16 +1,20 @@
-// The one desktop notification KXbps sends: "n updates are available".
+// The one desktop notification KXbps sends.
 //
-// The decision of *whether* to announce is Rust's
-// (`crate::notification::updates_payload`), mirrored here because a Rust
-// function is not callable from QML; both sides are small enough that the
-// duplication is the cheaper cost.
+// The decision of *whether* to announce, and the bookkeeping that makes it one
+// popup plus one reminder per set, live in Rust
+// (`installedBackend.takeAnnouncement`), where they are tested without a bus or
+// a display. This file only renders what Rust offered: it translates the texts,
+// sends them, and tells the caller whether a popup went out.
 //
 // The transport is `appBackend.notify`, which calls
 // `org.freedesktop.Notifications.Notify` on the session bus. The earlier
 // version used `org.kde.notification`, whose `sendEvent()` silently drops an
 // event whose component it cannot resolve and answers with an immediate
-// `closed` — the popup never appeared, and the set was marked delivered anyway.
-// The bus does not have that failure mode.
+// `closed`; the bus does not have that failure mode.
+//
+// Clicking the popup brings the window back through the `default` action; the
+// backend sends `notificationActivated` for it, and `Main.qml` shows the
+// window. Nothing is sent here for that: the bus delivers it.
 
 import QtQuick
 import org.kde.ki18n 1.0
@@ -19,43 +23,27 @@ QtObject {
     id: notifier
 
     property var installedBackend
-    property var prefsBackend
     property var appBackend
 
-    // The set was announced. `Main.qml` writes the signature into the
-    // dismissed marker so the next start stays quiet.
-    signal delivered(string signature)
-
-    // Offers one announcement to the desktop service, if the decision table
-    // allows it.
-    function consider() {
-        if (installedBackend === null || prefsBackend === null || appBackend === null) {
-            return
+    // Offers one announcement to the desktop service, if the backend decides
+    // one is due. `visible` is the window's visibility: a popup over the list
+    // the user is reading is noise, so the backend defers instead.
+    //
+    // Returns `first`, `reminder`, or an empty string when nothing was sent, so
+    // the caller knows whether to arm the reminder timer or try again later.
+    function consider(visible) {
+        if (installedBackend === null || appBackend === null) {
+            return ""
         }
-        if (!shouldNotify()) {
-            return
+        const raw = installedBackend.takeAnnouncement(visible)
+        if (raw.length === 0) {
+            return ""
         }
-        const count = installedBackend.updatesCount
-        const signature = installedBackend.pendingSignature
-        appBackend.notify(i18nd("kxbps", "Updates available"),
-                          i18ndp("kxbps",
-                                 "%1 package can be updated.",
-                                 "%1 packages can be updated.",
-                                 count),
+        const offer = JSON.parse(raw)
+        appBackend.notify(i18nd("kxbps", offer.summaryKey),
+                          i18ndp("kxbps", offer.bodyOneKey, offer.bodyManyKey,
+                                 Number(offer.bodyArg)),
                           "kxbps-updates")
-        delivered(signature)
-    }
-
-    // The decision table of `notification.rs::updates_payload`, in the same
-    // order: no count, the preference off, the desktop switch off, nothing read
-    // yet, or this exact set already dismissed.
-    function shouldNotify() {
-        const count = installedBackend.updatesCount
-        const signature = installedBackend.pendingSignature
-        return count > 0
-            && prefsBackend.notifyOnStart
-            && prefsBackend.desktopNotifications
-            && signature.length > 0
-            && signature !== prefsBackend.dismissedVersion
+        return offer.kind
     }
 }

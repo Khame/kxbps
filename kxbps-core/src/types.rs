@@ -261,9 +261,18 @@ pub struct Prefs {
     /// check again on every start.
     #[serde(default)]
     pub last_check_at: i64,
-    /// Version of this block. `4` means the update announcement defaults to on,
-    /// an older file was migrated when it was loaded, and a delivered marker
-    /// written by an earlier notifier was cleared once.
+    /// When the first announcement of the current set was delivered, in epoch
+    /// milliseconds; `0` means none. The reminder is measured from here and the
+    /// 24 h cap between two first announcements is measured from here too.
+    #[serde(default)]
+    pub notified_at: i64,
+    /// The update signature the reminder was delivered for, empty when none.
+    /// One reminder per set: a set that matches this is never reminded again.
+    #[serde(default)]
+    pub reminded: String,
+    /// Version of this block. `5` means `desktop` is the single notification
+    /// switch, an older file was migrated when it was loaded, and the
+    /// bookkeeping for the one reminder exists.
     #[serde(default)]
     pub schema: u32,
 }
@@ -364,12 +373,27 @@ mod tests {
             start_with_session: false,
             update_check_minutes: 180,
             last_check_at: 1_700_000_000_000,
-            schema: 4,
+            notified_at: 1_700_000_100_000,
+            reminded: "sig-a".to_string(),
+            schema: 5,
         };
         let json = serde_json::to_string(&prefs).expect("serialise");
         assert!(json.contains("\"updateCheckMinutes\":180"));
         assert!(json.contains("\"lastCheckAt\":1700000000000"));
+        assert!(json.contains("\"notifiedAt\":1700000100000"));
+        assert!(json.contains("\"reminded\":\"sig-a\""));
         assert_eq!(serde_json::from_str::<Prefs>(&json).expect("decode"), prefs);
+    }
+
+    #[test]
+    fn the_announcement_bookkeeping_defaults_to_empty_for_older_files() {
+        // A prefs file written before the reminder existed has neither key.
+        let prefs: Prefs = serde_json::from_str(
+            r#"{"notifyOnStart":true,"desktop":true,"dismissed":"s","startWithSession":true}"#,
+        )
+        .expect("decode an older file");
+        assert_eq!(prefs.notified_at, 0);
+        assert!(prefs.reminded.is_empty());
     }
 
     #[test]
@@ -381,7 +405,9 @@ mod tests {
             start_with_session: false,
             update_check_minutes: 360,
             last_check_at: 0,
-            schema: 4,
+            notified_at: 0,
+            reminded: String::new(),
+            schema: 5,
         };
         let json = serde_json::to_string(&prefs).expect("serialise");
         assert!(json.contains("\"startWithSession\":false"));

@@ -32,26 +32,14 @@ Item {
             Layout.fillWidth: true
 
             QQC2.Switch {
-                id: notifySwitch
-                Kirigami.FormData.label: i18nd("kxbps", "Notifications:")
-                text: i18nd("kxbps", "Announce available updates on startup")
-                enabled: view.prefsBackend !== null
-                onToggled: {
-                    if (view.prefsBackend !== null) {
-                        view.prefsBackend.notifyOnStart = checked
-                    }
-                }
-                Binding {
-                    target: notifySwitch
-                    property: "checked"
-                    value: view.prefsBackend !== null && view.prefsBackend.notifyOnStart
-                    restoreMode: Binding.RestoreNone
-                }
-            }
-
-            QQC2.Switch {
                 id: desktopSwitch
-                text: i18nd("kxbps", "Use desktop notifications")
+                Kirigami.FormData.label: i18nd("kxbps", "Notifications:")
+                text: i18nd("kxbps", "Show desktop notifications")
+                // The one switch since the reminder work: off means the tray
+                // icon is the only indicator.
+                QQC2.ToolTip.text: i18nd("kxbps", "When off, only the tray icon shows available updates.")
+                QQC2.ToolTip.visible: hovered
+                QQC2.ToolTip.delay: Kirigami.Units.toolTipDelay
                 enabled: view.prefsBackend !== null
                 onToggled: {
                     if (view.prefsBackend !== null) {

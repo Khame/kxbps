@@ -357,6 +357,10 @@ pub struct PrefsBackendRust {
     /// interval, and the notifier writes the timestamp, so the cache keeps a
     /// copy only so its block can equal the store's.
     last_check_at: i64,
+    /// The announcement bookkeeping, carried through for the same reason: the
+    /// notifier owns it, and the cache copies it so an adopt compares equal.
+    notified_at: i64,
+    reminded: QString,
     /// The schema version of the block this backend mirrors, so its cache
     /// block equals the store's block again after an adopt.
     schema: u32,
@@ -375,7 +379,9 @@ impl Default for PrefsBackendRust {
             start_with_session: true,
             update_check_minutes: DEFAULT_UPDATE_CHECK_MINUTES as i32,
             last_check_at: 0,
-            schema: 4,
+            notified_at: 0,
+            reminded: QString::from(""),
+            schema: 5,
         }
     }
 }
@@ -391,6 +397,8 @@ impl PrefsBackendRust {
             update_check_minutes: u32::try_from(self.update_check_minutes)
                 .unwrap_or(DEFAULT_UPDATE_CHECK_MINUTES),
             last_check_at: self.last_check_at,
+            notified_at: self.notified_at,
+            reminded: self.reminded.to_string(),
             schema: self.schema,
         }
     }
@@ -416,6 +424,8 @@ impl PrefsBackendRust {
         self.start_with_session = prefs.start_with_session;
         self.update_check_minutes = prefs.update_check_minutes as i32;
         self.last_check_at = prefs.last_check_at;
+        self.notified_at = prefs.notified_at;
+        self.reminded = QString::from(prefs.reminded.as_str());
         self.schema = prefs.schema;
     }
 }
@@ -641,7 +651,9 @@ mod tests {
             start_with_session: false,
             update_check_minutes: 360,
             last_check_at: 0,
-            schema: 4,
+            notified_at: 0,
+            reminded: String::new(),
+            schema: 5,
         };
         let json = serde_json::to_string(&prefs).expect("serialise");
         assert!(json.contains("\"notifyOnStart\""));
@@ -667,7 +679,9 @@ mod tests {
             start_with_session: true,
             update_check_minutes: 360,
             last_check_at: 0,
-            schema: 4,
+            notified_at: 0,
+            reminded: String::new(),
+            schema: 5,
         };
         let write = bool_write(keys::NOTIFY_ON_START, false).expect("known key");
         assert_eq!(write.key(), keys::NOTIFY_ON_START);
@@ -692,7 +706,9 @@ mod tests {
             start_with_session: true,
             update_check_minutes: 360,
             last_check_at: 0,
-            schema: 4,
+            notified_at: 0,
+            reminded: String::new(),
+            schema: 5,
         };
         let write = string_write(keys::DISMISSED, "sig-7").expect("known key");
         assert_eq!(write.key(), keys::DISMISSED);
@@ -723,7 +739,9 @@ mod tests {
             start_with_session: true,
             update_check_minutes: 360,
             last_check_at: 0,
-            schema: 4,
+            notified_at: 0,
+            reminded: String::new(),
+            schema: 5,
         };
         assert!(
             bool_write(keys::NOTIFY_ON_START, true)
@@ -754,7 +772,9 @@ mod tests {
             start_with_session: true,
             update_check_minutes: 360,
             last_check_at: 0,
-            schema: 4,
+            notified_at: 0,
+            reminded: String::new(),
+            schema: 5,
         }
     }
 

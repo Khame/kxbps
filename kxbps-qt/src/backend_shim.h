@@ -61,7 +61,20 @@ bool kxbps_tray_available();
 // resolve, and the only answer it gives is an immediate `closed`; the session
 // bus does not lie, so this calls `org.freedesktop.Notifications.Notify`
 // directly. `summary` and `body` arrive already translated from QML.
-void kxbps_notify(const QString &summary, const QString &body, const QString &icon);
+//
+// The popup carries one `default` action. The call is asynchronous; the reply's
+// id is remembered, and an `ActionInvoked` for that id calls `owner`'s
+// `notificationActivated`, which is how a click brings the window back.
+void kxbps_notify(const QString &summary,
+                  const QString &body,
+                  const QString &icon,
+                  QObject &owner);
+
+// Connects `owner` to the notification server's `ActionInvoked` signal once per
+// process, so a click on the popup reaches the backend that sent it. Called from
+// the owner's constructor, before any popup exists; the Rust method it invokes
+// is the one that decides what the click does.
+void kxbps_notification_watch_actions(QObject &owner);
 
 // The one entry point a job is created through; `owner` parents it and QML
 // releases it when the dialog closes.

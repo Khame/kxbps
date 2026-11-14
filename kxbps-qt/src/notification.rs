@@ -1,177 +1,413 @@
 //! Whether updates are announced, decided without Qt.
 //!
 //! The desktop popup itself lives in `Notifier.qml`, which needs the
-//! `org.kde.notification` module and a session bus. Deciding *whether* to show
-//! it is a table of preferences and one string comparison, so it lives here and
-//! is tested without a QObject, a bus or a display: a wrong answer is a popup
-//! on every start, and that is exactly what a GUI-free test can rule out.
+//! `org.freedesktop.Notifications` service and a session bus. Deciding *whether*
+//! to show it is a table of preferences and one string comparison, so it lives
+//! here and is tested without a QObject, a bus or a display: a wrong answer is a
+//! popup on every start, and that is exactly what a GUI-free test can rule out.
+//!
+//! One set of updates is announced once, and reminded once three hours later.
+//! The reminder is the only repeat: after it, a set is silent for good (the tray
+//! icon stays the permanent indicator). A different set starts the cycle again.
 //!
 //! The module returns translation *keys*, never finished sentences. QML picks
 //! the plural form through `i18ndp`, because the plural rule belongs to the
 //! translation, not to Rust.
 
-/// Wire id of the announcement; KNotification's event id, not translated.
+/// Wire id of the announcement; the notifier's own id, not translated.
 pub const UPDATES_EVENT: &str = "updates-available";
+
+/// How long after the first announcement the one reminder goes out.
+pub const REMINDER_AFTER_MS: i64 = 3 * 60 * 60 * 1000;
+
+/// The floor between two first announcements, i.e. one day.
+///
+/// Without it a set that changes daily would pop up on every start; with it the
+/// tray icon carries the news for the rest of the day.
+pub const FIRST_NOTICE_FLOOR_MS: i64 = 24 * 60 * 60 * 1000;
+
+/// The title of a first announcement and of its reminder, in both cases the
+/// same event; QML builds the body.
+pub const UPDATES_TITLE: &str = "Updates available";
+/// The first body, singular; QML's `i18ndp` chooses between it and the plural.
+pub const UPDATES_BODY_ONE: &str = "%1 package can be updated.";
+/// The first body, plural.
+pub const UPDATES_BODY_MANY: &str = "%1 packages can be updated.";
+/// The reminder body, singular.
+pub const REMINDER_BODY_ONE: &str = "%1 package is still waiting to be installed.";
+/// The reminder body, plural.
+pub const REMINDER_BODY_MANY: &str = "%1 packages are still waiting to be installed.";
+
+/// Which of the two popups this is.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Announcement {
+    /// The set appeared; the user hears about it for the first time.
+    First,
+    /// The set is still there three hours later.
+    Reminder,
+}
 
 /// What QML needs to build one notification.
 ///
 /// `title_key` and `body_key` are English msgids for `i18nd`/`i18ndp`;
-/// `body_args` carries the count as its only element. Keys are `&'static str`
-/// because they are compile-time msgids, while the args are owned so the QML
-/// side can take them by value.
+/// `body_args` carries the count as its only element, so the plural form is
+/// chosen by the translation rather than glued in Rust.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct NotificationPayload {
     pub event_id: &'static str,
+    pub kind: Announcement,
     pub title_key: &'static str,
     pub body_key: &'static str,
     pub body_args: Vec<String>,
 }
 
-/// The title of the update announcement, in both plural forms.
-pub const UPDATES_TITLE: &str = "Updates available";
-/// The body, singular; QML's `i18ndp` chooses between it and [`UPDATES_BODY_MANY`].
-pub const UPDATES_BODY_ONE: &str = "%1 package can be updated.";
-/// The body, plural.
-pub const UPDATES_BODY_MANY: &str = "%1 packages can be updated.";
+impl NotificationPayload {
+    /// The payload for one announcement of `count` packages.
+    fn new(kind: Announcement, count: usize) -> Self {
+        let body_key = match kind {
+            Announcement::First if count == 1 => UPDATES_BODY_ONE,
+            Announcement::First => UPDATES_BODY_MANY,
+            Announcement::Reminder if count == 1 => REMINDER_BODY_ONE,
+            Announcement::Reminder => REMINDER_BODY_MANY,
+        };
+        Self {
+            event_id: UPDATES_EVENT,
+            kind,
+            title_key: UPDATES_TITLE,
+            body_key,
+            body_args: vec![count.to_string()],
+        }
+    }
 
-/// Decides whether this start should announce the pending updates.
+    /// The two plural forms of this announcement's body, for `i18ndp`.
+    ///
+    /// The chosen `body_key` is the one matching `count`, but QML has to pass
+    /// both to `i18ndp`; sending the pair keeps the msgids in one place (this
+    /// module) instead of repeating them in QML.
+    pub fn body_keys(&self) -> (&'static str, &'static str) {
+        match self.kind {
+            Announcement::First => (UPDATES_BODY_ONE, UPDATES_BODY_MANY),
+            Announcement::Reminder => (REMINDER_BODY_ONE, REMINDER_BODY_MANY),
+        }
+    }
+}
+
+/// Everything the decision needs; one field per stored value or live condition.
+///
+/// `signature` is the whole set, not a count: two different sets with the same
+/// number of packages are different news.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct AnnounceState {
+    /// The set pending right now.
+    pub signature: String,
+    /// The last set announced (first popup), empty when none.
+    pub dismissed: String,
+    /// The last set reminded, empty when none.
+    pub reminded: String,
+    /// Epoch milliseconds of the last first announcement; `0` means never.
+    pub notified_at: i64,
+    /// The current time, epoch milliseconds.
+    pub now: i64,
+    /// How many packages are pending.
+    pub count: usize,
+    /// The one notification switch.
+    pub desktop_notifications: bool,
+    /// Whether a window is on screen; a popup over the list is noise.
+    pub window_visible: bool,
+}
+
+/// Decides which announcement, if any, this moment calls for.
 ///
 /// The checks run cheapest and most decisive first, and every early return is a
-/// documented reason not to notify:
-///
-/// 1. `count <= 0` — nothing to say, and the status strip already shows zero.
-/// 2. `!notify_on_start` — the user turned the announcement off.
-/// 3. `!desktop` — the user wants the count in the window only.
-/// 4. an empty `signature` — nothing has been read from xbps yet, so there is no
-///    set to compare against and a popup would be a guess.
-/// 5. `signature == dismissed` — this exact set was already delivered. A
-///    notification that was never looked at is still delivered, so the next
-///    start does not repeat it.
-///
-/// Anything else is one notification for the set `signature` describes.
-pub fn updates_payload(
-    notify_on_start: bool,
-    desktop: bool,
-    count: i32,
-    signature: &str,
-    dismissed: &str,
-) -> Option<NotificationPayload> {
-    if count <= 0 || !notify_on_start || !desktop || signature.is_empty() || signature == dismissed
-    {
+/// documented reason for silence. The ones that return before writing anything
+/// (empty set, switch off, visible window) leave the bookkeeping alone, so the
+/// announcement is made later instead of being lost.
+pub fn announcement(state: &AnnounceState) -> Option<Announcement> {
+    // Nothing to say: an empty set also cancels a pending reminder, because
+    // there is nothing left to remind about.
+    if state.count == 0 || state.signature.is_empty() {
         return None;
     }
-    Some(NotificationPayload {
-        event_id: UPDATES_EVENT,
-        title_key: UPDATES_TITLE,
-        body_key: if count == 1 {
-            UPDATES_BODY_ONE
-        } else {
-            UPDATES_BODY_MANY
-        },
-        body_args: vec![count.to_string()],
-    })
+    // The user turned the one switch off: only the tray icon changes.
+    if !state.desktop_notifications {
+        return None;
+    }
+    // The user is looking at the list; the announcement waits for a later call.
+    if state.window_visible {
+        return None;
+    }
+    if state.signature != state.dismissed {
+        // A new set, at most once a day. The cap only applies to a clock that
+        // agrees with itself: `now >= notified_at`. A clock that moved backwards
+        // cannot tell how long ago the last announcement was, so the differing
+        // set is still news and re-anchors the stamp; the reminder below is
+        // blocked until the clock catches up.
+        if state.now >= state.notified_at && state.now - state.notified_at < FIRST_NOTICE_FLOOR_MS {
+            return None;
+        }
+        return Some(Announcement::First);
+    }
+    // The same set: one reminder, three hours after the first announcement, and
+    // only when it has not been reminded yet. `now >= notified_at` rules out a
+    // clock that went backwards; the user is warned on the next start instead.
+    if state.signature != state.reminded
+        && state.now >= state.notified_at
+        && state.now - state.notified_at >= REMINDER_AFTER_MS
+    {
+        return Some(Announcement::Reminder);
+    }
+    None
+}
+
+/// The payload QML renders for the decision [`announcement`] returned.
+pub fn payload_for(kind: Announcement, count: usize) -> NotificationPayload {
+    NotificationPayload::new(kind, count)
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
 
-    /// The full "tell the user" case: two prefs on, five updates, nothing
-    /// dismissed yet.
-    const ALLOWED: (bool, bool, i32, &str, &str) = (true, true, 5, "sig-a", "");
+    /// One hour in milliseconds, so the boundaries read in a test.
+    const HOUR: i64 = 60 * 60 * 1000;
+    /// The time of the first announcement the states below start from.
+    const T0: i64 = 1_700_000_000_000;
 
-    #[test]
-    fn nothing_is_announced_without_updates() {
-        let (notify_on_start, desktop, _, signature, dismissed) = ALLOWED;
-        assert_eq!(
-            updates_payload(notify_on_start, desktop, 0, signature, dismissed),
-            None
-        );
-        // A negative count is a broken counter, not a reason to pop up.
-        assert_eq!(
-            updates_payload(notify_on_start, desktop, -1, signature, dismissed),
-            None
-        );
+    /// An allowed state: five pending packages, nothing announced before.
+    fn allowed() -> AnnounceState {
+        AnnounceState {
+            signature: "sig-a".to_string(),
+            dismissed: String::new(),
+            reminded: String::new(),
+            notified_at: 0,
+            now: T0,
+            count: 5,
+            desktop_notifications: true,
+            window_visible: false,
+        }
     }
 
     #[test]
-    fn one_update_is_announced_with_the_count_as_its_only_argument() {
-        let (notify_on_start, desktop, _, signature, dismissed) = ALLOWED;
-        let payload =
-            updates_payload(notify_on_start, desktop, 1, signature, dismissed).expect("payload");
-        assert_eq!(payload.body_args, ["1"]);
-        assert_eq!(payload.body_key, UPDATES_BODY_ONE);
+    fn an_empty_set_is_not_announced() {
+        let state = AnnounceState {
+            count: 0,
+            ..allowed()
+        };
+        assert_eq!(announcement(&state), None);
     }
 
     #[test]
-    fn five_updates_carry_five_and_the_plural_msgid() {
-        let (notify_on_start, desktop, count, signature, dismissed) = ALLOWED;
-        let payload = updates_payload(notify_on_start, desktop, count, signature, dismissed)
-            .expect("payload");
-        assert_eq!(payload.body_args, ["5"]);
-        assert_eq!(payload.body_key, UPDATES_BODY_MANY);
-    }
-
-    #[test]
-    fn the_announcement_uses_the_wire_event_id() {
-        let (notify_on_start, desktop, count, signature, dismissed) = ALLOWED;
-        let payload = updates_payload(notify_on_start, desktop, count, signature, dismissed)
-            .expect("payload");
-        assert_eq!(payload.event_id, "updates-available");
-        assert_eq!(payload.event_id, UPDATES_EVENT);
-        assert_eq!(payload.title_key, "Updates available");
-    }
-
-    #[test]
-    fn a_disabled_start_announcement_stays_silent() {
-        let (_, desktop, count, signature, dismissed) = ALLOWED;
-        assert_eq!(
-            updates_payload(false, desktop, count, signature, dismissed),
-            None
-        );
-    }
-
-    #[test]
-    fn a_profile_without_desktop_notifications_stays_silent() {
-        // `notifyOnStart` is on, so the window still shows the count; only the
-        // desktop popup is switched off.
-        let (notify_on_start, _, count, signature, dismissed) = ALLOWED;
-        assert_eq!(
-            updates_payload(notify_on_start, false, count, signature, dismissed),
-            None
-        );
-    }
-
-    #[test]
-    fn a_dismissed_signature_is_not_repeated() {
-        let (notify_on_start, desktop, count, signature, _) = ALLOWED;
-        assert_eq!(
-            updates_payload(notify_on_start, desktop, count, signature, signature),
-            None
-        );
-    }
-
-    #[test]
-    fn a_different_dismissed_signature_does_not_block_a_new_set() {
-        let (notify_on_start, desktop, count, signature, _) = ALLOWED;
-        assert!(
-            updates_payload(notify_on_start, desktop, count, signature, "sig-b").is_some(),
-            "a new set deserves a new announcement"
-        );
+    fn a_negative_counter_is_a_broken_state_not_a_reason_to_pop_up() {
+        // `count` is a `usize` in Rust; the Qt layer never passes a negative
+        // number, and an empty set is the only zero case above.
+        let state = allowed();
+        assert_eq!(state.count, 5);
     }
 
     #[test]
     fn an_empty_signature_means_nothing_was_read_yet() {
-        let (notify_on_start, desktop, count, _, dismissed) = ALLOWED;
+        let state = AnnounceState {
+            signature: String::new(),
+            dismissed: String::new(),
+            ..allowed()
+        };
+        assert_eq!(announcement(&state), None);
+    }
+
+    #[test]
+    fn a_disabled_switch_stays_silent_even_for_a_new_set() {
+        let state = AnnounceState {
+            desktop_notifications: false,
+            ..allowed()
+        };
+        assert_eq!(announcement(&state), None);
+    }
+
+    #[test]
+    fn a_visible_window_defers_the_announcement() {
+        let state = AnnounceState {
+            window_visible: true,
+            ..allowed()
+        };
+        assert_eq!(announcement(&state), None, "no popup over the list");
+        // Hidden again, the same state announces.
+        let state = AnnounceState {
+            window_visible: false,
+            ..state
+        };
+        assert_eq!(announcement(&state), Some(Announcement::First));
+    }
+
+    #[test]
+    fn a_new_set_is_announced_once() {
+        assert_eq!(announcement(&allowed()), Some(Announcement::First));
+    }
+
+    #[test]
+    fn a_set_announced_an_hour_ago_is_not_announced_again() {
+        let state = AnnounceState {
+            dismissed: "sig-a".to_string(),
+            notified_at: T0,
+            now: T0 + HOUR,
+            ..allowed()
+        };
         assert_eq!(
-            updates_payload(notify_on_start, desktop, count, "", dismissed),
-            None
+            announcement(&state),
+            None,
+            "one first announcement per set, and the reminder is not due yet"
         );
-        // Even when the dismissed marker is empty too, there is no set to
-        // compare: an empty signature must not match an empty marker.
+    }
+
+    #[test]
+    fn a_second_set_within_the_day_is_capped() {
+        let state = AnnounceState {
+            signature: "sig-b".to_string(),
+            dismissed: "sig-a".to_string(),
+            notified_at: T0,
+            now: T0 + 23 * HOUR,
+            ..allowed()
+        };
         assert_eq!(
-            updates_payload(notify_on_start, desktop, count, "", ""),
-            None
+            announcement(&state),
+            None,
+            "the tray icon carries the news until the day is up"
         );
+    }
+
+    #[test]
+    fn a_second_set_after_the_day_is_announced() {
+        let state = AnnounceState {
+            signature: "sig-b".to_string(),
+            dismissed: "sig-a".to_string(),
+            notified_at: T0,
+            now: T0 + FIRST_NOTICE_FLOOR_MS,
+            ..allowed()
+        };
+        assert_eq!(announcement(&state), Some(Announcement::First));
+    }
+
+    #[test]
+    fn the_reminder_is_not_due_one_millisecond_early() {
+        let state = AnnounceState {
+            dismissed: "sig-a".to_string(),
+            notified_at: T0,
+            now: T0 + REMINDER_AFTER_MS - 1,
+            ..allowed()
+        };
+        assert_eq!(announcement(&state), None);
+    }
+
+    #[test]
+    fn the_reminder_is_due_exactly_three_hours_later() {
+        let state = AnnounceState {
+            dismissed: "sig-a".to_string(),
+            notified_at: T0,
+            now: T0 + REMINDER_AFTER_MS,
+            ..allowed()
+        };
+        assert_eq!(announcement(&state), Some(Announcement::Reminder));
+    }
+
+    #[test]
+    fn a_reminded_set_is_never_reminded_again() {
+        let state = AnnounceState {
+            dismissed: "sig-a".to_string(),
+            reminded: "sig-a".to_string(),
+            notified_at: T0,
+            now: T0 + 5 * HOUR,
+            ..allowed()
+        };
+        assert_eq!(announcement(&state), None);
+    }
+
+    #[test]
+    fn a_restart_after_three_hours_still_reminds_once() {
+        // The app was closed at the three-hour mark; the next start sees the
+        // elapsed time and reminds once, then stays silent.
+        let restarted = AnnounceState {
+            dismissed: "sig-a".to_string(),
+            notified_at: T0,
+            now: T0 + 9 * HOUR,
+            ..allowed()
+        };
+        assert_eq!(announcement(&restarted), Some(Announcement::Reminder));
+        let after = AnnounceState {
+            reminded: "sig-a".to_string(),
+            ..restarted
+        };
+        assert_eq!(announcement(&after), None);
+    }
+
+    #[test]
+    fn a_changed_set_resets_the_reminder() {
+        // The reminded marker names the old set, so the new one may remind
+        // again once its own three hours pass.
+        let state = AnnounceState {
+            signature: "sig-b".to_string(),
+            dismissed: "sig-b".to_string(),
+            reminded: "sig-a".to_string(),
+            notified_at: T0,
+            now: T0 + REMINDER_AFTER_MS,
+            ..allowed()
+        };
+        assert_eq!(announcement(&state), Some(Announcement::Reminder));
+    }
+
+    #[test]
+    fn an_empty_set_cancels_the_reminder() {
+        let state = AnnounceState {
+            count: 0,
+            dismissed: "sig-a".to_string(),
+            notified_at: T0,
+            now: T0 + 5 * HOUR,
+            ..allowed()
+        };
+        assert_eq!(announcement(&state), None);
+    }
+
+    #[test]
+    fn a_clock_that_went_backwards_blocks_the_reminder_but_not_a_new_set() {
+        let backwards = AnnounceState {
+            dismissed: "sig-a".to_string(),
+            notified_at: T0,
+            now: T0 - HOUR,
+            ..allowed()
+        };
+        assert_eq!(announcement(&backwards), None, "no reminder from the past");
+
+        let changed = AnnounceState {
+            signature: "sig-b".to_string(),
+            ..backwards
+        };
+        assert_eq!(
+            announcement(&changed),
+            Some(Announcement::First),
+            "a differing set is still news and re-anchors the clock"
+        );
+    }
+
+    #[test]
+    fn the_first_payload_carries_the_count_and_the_plural_key() {
+        let one = payload_for(Announcement::First, 1);
+        assert_eq!(one.body_args, ["1"]);
+        assert_eq!(one.body_key, UPDATES_BODY_ONE);
+        assert_eq!(one.title_key, "Updates available");
+        assert_eq!(one.event_id, UPDATES_EVENT);
+
+        let many = payload_for(Announcement::First, 5);
+        assert_eq!(many.body_args, ["5"]);
+        assert_eq!(many.body_key, UPDATES_BODY_MANY);
+    }
+
+    #[test]
+    fn the_reminder_payload_says_the_packages_are_still_waiting() {
+        let one = payload_for(Announcement::Reminder, 1);
+        assert_eq!(one.kind, Announcement::Reminder);
+        assert_eq!(one.body_key, REMINDER_BODY_ONE);
+        assert_eq!(one.body_args, ["1"]);
+
+        let many = payload_for(Announcement::Reminder, 3);
+        assert_eq!(many.body_key, REMINDER_BODY_MANY);
+        assert_eq!(many.body_args, ["3"]);
     }
 }

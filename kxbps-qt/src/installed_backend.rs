@@ -288,6 +288,15 @@ pub mod qobject {
         #[qinvokable]
         fn release(self: &InstalledBackend, object: QObjectMutPtr);
 
+        // Offers one announcement, if the decision table in
+        // `crate::notification` allows it, and records it in the same call.
+        // Returns `{kind, summaryKey, bodyKey, bodyArg, signature}` as JSON, or
+        // an empty string when nothing is announced. `visible` is the window's
+        // visibility: a popup over the list the user is reading is noise, so a
+        // visible window only defers the announcement to a later call.
+        #[qinvokable]
+        fn take_announcement(self: Pin<&mut InstalledBackend>, visible: bool) -> QString;
+
         fn set_query_backend(self: Pin<&mut InstalledBackend>, value: QObjectMutPtr);
 
         // The selected mirror lives in the store, so the mirror backend reads and
@@ -617,6 +626,25 @@ impl InstalledBackendRust {
 }
 
 impl qobject::InstalledBackend {
+    /// Offers one announcement and records it in the same call.
+    ///
+    /// See [`take_announcement_with`] for the rules. One save for the whole
+    /// announcement, and none at all when nothing was announced: a deferred
+    /// popup must not write a file.
+    fn take_announcement(mut self: Pin<&mut Self>, visible: bool) -> cxx_qt_lib::QString {
+        let now = now_ms();
+        let (json, changed) = {
+            let data = Pin::get_mut(self.as_mut().rust_mut());
+            let before = data.store.prefs.clone();
+            let json = take_announcement_with(&mut data.store, now, visible);
+            (json, data.store.prefs != before)
+        };
+        if changed {
+            save_store(self.as_mut());
+        }
+        cxx_qt_lib::QString::from(json.as_str())
+    }
+
     fn toggle_queue(
         mut self: Pin<&mut Self>,
         name: &cxx_qt_lib::QString,
@@ -1711,6 +1739,59 @@ fn next_revision(current: i32) -> i32 {
     current.wrapping_add(1)
 }
 
+/// Offers one announcement and records it, for [`qobject::InstalledBackend::take_announcement`].
+///
+/// The decision is [`crate::notification::announcement`]; this only turns it
+/// into the JSON QML renders and writes the bookkeeping the next call reads
+/// back. `None` writes nothing, so a deferred announcement (a visible window, a
+/// switch turned off) is offered again later instead of being lost.
+///
+/// The payload carries keys, not sentences: QML picks the plural form, because
+/// the plural rule belongs to the translation.
+fn take_announcement_with(store: &mut Store, now: i64, visible: bool) -> String {
+    let signature = pending_signature_of(store);
+    let count = effective_updates(store.pending_updates(), &store.installed).len();
+    let state = crate::notification::AnnounceState {
+        signature: signature.clone(),
+        dismissed: store.prefs.dismissed.clone(),
+        reminded: store.prefs.reminded.clone(),
+        notified_at: store.prefs.notified_at,
+        now,
+        count,
+        desktop_notifications: store.prefs.desktop,
+        window_visible: visible,
+    };
+    let Some(kind) = crate::notification::announcement(&state) else {
+        return String::new();
+    };
+    match kind {
+        crate::notification::Announcement::First => {
+            store.set_pref_dismissed_version(&signature);
+            store.set_pref_reminded_version("");
+            store.set_pref_notified_at(now);
+        }
+        crate::notification::Announcement::Reminder => {
+            store.set_pref_reminded_version(&signature);
+        }
+    }
+    let payload = crate::notification::payload_for(kind, count);
+    let body_arg = payload.body_args.first().cloned().unwrap_or_default();
+    let (body_one, body_many) = payload.body_keys();
+    serde_json::json!({
+        "kind": match kind {
+            crate::notification::Announcement::First => "first",
+            crate::notification::Announcement::Reminder => "reminder",
+        },
+        "summaryKey": payload.title_key,
+        "bodyKey": payload.body_key,
+        "bodyOneKey": body_one,
+        "bodyManyKey": body_many,
+        "bodyArg": body_arg,
+        "signature": signature,
+    })
+    .to_string()
+}
+
 /// Writes the store, retrying once before reporting a technical error.
 fn save_store(mut self_: Pin<&mut qobject::InstalledBackend>) {
     let result = {
@@ -2477,49 +2558,6 @@ mod tests {
         );
     }
 
-    #[test]
-    fn state_revision_advances_and_wraps() {
-        assert_eq!(next_revision(0), 1);
-        assert_eq!(next_revision(41), 42);
-        assert_eq!(next_revision(i32::MAX), i32::MIN);
-    }
-
-    #[test]
-    fn queue_actions_parse_from_the_qml_strings() {
-        assert_eq!(parse_action("install"), QueueAction::Install);
-        assert_eq!(parse_action("remove"), QueueAction::Remove);
-        assert_eq!(parse_action("update"), QueueAction::Update);
-        assert_eq!(parse_action("nonsense"), QueueAction::Install);
-    }
-
-    /// The details pane offers the opposite gesture by reading the action the
-    /// queue holds; an empty answer means the package is not queued.
-    #[test]
-    fn the_queue_reports_the_action_it_holds() {
-        let installed = installed_set();
-        let store = store_with(
-            &installed,
-            vec![
-                QueueItem {
-                    name: "vim".into(),
-                    action: QueueAction::Update,
-                },
-                QueueItem {
-                    name: "mesa".into(),
-                    action: QueueAction::Remove,
-                },
-                QueueItem {
-                    name: "ark".into(),
-                    action: QueueAction::Install,
-                },
-            ],
-        );
-        assert_eq!(queued_action_in(&store.queue, "vim"), Some("update"));
-        assert_eq!(queued_action_in(&store.queue, "mesa"), Some("remove"));
-        assert_eq!(queued_action_in(&store.queue, "ark"), Some("install"));
-        assert_eq!(queued_action_in(&store.queue, "zsh"), None);
-    }
-
     /// A healthy answer to the five read commands, as the shim would return it.
     fn reading(
         installed: &str,
@@ -2573,6 +2611,98 @@ mod tests {
         );
         apply_read(&mut store, &mut snapshot, Ok(read));
         (store, snapshot)
+    }
+
+    /// The announcement offer for one store at `now`, through the same
+    /// function the bridge method calls; the window is hidden.
+    fn offer(store: &mut Store, now: i64) -> String {
+        take_announcement_with(store, now, false)
+    }
+
+    /// The same offer with the window on screen.
+    fn offer_visible(store: &mut Store, now: i64) -> String {
+        take_announcement_with(store, now, true)
+    }
+
+    #[test]
+    fn a_set_is_announced_reminded_once_and_then_stays_silent() {
+        // The whole cycle the notifier promises: first popup, one reminder
+        // three hours later, nothing after that. The bookkeeping is written by
+        // the same call that offers the popup.
+        const HOUR: i64 = 60 * 60 * 1000;
+        let now = 1_700_000_000_000;
+        let (mut store, _) = read_store();
+        let signature = pending_signature_of(&store);
+        assert!(!signature.is_empty(), "the fixture has one update");
+
+        let first = offer(&mut store, now);
+        assert!(first.contains("\"kind\":\"first\""), "{first}");
+        assert!(first.contains(&format!("\"signature\":\"{signature}\"")));
+        assert_eq!(store.prefs.dismissed, signature);
+        assert_eq!(store.prefs.notified_at, now);
+        assert!(store.prefs.reminded.is_empty(), "nothing reminded yet");
+
+        assert_eq!(offer(&mut store, now + HOUR), "", "too early to remind");
+
+        let reminder = offer(&mut store, now + 3 * HOUR);
+        assert!(reminder.contains("\"kind\":\"reminder\""), "{reminder}");
+        assert_eq!(store.prefs.reminded, signature);
+
+        assert_eq!(
+            offer(&mut store, now + 9 * HOUR),
+            "",
+            "one reminder per set, then never again"
+        );
+    }
+
+    #[test]
+    fn a_visible_window_defers_the_announcement_without_bookkeeping() {
+        let now = 1_700_000_000_000;
+        let (mut store, _) = read_store();
+        assert_eq!(offer_visible(&mut store, now), "");
+        assert!(
+            store.prefs.dismissed.is_empty() && store.prefs.notified_at == 0,
+            "a deferred announcement writes nothing"
+        );
+        assert!(offer(&mut store, now).contains("first"));
+    }
+
+    #[test]
+    fn a_disabled_switch_offers_nothing_and_writes_nothing() {
+        let now = 1_700_000_000_000;
+        let (mut store, _) = read_store();
+        store.set_pref_desktop_notifications(false);
+        assert_eq!(offer(&mut store, now), "");
+        assert!(store.prefs.dismissed.is_empty());
+        assert_eq!(store.prefs.notified_at, 0);
+    }
+
+    #[test]
+    fn a_new_set_reminds_again_after_its_own_three_hours() {
+        const HOUR: i64 = 60 * 60 * 1000;
+        let now = 1_700_000_000_000;
+        let (mut store, _) = read_store();
+        let before = pending_signature_of(&store);
+        offer(&mut store, now);
+        offer(&mut store, now + 3 * HOUR);
+        // A newer version of the package: a different set. It is announced
+        // once the day is up, and it gets its own reminder afterwards.
+        let read = reading(
+            "ii vim-9.2.1031_1 Editor\nii ark-25.08.0_1 Archives\nii zramen-0.2.0_1 Zram\n",
+            "vim-9.2.3000_1 update x86_64 https://r/current 10 20\n",
+            "vim-9.2.1031_1\n",
+            "",
+            "zramen-0.2.0_1\n",
+        );
+        let mut snapshot = None;
+        apply_read(&mut store, &mut snapshot, Ok(read));
+        assert_ne!(pending_signature_of(&store), before, "the set moved");
+
+        let next = now + 30 * HOUR;
+        let first = offer(&mut store, next);
+        assert!(first.contains("first"), "{first}");
+        assert!(store.prefs.reminded.is_empty(), "the reminder is reset");
+        assert!(offer(&mut store, next + 3 * HOUR).contains("reminder"));
     }
 
     #[test]

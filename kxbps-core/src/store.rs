@@ -171,7 +171,9 @@ fn default_prefs() -> Prefs {
         start_with_session: true,
         update_check_minutes: DEFAULT_UPDATE_CHECK_MINUTES,
         last_check_at: 0,
-        schema: 4,
+        notified_at: 0,
+        reminded: String::new(),
+        schema: 5,
     }
 }
 
@@ -258,8 +260,19 @@ impl Store {
                 store.prefs.dismissed = String::new();
                 migrated = true;
             }
+            if store.prefs.schema < 5 {
+                // Version 5 retires `notifyOnStart`: `desktop` is the single
+                // switch now. A user who had the announcement off kept it off,
+                // so the retired key's `false` moves to the surviving switch; an
+                // on value says nothing about the desktop preference and leaves
+                // it as stored. The key stays in the struct so these files load.
+                if !store.prefs.notify_on_start {
+                    store.prefs.desktop = false;
+                }
+                migrated = true;
+            }
             if migrated {
-                store.prefs.schema = 4;
+                store.prefs.schema = 5;
                 write_json(dir, PREFS_FILE, &store.prefs)?;
             }
         }
@@ -346,6 +359,10 @@ impl Store {
     }
 
     /// Whether updates should be announced when the window opens.
+    ///
+    /// Retired by schema 5: `desktop` is the single switch and the notifier no
+    /// longer reads this value. The setter stays so an older file, and the
+    /// preferences backend that mirrors it, still round-trip.
     pub fn set_pref_notify_on_start(&mut self, on: bool) {
         self.prefs.notify_on_start = on;
         self.dirty = true;
@@ -397,6 +414,29 @@ impl Store {
         true
     }
 
+    /// When the current set was first announced, in epoch milliseconds; the
+    /// reminder and the 24 h cap are measured from it. Returns whether the
+    /// stored value changed, so a no-op never forces a save.
+    pub fn set_pref_notified_at(&mut self, at: i64) -> bool {
+        if self.prefs.notified_at == at {
+            return false;
+        }
+        self.prefs.notified_at = at;
+        self.dirty = true;
+        true
+    }
+
+    /// The set the one reminder went out for; a set matching it is never
+    /// reminded again. Returns whether the stored value changed.
+    pub fn set_pref_reminded_version(&mut self, signature: &str) -> bool {
+        if self.prefs.reminded == signature {
+            return false;
+        }
+        signature.clone_into(&mut self.prefs.reminded);
+        self.dirty = true;
+        true
+    }
+
     /// Pins or unpins an installed package, returning whether it is now held.
     ///
     /// Returns `false` for a package that is not installed; nothing changes.
@@ -431,11 +471,13 @@ impl Store {
     ///
     /// The queue, the mirror and the notification preferences go back to their
     /// defaults, except for the desktop-notification switch, which the web app
-    /// keeps across a reset. The installed cache and the pending updates are
-    /// dropped too; nothing is installed or restored here, and the Qt layer
-    /// re-reads xbps afterwards. Starting with the session is a default too, so
-    /// a reset turns it back on; the Qt layer rewrites the autostart entry from
-    /// the restored block.
+    /// keeps across a reset (it is the only notification switch since schema
+    /// 5). The installed cache and the pending updates are dropped too; nothing
+    /// is installed or restored here, and the Qt layer re-reads xbps
+    /// afterwards. Starting with the session is a default too, so a reset turns
+    /// it back on; the Qt layer rewrites the autostart entry from the restored
+    /// block. The announcement bookkeeping is a default as well: after a reset
+    /// the next set is announced afresh.
     pub fn reset(&mut self) {
         self.installed.clear();
         self.updates.clear();
@@ -443,7 +485,8 @@ impl Store {
         self.mirror = DEFAULT_MIRROR.to_string();
         // Built from `default_prefs` so the reset cannot drift away from the
         // defaults a fresh store starts with; the desktop switch is the one
-        // value the web app keeps across a reset.
+        // value the web app keeps across a reset. `default_prefs` carries the
+        // current schema, so the block never looks like an older file.
         self.prefs = Prefs {
             desktop: self.prefs.desktop,
             ..default_prefs()
@@ -762,7 +805,7 @@ mod tests {
         assert_eq!(loaded.mirror, "https://mirror.example/void/");
         assert_eq!(loaded.prefs.dismissed, "42");
         assert_eq!(
-            loaded.prefs.schema, 4,
+            loaded.prefs.schema, 5,
             "the schema version survives the round trip"
         );
         assert!(
@@ -874,7 +917,9 @@ mod tests {
             start_with_session: false,
             update_check_minutes: 60,
             last_check_at: 0,
-            schema: 4,
+            notified_at: 0,
+            reminded: String::new(),
+            schema: 5,
         };
         write_json(dir.path(), PREFS_FILE, &prefs).expect("seed prefs");
         // A writer that died before its rename leaves a truncated temp file.
@@ -903,7 +948,10 @@ mod tests {
         let mut store = Store::load_at(dir.path()).expect("load");
         assert!(store.prefs.start_with_session, "the default is on");
         assert!(!store.prefs.notify_on_start, "the stored keys still win");
-        assert!(store.prefs.desktop);
+        assert!(
+            !store.prefs.desktop,
+            "schema 5 carries an off announcement over to the one switch"
+        );
 
         store.set_pref_start_with_session(false);
         store.save_at(dir.path()).expect("save");
@@ -921,7 +969,103 @@ mod tests {
             store.prefs.desktop,
             "the update announcement defaults to on"
         );
-        assert_eq!(store.prefs.schema, 4);
+        assert_eq!(store.prefs.schema, 5);
+    }
+
+    /// Seeds `prefs.json` with `json` and returns the directory plus the loaded
+    /// store; the migrations all start from a hand-written file.
+    fn load_seeded(label: &str, json: &[u8]) -> (TempDir, Store, std::path::PathBuf) {
+        let dir = TempDir::new(label);
+        let path = dir.path().join(PREFS_FILE);
+        fs::write(&path, json).expect("seed prefs");
+        let store = Store::load_at(dir.path()).expect("load");
+        (dir, store, path)
+    }
+
+    #[test]
+    fn a_schema_four_file_with_the_announcement_off_keeps_notifications_off() {
+        // Version 5 retires `notifyOnStart` in favour of the one `desktop`
+        // switch. A user who had announcements off must not start receiving
+        // them because the switch moved.
+        let (_dir, store, path) = load_seeded(
+            "prefs-v5-off",
+            br#"{"schema":4,"notifyOnStart":false,"desktop":true,"dismissed":"kept","startWithSession":true}"#,
+        );
+        assert!(!store.prefs.desktop, "the user had announcements off");
+        assert_eq!(store.prefs.schema, 5);
+        assert_eq!(store.prefs.dismissed, "kept", "the marker is untouched");
+
+        let stored: Prefs =
+            serde_json::from_str(&fs::read_to_string(&path).expect("read migrated prefs"))
+                .expect("the migrated file reads back");
+        assert_eq!(stored.schema, 5);
+        assert!(!stored.desktop);
+    }
+
+    #[test]
+    fn a_schema_four_file_with_the_announcement_on_leaves_the_switch_alone() {
+        let (dir, store, _path) = load_seeded(
+            "prefs-v5-on",
+            br#"{"schema":4,"notifyOnStart":true,"desktop":false,"dismissed":"","startWithSession":true}"#,
+        );
+        assert!(
+            !store.prefs.desktop,
+            "an on announcement says nothing about the desktop switch"
+        );
+        assert_eq!(store.prefs.schema, 5);
+        assert!(
+            store.prefs.notify_on_start,
+            "the retired key is still read so older files load"
+        );
+
+        // The migrated version is written once and never again.
+        let after = fs::read(dir.path().join(PREFS_FILE)).expect("read prefs");
+        let _ = Store::load_at(dir.path()).expect("reload");
+        assert_eq!(
+            fs::read(dir.path().join(PREFS_FILE)).expect("read prefs"),
+            after,
+            "a current file is not rewritten"
+        );
+    }
+
+    #[test]
+    fn the_announcement_bookkeeping_round_trips_through_the_file() {
+        let dir = TempDir::new("announce-roundtrip");
+        let mut store = Store::fresh();
+        assert!(store.set_pref_notified_at(1_700_000_000_000));
+        assert!(store.set_pref_reminded_version("sig-a"));
+        store.save_at(dir.path()).expect("save");
+
+        let loaded = Store::load_at(dir.path()).expect("load");
+        assert_eq!(loaded.prefs.notified_at, 1_700_000_000_000);
+        assert_eq!(loaded.prefs.reminded, "sig-a");
+        assert_eq!(loaded.prefs.schema, 5);
+    }
+
+    #[test]
+    fn an_unchanged_announcement_stamp_is_not_a_change() {
+        let dir = TempDir::new("stamp-noop");
+        let mut store = Store::fresh();
+        store.set_pref_notified_at(7);
+        store.save_at(dir.path()).expect("save");
+        assert!(
+            !store.set_pref_notified_at(7),
+            "a repeated stamp must not force a save"
+        );
+        assert!(!store.set_pref_reminded_version(""));
+    }
+
+    #[test]
+    fn reset_keeps_the_desktop_switch_and_moves_the_schema_to_five() {
+        let mut store = Store::fresh();
+        store.set_pref_desktop_notifications(false);
+        store.set_pref_notified_at(42);
+        store.set_pref_reminded_version("sig-a");
+        store.reset();
+        assert!(!store.prefs.desktop, "the switch survives a reset");
+        assert_eq!(store.prefs.schema, 5);
+        assert_eq!(store.prefs.notified_at, 0);
+        assert!(store.prefs.reminded.is_empty());
     }
 
     #[test]
@@ -940,13 +1084,13 @@ mod tests {
             store.prefs.desktop,
             "the migration turns the announcement on"
         );
-        assert_eq!(store.prefs.schema, 4);
+        assert_eq!(store.prefs.schema, 5);
 
         let stored: Prefs = serde_json::from_str(
             &fs::read_to_string(dir.path().join(PREFS_FILE)).expect("read migrated prefs"),
         )
         .expect("the migrated file reads back");
-        assert_eq!(stored.schema, 4);
+        assert_eq!(stored.schema, 5);
         assert!(stored.desktop);
     }
 
@@ -965,7 +1109,7 @@ mod tests {
             !store.prefs.desktop,
             "a version-2 file keeps the stored switch"
         );
-        assert_eq!(store.prefs.schema, 4);
+        assert_eq!(store.prefs.schema, 5);
         assert!(
             store.prefs.dismissed.is_empty(),
             "the set is offered again after the notifier fix"
@@ -974,24 +1118,25 @@ mod tests {
         let stored: Prefs =
             serde_json::from_str(&fs::read_to_string(&path).expect("read migrated prefs"))
                 .expect("the migrated file reads back");
-        assert_eq!(stored.schema, 4);
+        assert_eq!(stored.schema, 5);
         assert!(stored.dismissed.is_empty());
     }
 
     #[test]
     fn a_current_prefs_file_is_left_alone() {
-        let dir = TempDir::new("prefs-v4");
+        let dir = TempDir::new("prefs-v5");
         let path = dir.path().join(PREFS_FILE);
         fs::write(
             &path,
-            br#"{"schema":4,"notifyOnStart":true,"desktop":true,"dismissed":"kept","startWithSession":true}"#,
+            br#"{"schema":5,"notifyOnStart":true,"desktop":true,"dismissed":"kept","startWithSession":true,"notifiedAt":7,"reminded":"sig"}"#,
         )
-        .expect("seed version-4 prefs");
+        .expect("seed version-5 prefs");
 
         let before = fs::read(&path).expect("read prefs");
         let store = Store::load_at(dir.path()).expect("load");
-        assert_eq!(store.prefs.schema, 4);
+        assert_eq!(store.prefs.schema, 5);
         assert_eq!(store.prefs.dismissed, "kept");
+        assert_eq!(store.prefs.notified_at, 7);
         assert_eq!(
             fs::read(&path).expect("read prefs"),
             before,
@@ -1012,13 +1157,13 @@ mod tests {
         .expect("seed version-3 prefs");
 
         let store = Store::load_at(dir.path()).expect("load");
-        assert_eq!(store.prefs.schema, 4);
+        assert_eq!(store.prefs.schema, 5);
         assert!(store.prefs.dismissed.is_empty());
 
         let stored: Prefs =
             serde_json::from_str(&fs::read_to_string(&path).expect("read migrated prefs"))
                 .expect("the migrated file reads back");
-        assert_eq!(stored.schema, 4);
+        assert_eq!(stored.schema, 5);
         assert!(stored.dismissed.is_empty());
     }
 
@@ -1385,7 +1530,9 @@ mod tests {
                 start_with_session: true,
                 update_check_minutes: 360,
                 last_check_at: 0,
-                schema: 4,
+                notified_at: 0,
+                reminded: String::new(),
+                schema: 5,
             }
         );
         assert_eq!(store.synced_at, None);
