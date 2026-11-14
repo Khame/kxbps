@@ -14,6 +14,15 @@ the project uses semantic versioning.
   Upgradable page has a Check for updates button, and the status bar names a
   failed check and the age of the last good list instead of claiming the system
   is current.
+- Desktop notification when updates are available: one per set of updates, one
+  reminder after three hours, then only the tray icon. Clicking the popup opens
+  the window on the Upgradable list, and one Settings switch turns the
+  notifications off.
+- Tray icon in two states: the plain stack and the stack with an arrow while
+  updates wait. The icon is a theme name, so the panel recolours it, and the
+  tooltip carries the count.
+- The new update-check and notification strings are translated in the German,
+  Spanish, French, Italian, Dutch, Polish and Brazilian Portuguese catalogs.
 
 ### Changed
 

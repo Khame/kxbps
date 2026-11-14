@@ -43,6 +43,17 @@ together with the age of the last successful check; it never claims the system
 is current on stale data. With no network connection the automatic check does
 not start, and the app says so in the status bar.
 
+## Tray and notifications
+
+The tray icon is a theme name, `kxbps-tray` or `kxbps-tray-updates`, so Plasma
+recolours it for the panel; the update variant adds an arrow and the tooltip
+carries the count. The icon is there whether the window is open or not.
+
+One desktop notification announces a set of updates. A single reminder follows
+after three hours, and after that only the icon keeps reporting. Clicking the
+popup opens the window on the Upgradable list. The Settings switch turns the
+notifications off; it leaves the tray icon alone.
+
 ## Privileges
 
 Reading needs no root. Every write goes through `pkexec` and one of four polkit
