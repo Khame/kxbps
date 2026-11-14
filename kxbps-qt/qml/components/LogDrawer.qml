@@ -44,8 +44,8 @@ Item {
         return job.cancelled ? i18nd("kxbps", "cancelled") : i18nd("kxbps", "finished")
     }
 
-    implicitHeight: expanded && hasJob ? Math.max(headerHeight, Math.min(expandedHeight, maximumHeight))
-                                       : 0
+    implicitHeight: expanded ? Math.max(headerHeight, Math.min(expandedHeight, maximumHeight))
+                             : 0
     height: implicitHeight
 
     // Dragging to the minimum leaves `expandedHeight` at the header height.
@@ -87,7 +87,7 @@ Item {
             spacing: Kirigami.Units.smallSpacing
 
             QQC2.Label {
-                text: i18nd("kxbps", "xbps log")
+                text: i18nd("kxbps", "Log")
                 font.bold: true
             }
 
@@ -173,14 +173,27 @@ Item {
         anchors.right: parent.right
         anchors.top: header.bottom
         anchors.bottom: parent.bottom
-        visible: drawer.expanded && drawer.hasJob
+        visible: drawer.expanded
         clip: true
         color: Kirigami.Theme.alternateBackgroundColor
+
+        // The drawer opens before any transaction has run: a control that does
+        // nothing when clicked reads as broken, so it says why it is empty.
+        QQC2.Label {
+            anchors.centerIn: parent
+            width: parent.width - Kirigami.Units.largeSpacing * 2
+            visible: !drawer.hasJob
+            text: i18nd("kxbps", "No transaction has run in this session yet.")
+            color: Kirigami.Theme.disabledTextColor
+            horizontalAlignment: Text.AlignHCenter
+            wrapMode: Text.WordWrap
+        }
 
         ListView {
             id: logList
             anchors.fill: parent
             anchors.margins: Kirigami.Units.smallSpacing
+            visible: drawer.hasJob
             clip: true
             model: drawer.hasJob ? drawer.job.lines : null
             onCountChanged: positionViewAtEnd()

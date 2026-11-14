@@ -24,11 +24,12 @@ The sidebar filters the package table:
 
 The tools below the filters open their own pages: Query (a search that does not
 touch the queue), Mirrors (the mirror list and the system mirror), Repositories
-(the files under `/etc/xbps.d`), Settings.
+(the files under `/etc/xbps.d`), Help and Settings.
 
 A row adds a package to the queue or takes it out. The bar at the bottom of the window
-carries the queue size, the Apply button and the state of the last job. The
-`xbps log` button opens the raw output of every command that ran.
+carries the queue size, the Apply button and the state of the last job. The `Log`
+button opens the raw output of every command that ran; before the first
+transaction the drawer says there is nothing to show yet.
 
 ## Update checks
 

@@ -5,8 +5,8 @@ msgid ""
 msgstr ""
 "Project-Id-Version: kxbps 1.0.1\n"
 "Report-Msgid-Bugs-To: \n"
-"POT-Creation-Date: 2026-11-14 15:52+0000\n"
-"PO-Revision-Date: 2026-11-14 15:52+0000\n"
+"POT-Creation-Date: 2026-11-14 16:11+0000\n"
+"PO-Revision-Date: 2026-11-14 16:11+0000\n"
 "Last-Translator: KXbps translation contributors <khame.dev@protonmail.com>\n"
 "Language-Team: Polish\n"
 "Language: pl\n"
@@ -375,7 +375,7 @@ msgstr "Dostępne"
 
 #: kxbps-qt/qml/components/BlockedDialog.qml:70
 #: kxbps-qt/qml/components/PlanDialog.qml:259
-#: kxbps-qt/qml/components/StatusStrip.qml:105
+#: kxbps-qt/qml/components/StatusStrip.qml:103
 msgid "Cancel"
 msgstr "Anuluj"
 
@@ -658,6 +658,11 @@ msgstr "Opóźnienie, od najwolniejszego"
 msgid "License: %1"
 msgstr "Licencja: %1"
 
+#: kxbps-qt/qml/components/LogDrawer.qml:90
+#: kxbps-qt/qml/components/StatusStrip.qml:110
+msgid "Log"
+msgstr "Dziennik"
+
 #: kxbps-qt/qml/components/PackageDelegate.qml:195
 msgid "Mark %1 for installation"
 msgstr "Zaznacz %1 do instalacji"
@@ -750,6 +755,10 @@ msgstr "Brak skonfigurowanych repozytoriów."
 #: kxbps-qt/qml/components/MirrorDelegate.qml:82
 msgid "No response"
 msgstr "Brak odpowiedzi"
+
+#: kxbps-qt/qml/components/LogDrawer.qml:186
+msgid "No transaction has run in this session yet."
+msgstr "W tej sesji nie uruchamiano jeszcze żadnej transakcji."
 
 #: kxbps-qt/qml/views/MirrorsView.qml:77
 msgid "North America"
@@ -900,7 +909,7 @@ msgstr "Czytanie list pakietów nie wymaga roota."
 msgid "Reading the repository list…"
 msgstr "Wczytywanie listy pakietów…"
 
-#: kxbps-qt/qml/components/StatusStrip.qml:56
+#: kxbps-qt/qml/components/StatusStrip.qml:54
 msgid "Ready"
 msgstr "Gotowe"
 
@@ -1319,11 +1328,6 @@ msgstr "xbps zgłosił błąd"
 #: kxbps-qt/qml/Main.qml:102
 msgid "xbps failed with exit code %1"
 msgstr "xbps zgłosił błąd, kod wyjścia %1"
-
-#: kxbps-qt/qml/components/LogDrawer.qml:90
-#: kxbps-qt/qml/components/StatusStrip.qml:112
-msgid "xbps log"
-msgstr "Dziennik xbps"
 
 #. The take answered nothing: say so, rather than a blank block.
 #: kxbps-qt/qml/views/QueryView.qml:101

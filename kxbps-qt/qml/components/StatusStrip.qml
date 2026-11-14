@@ -32,8 +32,6 @@ Rectangle {
     property bool checkIsError: false
     // Whether the log drawer below is open.
     property bool logOpen: false
-    // False before the first transaction: there is no output to show yet.
-    property bool logAvailable: false
 
     signal cancelRequested()
     signal logToggleRequested()
@@ -109,12 +107,11 @@ Rectangle {
         }
 
         QQC2.Button {
-            text: i18nd("kxbps", "xbps log")
+            text: i18nd("kxbps", "Log")
             icon.name: "utilities-terminal"
             font: Kirigami.Theme.smallFont
             checkable: true
             checked: bar.logOpen
-            enabled: bar.logAvailable
             onClicked: bar.logToggleRequested()
         }
     }

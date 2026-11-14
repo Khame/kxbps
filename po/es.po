@@ -5,8 +5,8 @@ msgid ""
 msgstr ""
 "Project-Id-Version: kxbps 1.0.0\n"
 "Report-Msgid-Bugs-To: \n"
-"POT-Creation-Date: 2026-11-14 15:52+0000\n"
-"PO-Revision-Date: 2026-11-14 15:52+0000\n"
+"POT-Creation-Date: 2026-11-14 16:11+0000\n"
+"PO-Revision-Date: 2026-11-14 16:11+0000\n"
 "Last-Translator: KXbps translation contributors <khame.dev@protonmail.com>\n"
 "Language-Team: Spanish\n"
 "Language: es\n"
@@ -360,7 +360,7 @@ msgstr "Disponible"
 
 #: kxbps-qt/qml/components/BlockedDialog.qml:70
 #: kxbps-qt/qml/components/PlanDialog.qml:259
-#: kxbps-qt/qml/components/StatusStrip.qml:105
+#: kxbps-qt/qml/components/StatusStrip.qml:103
 msgid "Cancel"
 msgstr "Cancelar"
 
@@ -643,6 +643,11 @@ msgstr "Latencia, de más lenta a más rápida"
 msgid "License: %1"
 msgstr "Licencia: %1"
 
+#: kxbps-qt/qml/components/LogDrawer.qml:90
+#: kxbps-qt/qml/components/StatusStrip.qml:110
+msgid "Log"
+msgstr "Registro"
+
 #: kxbps-qt/qml/components/PackageDelegate.qml:195
 msgid "Mark %1 for installation"
 msgstr "Marcar %1 para instalar"
@@ -735,6 +740,10 @@ msgstr "No hay ningún repositorio configurado."
 #: kxbps-qt/qml/components/MirrorDelegate.qml:82
 msgid "No response"
 msgstr "Sin respuesta"
+
+#: kxbps-qt/qml/components/LogDrawer.qml:186
+msgid "No transaction has run in this session yet."
+msgstr "Todavía no se ha ejecutado ninguna transacción en esta sesión."
 
 #: kxbps-qt/qml/views/MirrorsView.qml:77
 msgid "North America"
@@ -885,7 +894,7 @@ msgstr "Leer las listas de paquetes no necesita root."
 msgid "Reading the repository list…"
 msgstr "Leyendo la lista de repositorios…"
 
-#: kxbps-qt/qml/components/StatusStrip.qml:56
+#: kxbps-qt/qml/components/StatusStrip.qml:54
 msgid "Ready"
 msgstr "Listo"
 
@@ -1304,11 +1313,6 @@ msgstr "xbps falló"
 #: kxbps-qt/qml/Main.qml:102
 msgid "xbps failed with exit code %1"
 msgstr "xbps falló con el código de salida %1"
-
-#: kxbps-qt/qml/components/LogDrawer.qml:90
-#: kxbps-qt/qml/components/StatusStrip.qml:112
-msgid "xbps log"
-msgstr "registro de xbps"
 
 #. The take answered nothing: say so, rather than a blank block.
 #: kxbps-qt/qml/views/QueryView.qml:101

@@ -1170,7 +1170,6 @@ Kirigami.ApplicationWindow {
                     checkIsError: !installedBackend.checking
                                   && installedBackend.checkErrorKey.length > 0
                     logOpen: logDrawer.expanded
-                    logAvailable: root.job !== null
                     onCancelRequested: {
                         if (root.job !== null) {
                             root.job.cancel()

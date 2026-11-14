@@ -12,6 +12,17 @@ the project uses semantic versioning.
 - `--help` and `--version` on the command line, answered before Qt starts, so
   they work without a display, and a `kxbps(1)` manual page.
 
+### Changed
+
+- The log drawer is called `Log`. It shows what xbps printed, but the old name
+  read as another program's log rather than a part of this window.
+
+### Fixed
+
+- The log drawer opens before the first transaction and says there is nothing
+  to show yet. The button used to be disabled until a transaction had run,
+  which read as a broken control.
+
 ## [1.0.1] - 2026-11-14
 
 ### Added
