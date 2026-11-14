@@ -5,6 +5,8 @@ the project uses semantic versioning.
 
 ## [Unreleased]
 
+## [1.0.1] - 2026-11-14
+
 ### Added
 
 - Update-check interval in Settings: 30 minutes, 1, 3, 6, 12 or 24 hours,

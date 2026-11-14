@@ -335,7 +335,7 @@ dependencies = [
 
 [[package]]
 name = "kxbps-core"
-version = "1.0.0"
+version = "1.0.1"
 dependencies = [
  "regex",
  "serde",
@@ -345,7 +345,7 @@ dependencies = [
 
 [[package]]
 name = "kxbps-qt"
-version = "1.0.0"
+version = "1.0.1"
 dependencies = [
  "cxx",
  "cxx-qt",
