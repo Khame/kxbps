@@ -7,6 +7,7 @@
 #include <QtDBus/QDBusMessage>
 #include <QtDBus/QDBusPendingCallWatcher>
 #include <QtDBus/QDBusPendingReply>
+#include <QtGui/QGuiApplication>
 #include <QtWidgets/QSystemTrayIcon>
 
 #include "kxbps-qt/src/query_backend.cxxqt.h"
@@ -97,6 +98,19 @@ QObject *kxbps_start_mirror_job(QObject *owner, const QString &payloadJson)
 bool kxbps_tray_available()
 {
     return QSystemTrayIcon::isSystemTrayAvailable();
+}
+
+void kxbps_set_badge(int64_t count)
+{
+    // One call: Qt owns the `com.canonical.Unity.LauncherEntry` signal, the
+    // object path built from the desktop file name, and the `count-visible`
+    // flag Plasma reads. Zero clears the badge instead of drawing a zero.
+    //
+    // `setBadgeNumber` is an instance slot, not a static, so it goes through
+    // the application object; the backend is only ever created after it exists.
+    if (auto *app = qobject_cast<QGuiApplication *>(QCoreApplication::instance())) {
+        app->setBadgeNumber(count);
+    }
 }
 
 void kxbps_notify(const QString &summary,

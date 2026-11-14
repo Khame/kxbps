@@ -56,6 +56,11 @@ is announced: "Announce available updates on startup" keeps a start silent while
 a check you run from the window still reports, and "Use desktop notifications"
 turns the popups off altogether. Neither touches the tray icon.
 
+The dock button for the running window carries the number of updates as a badge.
+The app publishes the Unity `LauncherEntry` count through Qt, which the Plasma
+task manager already reads; zero clears it. A `--tray` instance has no window, so
+there is no dock button to badge and the tray icon carries the news alone.
+
 ## Privileges
 
 Reading needs no root. Every write goes through `pkexec` and one of four polkit

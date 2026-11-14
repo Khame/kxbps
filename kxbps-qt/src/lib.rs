@@ -75,6 +75,12 @@ pub mod qobject {
         // Called right before the first `Notify`, when the service is there.
         #[cxx_name = "kxbps_notification_watch_actions"]
         fn notification_watch_actions(owner: Pin<&mut QObject>);
+
+        // The dock badge, through stock Qt: `QGuiApplication::setBadgeNumber`
+        // publishes the Unity `LauncherEntry.Update` signal that Plasma's task
+        // manager draws as a number on the task button. Zero clears it.
+        #[cxx_name = "kxbps_set_badge"]
+        fn set_badge_on_dock(count: i64);
     }
 
     // `auto_cxx_name` turns `update_count` into the QML-facing `updateCount`;
@@ -101,6 +107,11 @@ pub mod qobject {
             icon: &QString,
             action: &QString,
         );
+
+        /// Publishes the update count as the dock badge, or clears it when the
+        /// count is zero. Called from QML whenever `updatesCount` moves.
+        #[qinvokable]
+        fn set_badge(self: &AppBackend, count: i32);
 
         // Called by `backend_shim.cpp`: the notification server answered a
         // popup with its id, or with `none` when the call failed. Invokable so
@@ -138,6 +149,15 @@ pub struct AppBackendRust {
 /// instance does not grow a list forever.
 const REMEMBERED_NOTIFICATION_IDS: usize = 10;
 
+/// The number the dock badge shows: the update count, never negative.
+///
+/// Qt takes a signed number and clears the badge on zero. A negative value is a
+/// broken state rather than something to draw, so it is clamped instead of
+/// reaching the task manager.
+fn badge_value(count: i32) -> i64 {
+    i64::from(count.max(0))
+}
+
 impl Default for AppBackendRust {
     /// The tray answer is fixed for the run, so it is read once, when QML
     /// instantiates the backend (the application already exists by then).
@@ -172,6 +192,15 @@ impl qobject::AppBackend {
         // `rememberNotificationId`, which the parent keeps alive for the run.
         let this = cxx_qt::casting::Upcast::<cxx_qt::QObject>::upcast_pin(self);
         qobject::notify(summary, body, icon, action, this);
+    }
+
+    /// Publishes the update count as the dock badge, or clears it.
+    ///
+    /// The number is the only thing that travels: the badge is drawn by the
+    /// task manager from the Unity signal Qt sends, so there is no text to
+    /// translate and no icon to choose.
+    fn set_badge(&self, count: i32) {
+        qobject::set_badge_on_dock(badge_value(count));
     }
 
     /// Keeps the id the notification server answered with; `none` is a failed
@@ -286,5 +315,29 @@ mod uri_guard {
             format!("import {declared}"),
             "Main.qml imports a different module than the one `init()` registers"
         );
+    }
+}
+
+/// The dock badge shows the update count, and zero means "no badge".
+///
+/// The clamp is the only decision here, but it is the one that reaches Qt: a
+/// negative number would be a badge with no meaning, and the task manager has
+/// no way to know it is broken.
+#[cfg(test)]
+mod badge_value_tests {
+    use super::badge_value;
+
+    #[test]
+    fn a_count_is_passed_through() {
+        assert_eq!(badge_value(0), 0);
+        assert_eq!(badge_value(1), 1);
+        assert_eq!(badge_value(15), 15);
+        assert_eq!(badge_value(i32::MAX), i64::from(i32::MAX));
+    }
+
+    #[test]
+    fn a_negative_count_clears_the_badge_instead_of_drawing_it() {
+        assert_eq!(badge_value(-1), 0);
+        assert_eq!(badge_value(i32::MIN), 0);
     }
 }

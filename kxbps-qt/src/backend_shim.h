@@ -9,6 +9,8 @@
 // Nothing here contains application logic; every decision stays in Rust.
 #pragma once
 
+#include <cstdint>
+
 #include <QtCore/QObject>
 #include <QtCore/QString>
 
@@ -72,6 +74,20 @@ void kxbps_notify(const QString &summary,
                   const QString &icon,
                   const QString &action,
                   QObject &owner);
+
+// Publishes the update count as the dock badge, or clears it when `count` is
+// zero.
+//
+// `QGuiApplication::setBadgeNumber` sends the Unity `LauncherEntry.Update`
+// signal on the session bus, keyed by the desktop file name; Plasma's task
+// manager listens for it and draws the number on the task button. Stock Qt, no
+// custom D-Bus and no window: a hidden `--tray` instance still has no task
+// button to badge, which is why the tray icon stays the indicator there.
+//
+// `int64_t` rather than `qint64`: cxx declares the Rust `i64` argument as
+// `::std::int64_t`, and `qint64` is `long long` — a different type on LP64,
+// which would be a conflicting declaration.
+void kxbps_set_badge(int64_t count);
 
 // Connects `owner` to the notification server's `ActionInvoked` signal once per
 // process, so a click on the popup reaches the backend that sent it. Called

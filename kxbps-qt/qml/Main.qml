@@ -524,6 +524,14 @@ Kirigami.ApplicationWindow {
             root.startupOffer = false
             root.considerAnnouncement()
         }
+
+        // The dock badge. Plasma's task manager reads the count from the Unity
+        // `LauncherEntry.Update` signal Qt sends, and zero clears it. A
+        // windowless `--tray` instance has no task button to badge, which is why
+        // the tray icon stays the indicator there.
+        function onUpdatesCountChanged() {
+            appBackend.setBadge(installedBackend.updatesCount)
+        }
     }
 
     // A click on the popup. The bus refuses activation without a token on

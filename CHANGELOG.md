@@ -21,6 +21,10 @@ the project uses semantic versioning.
 - Tray icon in two states: the plain stack and the stack with an arrow while
   updates wait. The icon is a theme name, so the panel recolours it, and the
   tooltip carries the count.
+- The dock icon carries the number of available updates. The app publishes the
+  Unity `LauncherEntry` badge through stock Qt, and Plasma's task manager draws
+  it on the task button; zero clears it. A windowless `--tray` instance has no
+  task button, so the tray icon stays the indicator there.
 - The new update-check and notification strings are translated in the German,
   Spanish, French, Italian, Dutch, Polish and Brazilian Portuguese catalogs.
 
