@@ -1,0 +1,86 @@
+.TH KXBPS 1 "2026-11-14" "kxbps 1.0.1" "User Commands"
+.SH NAME
+kxbps \- a native KDE package manager for Void Linux
+.SH SYNOPSIS
+.B kxbps
+.RI [ OPTION ]...
+.SH DESCRIPTION
+.B kxbps
+is a window onto
+.BR xbps (1),
+the Void Linux package manager. Every list, version, size and error it shows
+comes from an xbps command; nothing is invented.
+.PP
+Packages are never changed by marking them. Marking adds a row to the queue,
+and the
+.B Apply
+button runs the queue: it asks xbps for a dry run first, shows the plan and the
+exact byte count, and only then starts the transaction. Installing, removing,
+switching the mirror and adding a repository go through polkit; reading the
+package lists needs no privileges.
+.PP
+The update check follows the interval set in the Settings page, announces a set
+of available updates once, reminds after three hours, and afterwards reports
+through the tray icon and the dock badge alone.
+.SH OPTIONS
+.TP
+.B \-\-tray
+Start with the window hidden. The tray icon and the update check keep running;
+the autostart entry uses this form.
+.TP
+.BI "\-\-filter " TOKEN
+Open the package table on one filter. The tokens are
+.BR installed ,
+.BR updates ,
+.BR all ,
+.BR queued ,
+.BR explicit ,
+.BR orphans
+and
+.BR held .
+.TP
+.BI "\-\-section " NAME
+Open one page directly. The names are
+.BR packages ,
+.BR query ,
+.BR mirrors ,
+.BR repositories ,
+.BR settings
+and
+.BR help .
+.TP
+.BR \-\-help ", " \-h
+Print the usage text and exit. No display is needed.
+.TP
+.BR \-\-version ", " \-V
+Print the version and exit.
+.SH FILES
+.TP
+.I ~/.local/share/kxbps/queue.json
+The queue: the packages waiting for the next transaction.
+.TP
+.I ~/.local/share/kxbps/prefs.json
+The preferences behind the Settings page.
+.TP
+.I ~/.local/share/kxbps/mirror.json
+The mirror KXbps set, and the one it replaced.
+.PP
+The directory is created with mode 0700. Nothing outside it is written by the
+unprivileged part of the program; the privileged helpers rewrite files under
+.I /etc/xbps.d/
+only when the user confirms a change.
+.SH ENVIRONMENT
+.TP
+.B LANGUAGE ", " LC_ALL ", " LC_MESSAGES
+Choose the interface language, in the usual gettext way. The catalogs ship in
+the German, Spanish, French, Italian, Dutch, Polish and Brazilian Portuguese
+translations.
+.SH "EXIT STATUS"
+.B 0
+on success, non-zero when the program could not start.
+.SH "SEE ALSO"
+.BR xbps\-query (1),
+.BR xbps\-install (1),
+.BR xbps\-remove (1)
+.PP
+The README in the source tree covers installation and building.

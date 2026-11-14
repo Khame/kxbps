@@ -79,6 +79,7 @@ icon_tray_updates=$here/icons/tray/symbolic/kxbps-tray-updates.svg
 desktop=$here/io.github.khame.kxbps.desktop
 metainfo=$here/io.github.khame.kxbps.metainfo.xml
 policy=$here/io.github.khame.kxbps.policy
+man_page=$repo/man/kxbps.1
 
 require_file "$app_bin"
 require_file "$helper_bin"
@@ -90,6 +91,7 @@ require_file "$icon_tray_updates"
 require_file "$desktop"
 require_file "$metainfo"
 require_file "$policy"
+require_file "$man_page"
 
 # --- install --------------------------------------------------------------
 
@@ -121,6 +123,8 @@ install_file "$metainfo" 644 \
     "$DESTDIR$PREFIX/share/metainfo/io.github.khame.kxbps.metainfo.xml"
 install_file "$policy" 644 \
     "$DESTDIR$PREFIX/share/polkit-1/actions/io.github.khame.kxbps.policy"
+install_file "$man_page" 644 \
+    "$DESTDIR$PREFIX/share/man/man1/kxbps.1"
 
 # Translations: one .mo per po/<lang>.po at the gettext path KI18n reads.
 if [ -d "$PO_DIR" ]; then

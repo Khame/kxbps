@@ -5,6 +5,13 @@ the project uses semantic versioning.
 
 ## [Unreleased]
 
+### Added
+
+- Help page in the window: the queue, the update checks, authorisation and
+  where the state lives, translated with the rest of the interface.
+- `--help` and `--version` on the command line, answered before Qt starts, so
+  they work without a display, and a `kxbps(1)` manual page.
+
 ## [1.0.1] - 2026-11-14
 
 ### Added

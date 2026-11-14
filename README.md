@@ -97,9 +97,13 @@ kxbps
 ```
 
 `kxbps --section mirrors` opens one page directly (`packages`, `query`,
-`mirrors`, `repositories`, `settings`), and `kxbps --filter queued` opens the
-package table on one filter (`installed`, `updates`, `all`, `queued`,
+`mirrors`, `repositories`, `settings`, `help`), and `kxbps --filter queued`
+opens the package table on one filter (`installed`, `updates`, `all`, `queued`,
 `explicit`, `orphans`, `held`).
+
+`kxbps --help` prints the same list without starting the window, `kxbps
+--version` prints the version, and `man kxbps` carries both. Neither needs a
+display.
 
 State lives in `~/.local/share/kxbps/` (`queue.json`, `prefs.json`,
 `mirror.json`), mode 0700.
@@ -158,6 +162,10 @@ A new language needs one `po/<lang>.po` with its own `Plural-Forms` header. The
 build installs every catalog it finds, so nothing else changes.
 
 ## Documentation
+
+The Help page in the window describes the queue, the update checks,
+authorisation and where the state lives; it is translated with the rest of the
+interface. `man kxbps` and `kxbps --help` cover the command line.
 
 [docs/xbps-integration.md](docs/xbps-integration.md) lists which xbps command
 feeds which screen and what is parsed from its output.

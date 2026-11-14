@@ -335,6 +335,9 @@ Kirigami.ApplicationWindow {
         if (section === "repositories") {
             return i18nd("kxbps", "Repositories")
         }
+        if (section === "help") {
+            return i18nd("kxbps", "Help")
+        }
         switch (installedBackend.packages.filter) {
         case "installed":
             return i18nd("kxbps", "Installed")
@@ -369,6 +372,14 @@ Kirigami.ApplicationWindow {
             return i18nd("kxbps", "Notifications and startup")
         }
         return ""
+    }
+
+    // The muted band above the page: the title, and the subtitle only where the
+    // section has one. A page with nothing to add says nothing, rather than
+    // trailing a separator into the band.
+    function headerLine(count) {
+        const subtitle = headerSubtitle(count)
+        return subtitle.length > 0 ? headerTitle() + " · " + subtitle : headerTitle()
     }
 
     // The one sentence for a missing privileged half, chosen by the key the
@@ -892,6 +903,14 @@ Kirigami.ApplicationWindow {
                         onClicked: root.section = "repositories"
                     }
 
+                    NavItem {
+                        Layout.fillWidth: true
+                        label: i18nd("kxbps", "Help")
+                        iconName: "help-contents"
+                        highlighted: root.section === "help"
+                        onClicked: root.section = "help"
+                    }
+
                     Kirigami.Separator {
                         Layout.fillWidth: true
                         Layout.topMargin: Kirigami.Units.smallSpacing
@@ -1072,9 +1091,7 @@ Kirigami.ApplicationWindow {
                     Layout.leftMargin: Kirigami.Units.largeSpacing
                     Layout.rightMargin: Kirigami.Units.largeSpacing
                     Layout.topMargin: Kirigami.Units.smallSpacing
-                    text: (root.section === "packages" || root.section === "repositories")
-                          ? root.headerTitle()
-                          : root.headerTitle() + " · " + root.headerSubtitle(installedBackend.packages.count)
+                    text: root.headerLine(installedBackend.packages.count)
                     font: Kirigami.Theme.smallFont
                     color: Kirigami.Theme.disabledTextColor
                     elide: Text.ElideRight
@@ -1104,6 +1121,8 @@ Kirigami.ApplicationWindow {
                             return 3
                         case "repositories":
                             return 4
+                        case "help":
+                            return 5
                         }
                         return 0
                     }
@@ -1135,6 +1154,8 @@ Kirigami.ApplicationWindow {
                         mirrorBackend: mirrorBackend
                         onJobStarted: (started) => root.startJob(started)
                     }
+
+                    HelpView {}
                 }
 
                 StatusStrip {

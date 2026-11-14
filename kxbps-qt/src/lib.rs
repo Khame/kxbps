@@ -14,6 +14,7 @@ use std::pin::Pin;
 use cxx_qt::CxxQtType;
 
 pub mod autostart;
+pub mod cli;
 pub mod installed_backend;
 pub mod job_backend;
 pub mod log_model;

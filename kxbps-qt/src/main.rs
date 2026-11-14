@@ -3,6 +3,22 @@ use cxx_qt_lib_extras::QApplication;
 use std::env;
 
 fn main() {
+    // `--help` and `--version` are answered before Qt starts: they must work
+    // over ssh and without a display, and building the application to print a
+    // line of text would be the wrong order. Every other flag belongs to the
+    // window, which reads `Qt.application.arguments` itself.
+    match kxbps_qt::cli::parse(&std::env::args().collect::<Vec<_>>()) {
+        kxbps_qt::cli::Cli::Help => {
+            println!("{}", kxbps_qt::cli::usage());
+            return;
+        }
+        kxbps_qt::cli::Cli::Version => {
+            println!("{}", kxbps_qt::cli::version_line());
+            return;
+        }
+        kxbps_qt::cli::Cli::Run => {}
+    }
+
     // `QApplication`, not `QGuiApplication`: `Qt.labs.platform`'s
     // `SystemTrayIcon` is backed by `QSystemTrayIcon` from Qt Widgets, and
     // without a `QApplication` it aborts the process with
