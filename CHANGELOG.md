@@ -3,36 +3,26 @@
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 the project uses semantic versioning.
 
-## [1.0.2] - 2026-11-14
-
-### Added
-
-- Help page in the window: the queue, the update checks, authorisation and
-  where the state lives, translated with the rest of the interface.
-- `--help` and `--version` on the command line, answered before Qt starts, so
-  they work without a display, and a `kxbps(1)` manual page.
-- The update check's own xbps output, and the command it ran, in the Log
-  drawer. A check is not a transaction, so its lines get a model of their own.
-
-### Changed
-
-- The log drawer is called `Log`. It shows what xbps printed, but the old name
-  read as another program's log rather than a part of this window.
-- The Log drawer's bar sits on the bottom edge: the log grows upward from the
-  status strip, so the control that opened it belongs at that edge.
-
-### Fixed
-
-- The log drawer opens before the first transaction and says there is nothing
-  to show yet. The button used to be disabled until a transaction had run,
-  which read as a broken control.
-
 ## [Unreleased]
 
-## [1.0.1] - 2026-11-14
+## [0.10.0] - 2026-11-14
+
+First public release, in beta: the window, the store format and the command
+line can still change.
 
 ### Added
 
+- Package table with filters for installed, upgradable, available, queued,
+  explicit, orphaned and held packages, each read from xbps on demand.
+- Queue that shows the dry-run plan and applies it through `pkexec` and polkit,
+  with the exact commands in the Log drawer.
+- Details pane for one package: installed and repository versions, sizes,
+  dependencies and what requires it.
+- Mirrors page that lists the mirror catalogue, shows the system mirror and
+  switches it, keeping a backup of the previous configuration file.
+- Repositories page that lists the files under `/etc/xbps.d` and adds or removes
+  the `20-kxbps-*.conf` files KXbps owns.
+- Search across the configured repositories, separate from the installed set.
 - Update-check interval in Settings: 30 minutes, 1, 3, 6, 12 or 24 hours,
   default 6 hours. The tray re-check follows the same preference.
 - Fresh update checks through `xbps-install -M -un`, which fetches the
@@ -51,8 +41,15 @@ the project uses semantic versioning.
   Unity `LauncherEntry` badge through stock Qt, and Plasma's task manager draws
   it on the task button; zero clears it. A windowless `--tray` instance has no
   task button, so the tray icon stays the indicator there.
-- The new update-check and notification strings are translated in the German,
-  Spanish, French, Italian, Dutch, Polish and Brazilian Portuguese catalogs.
+- Help page in the window: the queue, the update checks, authorisation and
+  where the state lives, translated with the rest of the interface.
+- `--help` and `--version` on the command line, answered before Qt starts, so
+  they work without a display, and a `kxbps(1)` manual page.
+- The update check's own xbps output, and the command it ran, in the Log
+  drawer. A check is not a transaction, so its lines get a model of their own.
+- Translations into German, Spanish, French, Italian, Dutch, Polish and
+  Brazilian Portuguese, Kirigami theme colours throughout, and a window that
+  fits the screen at any scale factor.
 
 ### Changed
 
@@ -62,28 +59,16 @@ the project uses semantic versioning.
 - Settings has the start-time switch back: "Announce available updates on
   startup" keeps a start silent and lets a check run from the window report,
   while "Use desktop notifications" covers the popups as a whole.
+- The log drawer is called `Log`. It shows what xbps printed, but the old name
+  read as another program's log rather than a part of this window.
+- The Log drawer's bar sits on the bottom edge: the log grows upward from the
+  status strip, so the control that opened it belongs at that edge.
 
-## [1.0.0] - 2026-11-13
+### Fixed
 
-First release.
-
-### Added
-
-- Package table with filters for installed, upgradable, available, queued,
-  explicit, orphaned and held packages, each read from xbps on demand.
-- Queue that shows the dry-run plan and applies it through `pkexec` and polkit,
-  with the exact commands in the log drawer.
-- Details pane for one package: installed and repository versions, sizes,
-  dependencies and what requires it.
-- Mirrors page that lists the mirror catalogue, shows the system mirror and
-  switches it, keeping a backup of the previous configuration file.
-- Repositories page that lists the files under `/etc/xbps.d` and adds or removes
-  the `20-kxbps-*.conf` files KXbps owns.
-- Search across the configured repositories, separate from the installed set.
-- Translations into German, Spanish, French, Italian, Dutch, Polish and
-  Brazilian Portuguese, Kirigami theme colours throughout, and a window that
-  fits the screen at any scale factor.
-- Tray icon and an optional notification when updates are available.
+- The log drawer opens before the first transaction and says there is nothing
+  to show yet. The button used to be disabled until a transaction had run,
+  which read as a broken control.
 
 ### Notes
 

@@ -64,7 +64,7 @@ pub fn usage() -> String {
 
 /// The line `--version` prints.
 pub fn version_line() -> String {
-    format!("kxbps {}", env!("CARGO_PKG_VERSION"))
+    format!("kxbps {}", crate::VERSION)
 }
 
 #[cfg(test)]
@@ -133,9 +133,6 @@ mod tests {
 
     #[test]
     fn the_version_line_carries_the_package_version() {
-        assert_eq!(
-            version_line(),
-            format!("kxbps {}", env!("CARGO_PKG_VERSION"))
-        );
+        assert_eq!(version_line(), format!("kxbps {}", crate::VERSION));
     }
 }

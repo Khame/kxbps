@@ -3,7 +3,7 @@ resolver = "2"
 members = ["kxbps-core", "kxbps-qt"]
 
 [workspace.package]
-version = "1.0.2"
+version = "0.10.0"
 edition = "2024"
 rust-version = "1.85"
 license = "GPL-3.0-or-later"

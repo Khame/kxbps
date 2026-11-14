@@ -33,6 +33,11 @@ pub mod xbps_plan;
 pub mod xbps_runner;
 pub mod xbps_snapshot;
 
+/// The version every surface shows: the About dialog, `--version`, and the
+/// header of the manual page. It comes from `Cargo.toml`, and the test below
+/// pins the files that cannot read it at build time.
+pub const VERSION: &str = env!("CARGO_PKG_VERSION");
+
 #[cxx_qt::bridge]
 pub mod qobject {
     unsafe extern "C++" {
@@ -172,9 +177,12 @@ impl Default for AppBackendRust {
 }
 
 impl qobject::AppBackend {
-    /// Application version shown in the UI; proves Rust -> QML calls work.
+    /// Application version shown in the About dialog.
+    ///
+    /// It comes from the crate's own version, so the window, `--version` and
+    /// the package cannot disagree about which build this is.
     fn version(&self) -> cxx_qt_lib::QString {
-        cxx_qt_lib::QString::from("0.1.0")
+        cxx_qt_lib::QString::from(crate::VERSION)
     }
 
     /// Forwards one announcement to the desktop's notification service.
@@ -340,5 +348,32 @@ mod badge_value_tests {
     fn a_negative_count_clears_the_badge_instead_of_drawing_it() {
         assert_eq!(badge_value(-1), 0);
         assert_eq!(badge_value(i32::MIN), 0);
+    }
+}
+
+/// The version lives in `Cargo.toml`, but two files cannot read it: the manual
+/// page and the AppStream metadata are shipped as they are written. A stale
+/// version there is invisible until someone opens the page or the software
+/// centre, so the test pins both to [`VERSION`].
+#[cfg(test)]
+mod version_guard {
+    use super::VERSION;
+
+    #[test]
+    fn the_manual_page_header_carries_the_version() {
+        let man = include_str!("../../man/kxbps.1");
+        assert!(
+            man.contains(&format!("\"kxbps {VERSION}\"")),
+            "man/kxbps.1 does not name kxbps {VERSION} in its .TH line"
+        );
+    }
+
+    #[test]
+    fn the_metainfo_lists_the_version() {
+        let metainfo = include_str!("../../packaging/io.github.khame.kxbps.metainfo.xml");
+        assert!(
+            metainfo.contains(&format!("<release version=\"{VERSION}\"")),
+            "the AppStream metadata has no release entry for {VERSION}"
+        );
     }
 }

@@ -6,12 +6,10 @@ release page cannot disagree, and a version that never shipped is still
 described by the section it has.
 
 usage:
-    scripts/release-notes.py 1.0.2
-    scripts/release-notes.py 1.0.2 1.0.1 1.0.0      # a first release, whose
-                                                    # earlier versions were
-                                                    # never published
-    scripts/release-notes.py 1.0.2 --unreleased     # plus what landed since
-    scripts/release-notes.py --intro "text" 1.0.2   # with an opening paragraph
+    scripts/release-notes.py 0.10.0
+    scripts/release-notes.py 0.11.0 0.10.0          # two versions at once
+    scripts/release-notes.py 0.10.0 --unreleased    # plus what landed since
+    scripts/release-notes.py --intro "text" 0.10.0  # with an opening paragraph
 
 Before tagging, the [Unreleased] section holds the fixes that arrived during
 the test phase. Fold them into the version about to ship, then regenerate the

@@ -6,9 +6,9 @@
 # a sentence with i18nd(). scripts/extract-i18n.sh lists the files read.
 msgid ""
 msgstr ""
-"Project-Id-Version: kxbps 1.0.1\n"
+"Project-Id-Version: kxbps 0.10.0\n"
 "Report-Msgid-Bugs-To: \n"
-"POT-Creation-Date: 2026-11-14 16:11+0000\n"
+"POT-Creation-Date: 2026-11-14 17:04+0000\n"
 "PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\n"
 "Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
 "Language-Team: English\n"
@@ -571,7 +571,7 @@ msgstr ""
 msgid "Help"
 msgstr ""
 
-#: kxbps-qt/qml/components/LogDrawer.qml:102
+#: kxbps-qt/qml/components/LogDrawer.qml:110
 msgid "Hide"
 msgstr ""
 
@@ -645,7 +645,7 @@ msgstr ""
 msgid "License: %1"
 msgstr ""
 
-#: kxbps-qt/qml/components/LogDrawer.qml:90
+#: kxbps-qt/qml/components/LogDrawer.qml:98
 #: kxbps-qt/qml/components/StatusStrip.qml:110
 msgid "Log"
 msgstr ""
@@ -743,7 +743,7 @@ msgstr ""
 msgid "No response"
 msgstr ""
 
-#: kxbps-qt/qml/components/LogDrawer.qml:186
+#: kxbps-qt/qml/components/LogDrawer.qml:194
 msgid "No transaction has run in this session yet."
 msgstr ""
 
@@ -1018,7 +1018,7 @@ msgstr ""
 msgid "Settings"
 msgstr ""
 
-#: kxbps-qt/qml/components/LogDrawer.qml:102
+#: kxbps-qt/qml/components/LogDrawer.qml:110
 #: kxbps-qt/qml/views/MirrorsView.qml:196
 #: kxbps-qt/qml/views/PackagesView.qml:986
 msgid "Show"
@@ -1280,19 +1280,19 @@ msgstr ""
 msgid "Worldwide"
 msgstr ""
 
-#: kxbps-qt/qml/components/LogDrawer.qml:44
+#: kxbps-qt/qml/components/LogDrawer.qml:50
 msgid "cancelled"
 msgstr ""
 
-#: kxbps-qt/qml/components/LogDrawer.qml:42
+#: kxbps-qt/qml/components/LogDrawer.qml:48
 msgid "failed"
 msgstr ""
 
-#: kxbps-qt/qml/components/LogDrawer.qml:44
+#: kxbps-qt/qml/components/LogDrawer.qml:50
 msgid "finished"
 msgstr ""
 
-#: kxbps-qt/qml/components/LogDrawer.qml:36
+#: kxbps-qt/qml/components/LogDrawer.qml:42
 msgid "idle"
 msgstr ""
 
@@ -1300,7 +1300,7 @@ msgstr ""
 msgid "pkexec is missing or not executable"
 msgstr ""
 
-#: kxbps-qt/qml/components/LogDrawer.qml:39
+#: kxbps-qt/qml/components/LogDrawer.qml:45
 msgid "running"
 msgstr ""
 
