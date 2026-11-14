@@ -60,7 +60,9 @@ bool kxbps_tray_available();
 // KNotification's `sendEvent()` drops an event whose component it cannot
 // resolve, and the only answer it gives is an immediate `closed`; the session
 // bus does not lie, so this calls `org.freedesktop.Notifications.Notify`
-// directly. `summary` and `body` arrive already translated from QML.
+// directly. `summary`, `body` and `action` arrive already translated from QML:
+// the action is the button label, and translating it here would need a catalog
+// in C++.
 //
 // The popup carries one `default` action. The call is asynchronous; the reply's
 // id is remembered, and an `ActionInvoked` for that id calls `owner`'s
@@ -68,6 +70,7 @@ bool kxbps_tray_available();
 void kxbps_notify(const QString &summary,
                   const QString &body,
                   const QString &icon,
+                  const QString &action,
                   QObject &owner);
 
 // Connects `owner` to the notification server's `ActionInvoked` signal once per

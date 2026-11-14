@@ -102,6 +102,7 @@ bool kxbps_tray_available()
 void kxbps_notify(const QString &summary,
                   const QString &body,
                   const QString &icon,
+                  const QString &action,
                   QObject &owner)
 {
     // The `Notify` call, sent without waiting: blocking the GUI thread on a
@@ -119,7 +120,7 @@ void kxbps_notify(const QString &summary,
     // One button, and clicking the body activates `default`; both arrive as
     // `ActionInvoked` with the key `default`.
     message << QStringLiteral("KXbps") << 0u << icon << summary << body
-            << QStringList{QStringLiteral("default"), QStringLiteral("Show KXbps")}
+            << QStringList{QStringLiteral("default"), action}
             << hints << 10000;
     // The watch is set up right before the first popup, when the notification
     // service is certainly there; a later call is a no-op.

@@ -43,7 +43,8 @@ QtObject {
         appBackend.notify(i18nd("kxbps", offer.summaryKey),
                           i18ndp("kxbps", offer.bodyOneKey, offer.bodyManyKey,
                                  Number(offer.bodyArg)),
-                          "kxbps-updates")
+                          "kxbps-updates",
+                          i18nd("kxbps", "Show KXbps"))
         return offer.kind
     }
 }

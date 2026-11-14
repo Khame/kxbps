@@ -67,7 +67,13 @@ pub mod qobject {
         // The notification module was the only user of `KNotification`, and it
         // silently dropped the event; the session bus does not.
         #[cxx_name = "kxbps_notify"]
-        fn notify(summary: &QString, body: &QString, icon: &QString, owner: Pin<&mut QObject>);
+        fn notify(
+            summary: &QString,
+            body: &QString,
+            icon: &QString,
+            action: &QString,
+            owner: Pin<&mut QObject>,
+        );
 
         // Connects this object to the notification server's `ActionInvoked`
         // signal once per process; the signal calls `onNotificationAction`.
@@ -103,7 +109,13 @@ pub mod qobject {
         /// Announces a set of available updates. The strings arrive already
         /// translated; this only forwards them to the session bus.
         #[qinvokable]
-        fn notify(self: Pin<&mut AppBackend>, summary: &QString, body: &QString, icon: &QString);
+        fn notify(
+            self: Pin<&mut AppBackend>,
+            summary: &QString,
+            body: &QString,
+            icon: &QString,
+            action: &QString,
+        );
 
         // The shim adopts the `QDBusInterface` through this setter; not
         // invokable, so QML cannot replace the watch with its own object.
@@ -178,12 +190,13 @@ impl qobject::AppBackend {
         summary: &cxx_qt_lib::QString,
         body: &cxx_qt_lib::QString,
         icon: &cxx_qt_lib::QString,
+        action: &cxx_qt_lib::QString,
     ) {
         // The C++ side needs the generated `QObject` itself, and it never
         // stores the pointer: the async reply writes the id back through
         // `rememberNotificationId`, which the parent keeps alive for the run.
         let this = cxx_qt::casting::Upcast::<cxx_qt::QObject>::upcast_pin(self);
-        qobject::notify(summary, body, icon, this);
+        qobject::notify(summary, body, icon, action, this);
     }
 
     /// Adopts the `QDBusInterface` the shim created, so QML can watch its

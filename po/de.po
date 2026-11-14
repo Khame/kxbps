@@ -5,8 +5,8 @@ msgid ""
 msgstr ""
 "Project-Id-Version: kxbps 1.0.0\n"
 "Report-Msgid-Bugs-To: \n"
-"POT-Creation-Date: 2026-11-13 22:54+0000\n"
-"PO-Revision-Date: 2026-11-13 22:55+0000\n"
+"POT-Creation-Date: 2026-11-14 11:57+0000\n"
+"PO-Revision-Date: 2026-11-14 12:00+0000\n"
 "Last-Translator: KXbps translation contributors <khame.dev@protonmail.com>\n"
 "Language-Team: German\n"
 "Language: de\n"
@@ -14,6 +14,10 @@ msgstr ""
 "Content-Type: text/plain; charset=UTF-8\n"
 "Content-Transfer-Encoding: 8bit\n"
 "Plural-Forms: nplurals=2; plural=(n != 1);\n"
+
+#. key emitted by Rust, mapped to a sentence in QML
+msgid "checkRepositoriesFailed"
+msgstr "Die Repositories konnten nicht gelesen werden"
 
 #. key emitted by Rust, mapped to a sentence in QML
 msgid "errorMirrorConfigParse"
@@ -119,6 +123,12 @@ msgstr "Reines HTTP wird nicht geprüft"
 msgid "%1 could not be started: %2"
 msgstr "%1 konnte nicht gestartet werden: %2"
 
+#: kxbps-qt/qml/Main.qml:706
+msgid "%1 day ago"
+msgid_plural "%1 days ago"
+msgstr[0] "vor %1 Tag"
+msgstr[1] "vor %1 Tagen"
+
 #: kxbps-qt/qml/components/PlanDialog.qml:208
 msgid "%1 did not answer within %2 s."
 msgstr "%1 hat innerhalb von %2 s nicht geantwortet."
@@ -137,6 +147,12 @@ msgstr "%1 wurde mit %2 beendet: %3"
 msgid "%1 failed with exit code %2: %3"
 msgstr "%1 ist mit Exit-Code %2 fehlgeschlagen: %3"
 
+#: kxbps-qt/qml/Main.qml:703
+msgid "%1 hour ago"
+msgid_plural "%1 hours ago"
+msgstr[0] "vor %1 Stunde"
+msgstr[1] "vor %1 Stunden"
+
 #: kxbps-qt/qml/views/PackagesView.qml:533
 msgid "%1 installed package"
 msgid_plural "%1 installed packages"
@@ -151,7 +167,13 @@ msgstr "%1 wird verwendet"
 msgid "%1 is installed; nothing to queue"
 msgstr "%1 ist installiert; nichts einzuplanen"
 
-#: kxbps-qt/qml/Main.qml:347
+#: kxbps-qt/qml/Main.qml:699
+msgid "%1 minute ago"
+msgid_plural "%1 minutes ago"
+msgstr[0] "vor %1 Minute"
+msgstr[1] "vor %1 Minuten"
+
+#: kxbps-qt/qml/Main.qml:366
 msgid "%1 mirror"
 msgid_plural "%1 mirrors"
 msgstr[0] "%1 Spiegel"
@@ -161,7 +183,7 @@ msgstr[1] "%1 Spiegel"
 msgid "%1 ms"
 msgstr "%1 ms"
 
-#: kxbps-qt/qml/Main.qml:344 kxbps-qt/qml/views/MirrorsView.qml:190
+#: kxbps-qt/qml/Main.qml:363 kxbps-qt/qml/views/MirrorsView.qml:190
 msgid "%1 of %2 mirrors probed"
 msgstr "%1 von %2 Spiegeln geprüft"
 
@@ -172,8 +194,7 @@ msgid_plural "%1 packages"
 msgstr[0] "%1 Paket"
 msgstr[1] "%1 Pakete"
 
-#: kxbps-qt/qml/components/Notifier.qml:42
-#: kxbps-qt/qml/components/TrayIcon.qml:41
+#: kxbps-qt/qml/components/TrayIcon.qml:42
 msgid "%1 package can be updated."
 msgid_plural "%1 packages can be updated."
 msgstr[0] "%1 Paket kann aktualisiert werden."
@@ -210,7 +231,7 @@ msgid_plural "%1 repositories"
 msgstr[0] "%1 Repository"
 msgstr[1] "%1 Repositories"
 
-#: kxbps-qt/qml/Main.qml:340 kxbps-qt/qml/views/QueryView.qml:270
+#: kxbps-qt/qml/Main.qml:359 kxbps-qt/qml/views/QueryView.qml:270
 msgid "%1 result"
 msgid_plural "%1 results"
 msgstr[0] "%1 Ergebnis"
@@ -227,6 +248,12 @@ msgid "%1 update"
 msgid_plural "%1 updates"
 msgstr[0] "%1 Aktualisierung"
 msgstr[1] "%1 Aktualisierungen"
+
+#: kxbps-qt/qml/Main.qml:724
+msgid "%1 update available"
+msgid_plural "%1 updates available"
+msgstr[0] "%1 Aktualisierung verfügbar"
+msgstr[1] "%1 Aktualisierungen verfügbar"
 
 #: kxbps-qt/qml/components/DetailsPane.qml:248
 msgid "%1 → %2"
@@ -249,7 +276,7 @@ msgid "A repository added here is written to %1 and read by xbps for every user.
 msgstr "Ein hier hinzugefügtes Repository wird in %1 geschrieben und von xbps für alle Benutzer gelesen."
 
 #: kxbps-qt/qml/components/AboutDialog.qml:18
-#: kxbps-qt/qml/views/SettingsView.qml:112
+#: kxbps-qt/qml/views/SettingsView.qml:154
 msgid "About KXbps"
 msgstr "Über KXbps"
 
@@ -269,19 +296,15 @@ msgstr "Das Hinzufügen und Entfernen von Repositories benötigt %1, das packagi
 msgid "All"
 msgstr "Alle"
 
-#: kxbps-qt/qml/views/SettingsView.qml:37
-msgid "Announce available updates on startup"
-msgstr "Verfügbare Aktualisierungen beim Start melden"
-
 #: kxbps-qt/qml/Main.qml:105
 msgid "Another transaction is running"
 msgstr "Eine andere Transaktion läuft"
 
-#: kxbps-qt/qml/Main.qml:895 kxbps-qt/qml/components/PlanDialog.qml:265
+#: kxbps-qt/qml/Main.qml:1022 kxbps-qt/qml/components/PlanDialog.qml:265
 msgid "Apply"
 msgstr "Anwenden"
 
-#: kxbps-qt/qml/Main.qml:894
+#: kxbps-qt/qml/Main.qml:1021
 msgid "Apply (%1)"
 msgid_plural "Apply (%1)"
 msgstr[0] "Anwenden (%1)"
@@ -291,11 +314,11 @@ msgstr[1] "Anwenden (%1)"
 msgid "Apply queued changes"
 msgstr "Eingeplante Änderungen anwenden"
 
-#: kxbps-qt/qml/Main.qml:914
+#: kxbps-qt/qml/Main.qml:1041
 msgid "Apply to system"
 msgstr "Auf das System anwenden"
 
-#: kxbps-qt/qml/Main.qml:360
+#: kxbps-qt/qml/Main.qml:379
 msgid "Apply to system needs the installed helper: run packaging/install.sh."
 msgstr "Das Anwenden auf das System benötigt das installierte Hilfsprogramm: packaging/install.sh ausführen."
 
@@ -311,14 +334,14 @@ msgstr "Die Authentifizierung wurde abgelehnt"
 msgid "Authentication was dismissed"
 msgstr "Die Authentifizierung wurde abgebrochen"
 
-#: kxbps-qt/qml/Main.qml:325 kxbps-qt/qml/Main.qml:587
+#: kxbps-qt/qml/Main.qml:344 kxbps-qt/qml/Main.qml:659
 #: kxbps-qt/qml/views/PackagesView.qml:754
 msgid "Available"
 msgstr "Verfügbar"
 
 #: kxbps-qt/qml/components/BlockedDialog.qml:70
 #: kxbps-qt/qml/components/PlanDialog.qml:259
-#: kxbps-qt/qml/components/StatusStrip.qml:94
+#: kxbps-qt/qml/components/StatusStrip.qml:105
 msgid "Cancel"
 msgstr "Abbrechen"
 
@@ -330,6 +353,19 @@ msgstr "Abgebrochen."
 msgid "Cannot remove"
 msgstr "Kann nicht entfernt werden"
 
+#: kxbps-qt/qml/views/PackagesView.qml:942
+#: kxbps-qt/qml/views/PackagesView.qml:944
+msgid "Check for updates"
+msgstr "Nach Aktualisierungen suchen"
+
+#: kxbps-qt/qml/views/SettingsView.qml:77
+msgid "Check for updates:"
+msgstr "Nach Aktualisierungen suchen:"
+
+#: kxbps-qt/qml/Main.qml:740 kxbps-qt/qml/views/PackagesView.qml:941
+msgid "Checking for updates…"
+msgstr "Suche nach Aktualisierungen…"
+
 #: kxbps-qt/qml/components/MirrorDelegate.qml:182
 msgid "Choose"
 msgstr "Auswählen"
@@ -338,6 +374,10 @@ msgstr "Auswählen"
 #: kxbps-qt/qml/components/PlanDialog.qml:272
 msgid "Close"
 msgstr "Schließen"
+
+#: kxbps-qt/qml/Main.qml:728
+msgid "Could not read %1 of %2 repositories (%3). Last successful check: %4."
+msgstr "%1 von %2 Repositories konnten nicht gelesen werden (%3). Letzte erfolgreiche Prüfung: %4."
 
 #: kxbps-qt/qml/views/PackagesView.qml:500
 msgid "Could not read %1: %2"
@@ -409,7 +449,7 @@ msgstr "Hängt ab von"
 msgid "Description"
 msgstr "Beschreibung"
 
-#: kxbps-qt/qml/views/PackagesView.qml:951
+#: kxbps-qt/qml/views/PackagesView.qml:980
 msgid "Details of %1"
 msgstr "Details zu %1"
 
@@ -450,11 +490,35 @@ msgstr "Entspricht: %1"
 msgid "Europe"
 msgstr "Europa"
 
+#: kxbps-qt/qml/views/SettingsView.qml:98
+msgid "Every 12 hours"
+msgstr "Alle 12 Stunden"
+
+#: kxbps-qt/qml/views/SettingsView.qml:100
+msgid "Every 24 hours"
+msgstr "Alle 24 Stunden"
+
+#: kxbps-qt/qml/views/SettingsView.qml:94
+msgid "Every 3 hours"
+msgstr "Alle 3 Stunden"
+
+#: kxbps-qt/qml/views/SettingsView.qml:90
+msgid "Every 30 minutes"
+msgstr "Alle 30 Minuten"
+
+#: kxbps-qt/qml/views/SettingsView.qml:96
+msgid "Every 6 hours"
+msgstr "Alle 6 Stunden"
+
+#: kxbps-qt/qml/views/SettingsView.qml:92
+msgid "Every hour"
+msgstr "Jede Stunde"
+
 #: kxbps-qt/qml/views/PackagesView.qml:456
 msgid "Everything is up to date."
 msgstr "Alles ist aktuell."
 
-#: kxbps-qt/qml/Main.qml:329 kxbps-qt/qml/Main.qml:589
+#: kxbps-qt/qml/Main.qml:348 kxbps-qt/qml/Main.qml:661
 #: kxbps-qt/qml/components/DetailsPane.qml:261
 msgid "Explicit"
 msgstr "Manuell installiert"
@@ -464,7 +528,7 @@ msgstr "Manuell installiert"
 msgid "Failed"
 msgstr "Fehlgeschlagen"
 
-#: kxbps-qt/qml/Main.qml:672
+#: kxbps-qt/qml/Main.qml:799
 msgid "Filter"
 msgstr "Filter"
 
@@ -472,7 +536,7 @@ msgstr "Filter"
 msgid "Finished."
 msgstr "Abgeschlossen."
 
-#: kxbps-qt/qml/Main.qml:333 kxbps-qt/qml/components/DetailsPane.qml:266
+#: kxbps-qt/qml/Main.qml:352 kxbps-qt/qml/components/DetailsPane.qml:266
 #: kxbps-qt/qml/components/DetailsPane.qml:267
 #: kxbps-qt/qml/components/PackageDelegate.qml:236
 msgid "Held"
@@ -508,7 +572,7 @@ msgstr "Pakete installieren"
 msgid "Installation"
 msgstr "Installation"
 
-#: kxbps-qt/qml/Main.qml:321 kxbps-qt/qml/Main.qml:585
+#: kxbps-qt/qml/Main.qml:340 kxbps-qt/qml/Main.qml:657
 #: kxbps-qt/qml/components/DetailsPane.qml:347
 #: kxbps-qt/qml/components/PackageDelegate.qml:243
 #: kxbps-qt/qml/components/QueryDelegate.qml:62
@@ -520,7 +584,7 @@ msgstr "Installiert"
 msgid "It runs xbps and shows exactly what xbps reports."
 msgstr "Es führt xbps aus und zeigt genau, was xbps meldet."
 
-#: kxbps-qt/qml/views/SettingsView.qml:106
+#: kxbps-qt/qml/views/SettingsView.qml:148
 msgid "KXbps is a native KDE package manager for Void Linux. It reads and changes the system through xbps."
 msgstr "KXbps ist ein nativer KDE-Paketmanager für Void Linux. Es liest und ändert das System über xbps."
 
@@ -548,11 +612,11 @@ msgstr "%1 zur Installation vormerken"
 msgid "Mark %1 for the update"
 msgstr "%1 zur Aktualisierung vormerken"
 
-#: kxbps-qt/qml/Main.qml:867 kxbps-qt/qml/Main.qml:870
+#: kxbps-qt/qml/Main.qml:994 kxbps-qt/qml/Main.qml:997
 msgid "Mark all upgrades"
 msgstr "Alle Aktualisierungen vormerken"
 
-#: kxbps-qt/qml/Main.qml:588
+#: kxbps-qt/qml/Main.qml:660
 msgid "Marked"
 msgstr "Vorgemerkt"
 
@@ -568,7 +632,7 @@ msgstr "Spiegelfilter"
 msgid "Mirror set, but the package index could not be refreshed: %1"
 msgstr "Spiegel gesetzt, aber der Paketindex konnte nicht aktualisiert werden: %1"
 
-#: kxbps-qt/qml/Main.qml:311 kxbps-qt/qml/Main.qml:742
+#: kxbps-qt/qml/Main.qml:330 kxbps-qt/qml/Main.qml:869
 msgid "Mirrors"
 msgstr "Spiegel"
 
@@ -592,6 +656,10 @@ msgstr "Kein Spiegel entspricht diesem Filter."
 #: kxbps-qt/qml/views/MirrorsView.qml:320
 msgid "No mirrors."
 msgstr "Keine Spiegel."
+
+#: kxbps-qt/qml/Main.qml:726
+msgid "No network connection. The update list could not be refreshed; it is from the last successful check (%1)."
+msgstr "Keine Netzwerkverbindung. Die Liste der Aktualisierungen konnte nicht aktualisiert werden; sie stammt von der letzten erfolgreichen Prüfung (%1)."
 
 #: kxbps-qt/qml/views/PackagesView.qml:462
 msgid "No orphans."
@@ -624,6 +692,10 @@ msgstr "Keine Antwort"
 #: kxbps-qt/qml/views/MirrorsView.qml:77
 msgid "North America"
 msgstr "Nordamerika"
+
+#: kxbps-qt/qml/Main.qml:695
+msgid "Not checked yet"
+msgstr "Noch nicht geprüft"
 
 #: kxbps-qt/qml/components/DetailsPane.qml:267
 msgid "Not held"
@@ -659,7 +731,7 @@ msgstr "Nichts zu installieren."
 msgid "Nothing to remove."
 msgstr "Nichts zu entfernen."
 
-#: kxbps-qt/qml/Main.qml:350
+#: kxbps-qt/qml/Main.qml:369
 msgid "Notifications and startup"
 msgstr "Benachrichtigungen und Start"
 
@@ -676,11 +748,11 @@ msgstr "OK"
 msgid "Oceania"
 msgstr "Ozeanien"
 
-#: kxbps-qt/qml/Main.qml:591
+#: kxbps-qt/qml/Main.qml:663
 msgid "On hold"
 msgstr "Zurückgehalten"
 
-#: kxbps-qt/qml/components/TrayIcon.qml:53
+#: kxbps-qt/qml/components/TrayIcon.qml:54
 msgid "Open KXbps"
 msgstr "KXbps öffnen"
 
@@ -689,7 +761,7 @@ msgstr "KXbps öffnen"
 msgid "Orphan"
 msgstr "Verwaist"
 
-#: kxbps-qt/qml/Main.qml:331 kxbps-qt/qml/Main.qml:590
+#: kxbps-qt/qml/Main.qml:350 kxbps-qt/qml/Main.qml:662
 msgid "Orphans"
 msgstr "Verwaiste Pakete"
 
@@ -706,7 +778,7 @@ msgstr "Paket"
 msgid "Package information"
 msgstr "Paketinformationen"
 
-#: kxbps-qt/qml/Main.qml:335
+#: kxbps-qt/qml/Main.qml:354
 msgid "Packages"
 msgstr "Pakete"
 
@@ -714,7 +786,7 @@ msgstr "Pakete"
 msgid "Plain HTTP is not probed"
 msgstr "Reines HTTP wird nicht geprüft"
 
-#: kxbps-qt/qml/Main.qml:904
+#: kxbps-qt/qml/Main.qml:1031
 msgid "Probe all"
 msgstr "Alle prüfen"
 
@@ -722,7 +794,7 @@ msgstr "Alle prüfen"
 msgid "Probing"
 msgstr "Wird geprüft"
 
-#: kxbps-qt/qml/Main.qml:308 kxbps-qt/qml/Main.qml:734
+#: kxbps-qt/qml/Main.qml:327 kxbps-qt/qml/Main.qml:861
 msgid "Query"
 msgstr "Abfrage"
 
@@ -734,7 +806,7 @@ msgstr "Abfragemodus"
 msgid "Query…"
 msgstr "Abfragen…"
 
-#: kxbps-qt/qml/Main.qml:327
+#: kxbps-qt/qml/Main.qml:346
 msgid "Queue"
 msgstr "Warteschlange"
 
@@ -750,7 +822,7 @@ msgstr "Entfernung einplanen"
 msgid "Queue the update"
 msgstr "Aktualisierung einplanen"
 
-#: kxbps-qt/qml/components/TrayIcon.qml:57
+#: kxbps-qt/qml/components/TrayIcon.qml:58
 msgid "Quit"
 msgstr "Beenden"
 
@@ -762,11 +834,11 @@ msgstr "Repositories werden gelesen…"
 msgid "Reading the repository list…"
 msgstr "Repository-Liste wird gelesen…"
 
-#: kxbps-qt/qml/components/StatusStrip.qml:48
+#: kxbps-qt/qml/components/StatusStrip.qml:56
 msgid "Ready"
 msgstr "Bereit"
 
-#: kxbps-qt/qml/Main.qml:841 kxbps-qt/qml/Main.qml:842
+#: kxbps-qt/qml/Main.qml:968 kxbps-qt/qml/Main.qml:969
 msgid "Refresh"
 msgstr "Aktualisieren"
 
@@ -819,7 +891,7 @@ msgstr "Zusammen mit ihnen entfernen"
 msgid "Removing %1…"
 msgstr "%1 wird entfernt…"
 
-#: kxbps-qt/qml/Main.qml:317 kxbps-qt/qml/Main.qml:750
+#: kxbps-qt/qml/Main.qml:336 kxbps-qt/qml/Main.qml:877
 msgid "Repositories"
 msgstr "Repositories"
 
@@ -859,7 +931,7 @@ msgstr "Blockierte Pakete prüfen"
 msgid "Running xbps…"
 msgstr "xbps wird ausgeführt…"
 
-#: kxbps-qt/qml/Main.qml:856
+#: kxbps-qt/qml/Main.qml:983
 msgid "Search packages…"
 msgstr "Pakete suchen…"
 
@@ -880,15 +952,23 @@ msgstr "Ausgewählt"
 msgid "Server"
 msgstr "Server"
 
-#: kxbps-qt/qml/Main.qml:314 kxbps-qt/qml/Main.qml:765
+#: kxbps-qt/qml/Main.qml:333 kxbps-qt/qml/Main.qml:892
 msgid "Settings"
 msgstr "Einstellungen"
 
 #: kxbps-qt/qml/components/LogDrawer.qml:102
 #: kxbps-qt/qml/views/MirrorsView.qml:196
-#: kxbps-qt/qml/views/PackagesView.qml:957
+#: kxbps-qt/qml/views/PackagesView.qml:986
 msgid "Show"
 msgstr "Anzeigen"
+
+#: kxbps-qt/qml/components/Notifier.qml:47
+msgid "Show KXbps"
+msgstr "KXbps anzeigen"
+
+#: kxbps-qt/qml/views/SettingsView.qml:37
+msgid "Show desktop notifications"
+msgstr "Desktop-Benachrichtigungen anzeigen"
 
 #: kxbps-qt/qml/views/RepositoriesView.qml:204
 msgid "Signed"
@@ -907,11 +987,11 @@ msgstr "Größenstatistik"
 msgid "South America"
 msgstr "Südamerika"
 
-#: kxbps-qt/qml/views/SettingsView.qml:72
+#: kxbps-qt/qml/views/SettingsView.qml:60
 msgid "Start with the session"
 msgstr "Mit der Sitzung starten"
 
-#: kxbps-qt/qml/views/SettingsView.qml:71
+#: kxbps-qt/qml/views/SettingsView.qml:59
 msgid "Startup:"
 msgstr "Start:"
 
@@ -923,6 +1003,10 @@ msgstr "Zustand"
 #: kxbps-qt/qml/Main.qml:82
 msgid "Synchronising the repository index…"
 msgstr "Repository-Index wird synchronisiert…"
+
+#: kxbps-qt/qml/Main.qml:722
+msgid "System is up to date"
+msgstr "Das System ist auf dem neuesten Stand"
 
 #: kxbps-qt/qml/components/PlanDialog.qml:154
 msgid "System upgrade"
@@ -936,7 +1020,7 @@ msgstr "Diese Datei wurde nicht von KXbps geschrieben."
 msgid "The data directory could not be located: neither XDG_DATA_HOME nor HOME is set."
 msgstr "Das Datenverzeichnis konnte nicht ermittelt werden: weder XDG_DATA_HOME noch HOME ist gesetzt."
 
-#: kxbps-qt/qml/Main.qml:629
+#: kxbps-qt/qml/Main.qml:756
 msgid "The dry run returned nothing that could be applied."
 msgstr "Der Testlauf hat nichts ergeben, das angewendet werden könnte."
 
@@ -952,7 +1036,7 @@ msgstr "Das Hilfsprogramm hat die Spiegel-Adresse abgelehnt."
 msgid "The helper refused the repository URL."
 msgstr "Das Hilfsprogramm hat die Repository-Adresse abgelehnt."
 
-#: kxbps-qt/qml/Main.qml:362
+#: kxbps-qt/qml/Main.qml:381
 msgid "The mirror helper at %1 is not executable."
 msgstr "Das Spiegel-Hilfsprogramm unter %1 ist nicht ausführbar."
 
@@ -968,7 +1052,7 @@ msgstr "Das Spiegel-Hilfsprogramm ist fehlgeschlagen: %1"
 msgid "The new repository URL is not in effect: %1"
 msgstr "Die neue Repository-Adresse ist nicht wirksam: %1"
 
-#: kxbps-qt/qml/Main.qml:364 kxbps-qt/qml/views/RepositoriesView.qml:73
+#: kxbps-qt/qml/Main.qml:383 kxbps-qt/qml/views/RepositoriesView.qml:73
 msgid "The polkit policy is missing, so the system cannot ask for a password: run packaging/install.sh."
 msgstr "Die Polkit-Richtlinie fehlt, daher kann das System nicht nach einem Passwort fragen: packaging/install.sh ausführen."
 
@@ -980,11 +1064,15 @@ msgstr "Die vorherige Konfiguration konnte nicht wiederhergestellt werden: %1"
 msgid "The queue does not change the system."
 msgstr "Die Warteschlange ändert das System nicht."
 
+#: kxbps-qt/qml/Main.qml:730
+msgid "The repositories could not be read. The list below is unchanged. Last successful check: %1."
+msgstr "Die Repositories konnten nicht gelesen werden. Die folgende Liste bleibt unverändert. Letzte erfolgreiche Prüfung: %1."
+
 #: kxbps-qt/qml/views/RepositoriesView.qml:71
 msgid "The repository helper at %1 is not executable."
 msgstr "Das Repository-Hilfsprogramm unter %1 ist nicht ausführbar."
 
-#: kxbps-qt/qml/views/SettingsView.qml:90
+#: kxbps-qt/qml/views/SettingsView.qml:132
 msgid "The switches are saved to the application's state directory and survive a restart."
 msgstr "Die Schalter werden im Zustandsverzeichnis der Anwendung gespeichert und überstehen einen Neustart."
 
@@ -1012,7 +1100,7 @@ msgstr "Zu entfernen"
 msgid "To update"
 msgstr "Zu aktualisieren"
 
-#: kxbps-qt/qml/Main.qml:724
+#: kxbps-qt/qml/Main.qml:851
 msgid "Tools"
 msgstr "Werkzeuge"
 
@@ -1036,7 +1124,7 @@ msgstr "Freigeben"
 msgid "Unmark %1"
 msgstr "%1 abwählen"
 
-#: kxbps-qt/qml/Main.qml:879 kxbps-qt/qml/Main.qml:882
+#: kxbps-qt/qml/Main.qml:1006 kxbps-qt/qml/Main.qml:1009
 msgid "Unmark all"
 msgstr "Alle abwählen"
 
@@ -1053,25 +1141,17 @@ msgstr "Pakete werden entpackt…"
 msgid "Update"
 msgstr "Aktualisieren"
 
-#: kxbps-qt/qml/Main.qml:323
+#: kxbps-qt/qml/Main.qml:342
 msgid "Updates"
 msgstr "Aktualisierungen"
 
-#: kxbps-qt/qml/components/Notifier.qml:40
-msgid "Updates available"
-msgstr "Aktualisierungen verfügbar"
-
-#: kxbps-qt/qml/Main.qml:586
+#: kxbps-qt/qml/Main.qml:658
 msgid "Upgradable"
 msgstr "Aktualisierbar"
 
 #: kxbps-qt/qml/components/MirrorDelegate.qml:187
 msgid "Use %1"
 msgstr "%1 verwenden"
-
-#: kxbps-qt/qml/views/SettingsView.qml:54
-msgid "Use desktop notifications"
-msgstr "Desktop-Benachrichtigungen verwenden"
 
 #: kxbps-qt/qml/components/DetailsPane.qml:246
 #: kxbps-qt/qml/components/PlanDialog.qml:321
@@ -1085,6 +1165,12 @@ msgstr "Version %1"
 #: kxbps-qt/qml/Main.qml:78
 msgid "Waiting for authentication…"
 msgstr "Warten auf Authentifizierung…"
+
+#. The one switch since the reminder work: off means the tray
+#. icon is the only indicator.
+#: kxbps-qt/qml/views/SettingsView.qml:40
+msgid "When off, only the tray icon shows available updates."
+msgstr "Wenn aus, zeigt nur das Symbol im Infobereich verfügbare Aktualisierungen an."
 
 #: kxbps-qt/qml/views/MirrorsView.qml:85
 msgid "Worldwide"
@@ -1127,7 +1213,7 @@ msgid "xbps failed with exit code %1"
 msgstr "xbps ist mit Exit-Code %1 fehlgeschlagen"
 
 #: kxbps-qt/qml/components/LogDrawer.qml:90
-#: kxbps-qt/qml/components/StatusStrip.qml:101
+#: kxbps-qt/qml/components/StatusStrip.qml:112
 msgid "xbps log"
 msgstr "xbps-Log"
 
