@@ -24,7 +24,7 @@ use kxbps_core::{
 };
 
 use crate::xbps_runner::{
-    READ_TIMEOUT_MS, REMOTE_TIMEOUT_MS, XPBS_QUERY, XbpsOutput, argv, depends_argv, held_argv,
+    READ_TIMEOUT_MS, REMOTE_TIMEOUT_MS, XPBS_QUERY, XbpsOutput, depends_argv, held_argv,
     installed_argv, installed_search_argv, installed_sizes_argv, manual_argv, orphans_argv,
     property_argv, property_repo_argv, repo_filename_sizes_argv, repo_installed_sizes_argv,
     required_by_argv, run, search_argv, updates_argv, updates_remote_argv,
@@ -489,18 +489,19 @@ pub fn read_search(
 
 /// Runs one `xbps-query` take and answers with its output verbatim.
 ///
-/// The modes that are not a package list (`-L`, `-R`, `-x`, `-p`, …) have no
-/// parser here, and inventing rows from their lines would be a lie about what
-/// they print. The caller shows the text next to the command it belongs to; a
-/// failing take is still a translated key, so it reads like every other failure.
-pub fn read_raw(invoke: &Invoke, mode: &str, pattern: &str) -> Result<RawOutput, SnapshotError> {
-    let argv = if pattern.is_empty() {
-        argv(XPBS_QUERY, &[mode])
-    } else {
-        argv(XPBS_QUERY, &[mode, pattern])
+/// The caller builds the argv: the Query page runs takes that are not a package
+/// list (`-x`, `-X`, `-f`, `-o`, `-p`), and a row invented from their lines
+/// would misrepresent what they print. The text is shown next to the command it
+/// belongs to; a failing take is still a translated key, so it reads like every
+/// other failure.
+pub fn read_raw(invoke: &Invoke, command: &[String]) -> Result<RawOutput, SnapshotError> {
+    let Some(program) = command.first().cloned() else {
+        return Err(SnapshotError::Start {
+            program: XPBS_QUERY.to_owned(),
+            reason: "no command".to_owned(),
+        });
     };
-    let program = argv[0].clone();
-    let output = run(&argv, READ_TIMEOUT_MS, invoke).map_err(|err| SnapshotError::Reply {
+    let output = run(command, READ_TIMEOUT_MS, invoke).map_err(|err| SnapshotError::Reply {
         reason: err.to_string(),
     })?;
     if output.timed_out {
@@ -520,7 +521,7 @@ pub fn read_raw(invoke: &Invoke, mode: &str, pattern: &str) -> Result<RawOutput,
         });
     }
     Ok(RawOutput {
-        command: argv.join(" "),
+        command: command.join(" "),
         text: output.stdout,
     })
 }
@@ -788,6 +789,7 @@ pub type SharedInvoke = std::sync::Arc<Invoke>;
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::xbps_runner::repos_argv;
 
     /// A shim reply with the given stdout and a clean exit.
     fn ok_reply(stdout: &str) -> String {
@@ -1387,8 +1389,11 @@ mod tests {
     fn read_raw_answers_verbatim_and_names_the_command() {
         let repos = "1 https://repo.voidlinux.org/current (RSA signed)\n\
                      0 https://repo.voidlinux.org/multilib (RSA signed)\n";
-        let output = read_raw(&transport_by_mode(vec![("-L", ok_reply(repos))]), "-L", "")
-            .expect("a repository list lands");
+        let output = read_raw(
+            &transport_by_mode(vec![("-L", ok_reply(repos))]),
+            &repos_argv(),
+        )
+        .expect("a repository list lands");
         assert_eq!(
             output.text, repos,
             "the block shows exactly what xbps printed"
@@ -1398,8 +1403,7 @@ mod tests {
         let depends = "glibc>=2.41_1\nzlib>=1.3\n";
         let output = read_raw(
             &transport_by_mode(vec![("-x", ok_reply(depends))]),
-            "-x",
-            "vim",
+            &depends_argv("vim"),
         )
         .expect("a dependency list lands");
         assert_eq!(output.text, depends);
@@ -1412,7 +1416,8 @@ mod tests {
             "-p",
             r#"{"exitCode":2,"stdout":"","stderr":"missing","timedOut":false}"#.to_owned(),
         )];
-        let error = read_raw(&transport_by_mode(modes), "-p", "state vim").expect_err("no answer");
+        let error = read_raw(&transport_by_mode(modes), &property_argv("state", "vim"))
+            .expect_err("no answer");
         assert_eq!(error.key(), "errorXbpsExit");
         assert_eq!(error.args(), ["xbps-query", "2", "missing"]);
     }

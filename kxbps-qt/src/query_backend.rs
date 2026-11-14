@@ -1,18 +1,19 @@
-//! Query façade for QML: the repository search and the facts of one package,
-//! both read from xbps through the runner.
+//! Query façade for QML: the raw `xbps-query` takes of the Query page and the
+//! facts of one package, both read from xbps through the runner.
 //!
 //! The package *model* is owned by [`crate::installed_backend::InstalledBackend`],
 //! because it needs the store's installed and queue snapshots. This object
-//! answers `search()` / `results()` and `get()` — and it receives the *same*
-//! snapshot from that backend (`queryBackend` in QML), so a search hit answers
-//! `isUpdate`/`held` from the same source as a list row.
+//! answers the Query page's `search()` (verbatim output, no rows) and the
+//! details pane's `get()`, and it receives the *same* snapshot from that
+//! backend (`queryBackend` in QML), so the facts answer `isUpdate`/`held` from
+//! the same source as a list row.
 //!
-//! Neither answer comes from the embedded catalog: a search runs
-//! `xbps-query -Rs <pattern>` (or `-s` for a mode that lists the installed
-//! set) and the facts of one package run the two property takes and the two
+//! Neither answer comes from the embedded catalog: the Query page runs one of
+//! the five diagnostics in [`QueryMode::ALL`] (`-x`, `-X`, `-f`, `-o`, `-p`),
+//! and the facts of one package run the two property takes and the two
 //! dependency lists, both on a worker thread through the same injected
-//! transport as the snapshot reads. The catalog is still loaded for the first
-//! frame of the package list; 17b3 retires it.
+//! transport as the snapshot reads. The Available listing has its own path
+//! (`read_list_search`), which stays a repository search and is not this one.
 
 use std::collections::HashMap;
 use std::pin::Pin;
@@ -21,10 +22,10 @@ use std::sync::atomic::{AtomicU64, Ordering};
 
 use cxx_qt::CxxQtType;
 use cxx_qt::Threading;
-use cxx_qt_lib::{QList, QMap, QMapPair_QString_QVariant, QString, QStringList, QVariant};
-use kxbps_core::{InstalledMap, QueueAction, QueueItem, SearchHit, UpdateEntry, split_pkgver};
+use cxx_qt_lib::{QMap, QMapPair_QString_QVariant, QString, QStringList, QVariant};
+use kxbps_core::{InstalledMap, QueryMode, QueueAction, QueueItem, UpdateEntry, split_pkgver};
 
-use crate::package_model::{self, InstalledState, RowView};
+use crate::package_model::InstalledState;
 use crate::xbps_snapshot::{
     PackageFacts, RawOutput, SearchSource, SharedInvoke, SnapshotError, read_package, read_raw,
     read_search,
@@ -87,9 +88,6 @@ impl ListAnswers {
 #[cxx_qt::bridge]
 pub mod qobject {
     unsafe extern "C++" {
-        include!("cxx-qt-lib/core/qlist/qlist_QVariant.h");
-        type QList_QVariant = cxx_qt_lib::QList<cxx_qt_lib::QVariant>;
-
         include!("cxx-qt-lib/core/qmap/qmap_QString_QVariant.h");
         type QMap_QString_QVariant = cxx_qt_lib::QMap<cxx_qt_lib::QMapPair_QString_QVariant>;
 
@@ -109,13 +107,14 @@ pub mod qobject {
         #[qml_element]
         #[qproperty(QString, search_error, READ, NOTIFY)]
         #[qproperty(QStringList, search_error_args, READ, NOTIFY)]
-        #[qproperty(i32, result_count, READ, NOTIFY)]
-        #[qproperty(i32, results_revision, READ, NOTIFY)]
+        /// The mode selector's tokens, in the order it offers them. Command
+        /// syntax, never translated; QML renders this list instead of keeping
+        /// a second copy that could drift from `QueryMode::ALL`.
+        #[qproperty(QStringList, query_modes, READ, CONSTANT)]
         /// Whether the newest query is still being read.
         #[qproperty(bool, searching, READ, NOTIFY)]
-        // A mode that is not a package list prints text, not rows: the text of
-        // the newest `read_raw` answer and the command it came from. Empty
-        // `raw_text` means the newest answer was a list.
+        // Every take of this page prints text, never package rows: the output
+        // of the newest `read_raw` answer and the command it came from.
         #[qproperty(QString, raw_text, READ, NOTIFY)]
         #[qproperty(QString, raw_command, READ, NOTIFY)]
         #[qproperty(QString, facts_error, READ, NOTIFY)]
@@ -127,14 +126,11 @@ pub mod qobject {
         #[qinvokable]
         fn version(self: &QueryBackend) -> QString;
 
-        /// Runs a search on a worker thread. The hits of the previous answer
-        /// stay until it lands; QML re-reads through `resultsRevision`.
+        /// Runs one diagnostic take on a worker thread. The output of the
+        /// previous answer stays until the new one lands; `rawText` and
+        /// `rawCommand` notify when it does.
         #[qinvokable]
         fn search(self: Pin<&mut QueryBackend>, query: &QString, mode: &QString);
-
-        /// The hits of the newest answer, as role-keyed maps.
-        #[qinvokable]
-        fn results(self: &QueryBackend) -> QList_QVariant;
 
         /// The facts of one pkgver, as a role-keyed map. An empty map while the
         /// first read is in flight; QML re-reads through `factsRevision`.
@@ -221,14 +217,14 @@ pub struct QueryBackendRust {
     answer: SearchAnswer,
     /// The signature of the newest search, pending or answered.
     signature: SearchSignature,
-    /// Which database the newest search reads.
-    search_source: SearchSource,
+    /// The mode selector's tokens, in the order it offers them. A property of
+    /// its own so QML renders exactly `QueryMode::ALL` instead of keeping a
+    /// second list that could drift.
+    query_modes: QStringList,
     search_error: QString,
     search_error_args: QStringList,
-    result_count: i32,
-    results_revision: i32,
     searching: bool,
-    /// The text a mode that is not a package list printed, and its command.
+    /// The text the newest take printed, and its command.
     raw_text: QString,
     raw_command: QString,
     /// The facts of one package per pkgver read.
@@ -251,10 +247,8 @@ pub struct QueryBackendRust {
 /// What a search is asked for: a moved signature makes an answer stale.
 #[derive(Clone, Debug, PartialEq, Eq)]
 struct SearchSignature {
-    source: SearchSource,
-    /// The `-Rs`/`-s` token or, for a mode that is not a package list, the
-    /// `-L`/`-x`/… token. Empty for the default repository search.
-    mode: String,
+    /// The diagnostic that was run.
+    mode: QueryMode,
     query: String,
 }
 
@@ -262,39 +256,43 @@ impl Default for SearchSignature {
     /// The signature of no query at all.
     fn default() -> Self {
         Self {
-            source: SearchSource::Repository,
-            mode: String::new(),
+            mode: QueryMode::X,
             query: String::new(),
         }
     }
 }
 
 impl SearchSignature {
-    fn new(source: SearchSource, mode: &str, query: &str) -> Self {
+    fn new(mode: QueryMode, query: &str) -> Self {
         Self {
-            source,
-            mode: mode.to_owned(),
+            mode,
             query: query.to_owned(),
         }
-    }
-
-    /// Whether this signature asks for a package list at all.
-    fn lists_packages(&self) -> bool {
-        self.mode.is_empty()
     }
 }
 
 /// One answer of a search, tagged with the signature it answers.
 ///
-/// A failed search keeps the error next to no hits: the window shows the key
-/// and never a row it invented.
+/// A failed take keeps the error next to no text: the window shows the key and
+/// never output it invented.
 #[derive(Default)]
 struct SearchAnswer {
     signature: SearchSignature,
     error: Option<SnapshotError>,
-    hits: Vec<SearchHit>,
-    /// The text of a mode that is not a package list; `None` for a list.
+    /// What the take printed; `None` when it failed before printing.
     raw: Option<RawOutput>,
+}
+
+/// What a landed answer moved, so the bridge emits exactly the notifications
+/// its properties declare.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+struct AnswerEffect {
+    /// The answer belongs to the newest query.
+    fresh: bool,
+    /// `rawText` changed and its NOTIFY has to be emitted.
+    raw_text_moved: bool,
+    /// `rawCommand` changed and its NOTIFY has to be emitted.
+    raw_command_moved: bool,
 }
 
 impl Default for QueryBackendRust {
@@ -308,11 +306,12 @@ impl Default for QueryBackendRust {
             invoke: crate::xbps_bridge::production_invoke(),
             answer: SearchAnswer::default(),
             signature: SearchSignature::default(),
-            search_source: SearchSource::Repository,
+            query_modes: QueryMode::ALL
+                .iter()
+                .map(|mode| QString::from(mode.token()))
+                .collect(),
             search_error: QString::from(""),
             search_error_args: QStringList::default(),
-            result_count: 0,
-            results_revision: 0,
             searching: false,
             raw_text: QString::from(""),
             raw_command: QString::from(""),
@@ -338,53 +337,40 @@ impl qobject::QueryBackend {
         QString::from(env!("CARGO_PKG_VERSION"))
     }
 
-    /// One `xbps-query` search, on a worker thread; `resultsRevision` re-reads
-    /// the hits.
+    /// One diagnostic `xbps-query` take, on a worker thread; `rawText` and
+    /// `rawCommand` notify when its output lands.
     fn search(mut self: Pin<&mut Self>, query: &cxx_qt_lib::QString, mode: &cxx_qt_lib::QString) {
-        let mode = mode.to_string();
-        let source = self.rust().source_for_mode(&mode);
-        let list_mode = self.rust().lists_packages(&mode);
+        let token = mode.to_string();
         let query = trimmed(query);
-        let signature = if list_mode {
-            SearchSignature::new(source, "", &query)
-        } else {
-            SearchSignature::new(source, &QueryBackendRust::raw_flag(&mode), &query)
+        // The selector renders `QueryMode::ALL`, so an unknown token can only
+        // come from a broken caller; running nothing is the honest answer.
+        let Some(mode) = QueryMode::from_token(&token) else {
+            return;
         };
-        let empty = list_mode && query.is_empty();
+        let signature = SearchSignature::new(mode, &query);
         {
             let data = Pin::get_mut(self.as_mut().rust_mut());
             // The newest answer already covers this take; nothing to read.
             if data.answer.signature == signature {
                 return;
             }
-            if empty {
-                // A listing mode needs a pattern: an empty field answers
-                // nothing, and any read still in flight is now stale.
+            if query.is_empty() {
+                // No diagnostic answers an empty pattern: the field is what the
+                // take asks about, and any read still in flight is now stale.
                 data.clear_answer();
-                data.results_revision = data.results_revision.wrapping_add(1);
             } else {
                 data.begin_search(signature.clone());
             }
         }
         self.as_mut().searching_changed();
-        if empty {
-            self.as_mut().result_count_changed();
-            self.as_mut().results_revision_changed();
+        if query.is_empty() {
+            self.as_mut().search_error_changed();
+            self.as_mut().search_error_args_changed();
+            self.as_mut().raw_text_changed();
+            self.as_mut().raw_command_changed();
             return;
         }
         self.as_mut().run_search(signature);
-    }
-
-    /// The hits of the newest answer, as role-keyed maps.
-    fn results(&self) -> QList<QVariant> {
-        QList::from(
-            self.rust()
-                .answer
-                .hits
-                .iter()
-                .map(|hit| QVariant::from(&self.hit_map(hit)))
-                .collect::<Vec<_>>(),
-        )
     }
 
     /// The facts of one pkgver: the cached answer, or an empty map while a read
@@ -580,67 +566,6 @@ impl QueryBackendRust {
         }
     }
 
-    /// Which database a mode searches. Modes that list a set read the
-    /// installed database; every other mode is a repository search, which is
-    /// all `xbps-query` offers for a pattern.
-    fn source_for_mode(&self, token: &str) -> SearchSource {
-        match token {
-            "l" | "m" | "O" | "H" => SearchSource::Installed,
-            _ => SearchSource::Repository,
-        }
-    }
-
-    /// Whether the mode answers with package rows. `-Rs`/`-s` search and
-    /// `-l`/`-m`/`-O`/`-H` list a set; every other mode prints something that
-    /// is not a list of packages (`-L` repositories, `-x` dependencies, …),
-    /// and a row built from one of its lines would be invented.
-    fn lists_packages(&self, token: &str) -> bool {
-        matches!(token, "Rs" | "s" | "l" | "m" | "O" | "H")
-    }
-
-    /// The `xbps-query` flag of a QML mode token: `"Rs"` is `-Rs`, `"p"` is
-    /// `-p`, and the rest read the same way.
-    fn raw_flag(token: &str) -> String {
-        format!("-{token}")
-    }
-
-    /// One hit as a `QVariantMap`, keyed like a model row plus `pkgver`.
-    ///
-    /// Only what the search printed is filled in: the tag decides `installed`,
-    /// the version is the one the hit carries, and the installed record fills
-    /// the rest when the snapshot knows the package. Size, category and
-    /// repository stay empty, because a `-Rs` line names none of them.
-    fn hit_map(&self, hit: &SearchHit) -> QMap<QMapPair_QString_QVariant> {
-        let installed = self.installed.get(&hit.name);
-        let queued = self.queue.get(&hit.name).copied();
-        let update_to = self.state.update_to(&hit.name);
-        let row = RowView {
-            name: &hit.name,
-            version: &hit.version,
-            installed,
-            queued,
-            update_to,
-            description: Some(&hit.description),
-            // A `-Rs` line names no size; the list column for a search result
-            // stays empty rather than borrowing the installed package's size
-            // for a repository hit of another version.
-            size: None,
-            update_size: None,
-            download: None,
-        };
-        let mut map = QMap::default();
-        for (_, name) in package_model::ROLES {
-            if let Some(value) = package_model::field_value(name, &row) {
-                map.insert_clone(&QString::from(name), &value);
-            }
-        }
-        map.insert_clone(
-            &QString::from("pkgver"),
-            &QVariant::from(&QString::from(hit.pkgver.clone())),
-        );
-        map
-    }
-
     /// The facts of one package as a `QVariantMap`, keyed as the details pane
     /// reads them. An xbps field that came back empty stays empty.
     fn facts_map(&self, name: &str, facts: &PackageFacts) -> QMap<QMapPair_QString_QVariant> {
@@ -783,7 +708,6 @@ impl QueryBackendRust {
     /// Moves the window to a new query; the previous answer stays until it
     /// lands.
     fn begin_search(&mut self, signature: SearchSignature) {
-        self.search_source = signature.source;
         self.signature = signature;
         self.search_error = QString::from("");
         self.search_error_args = QStringList::default();
@@ -799,30 +723,33 @@ impl QueryBackendRust {
         self.answer = SearchAnswer::default();
         self.search_error = QString::from("");
         self.search_error_args = QStringList::default();
-        self.result_count = 0;
         self.searching = false;
         self.raw_text = QString::from("");
         self.raw_command = QString::from("");
     }
 
-    /// Drops a stale answer with no side effect; a fresh one names its error
-    /// and counts its hits.
-    fn announce_answer(&mut self, answer: &SearchAnswer, current: &SearchSignature) -> bool {
+    /// Applies a landed answer and reports which properties moved.
+    ///
+    /// A stale answer has no side effect. The caller emits exactly the
+    /// notifications this names: the two raw properties declared NOTIFY, and
+    /// nothing was ever emitting theirs before.
+    fn announce_answer(
+        &mut self,
+        answer: &SearchAnswer,
+        current: &SearchSignature,
+    ) -> AnswerEffect {
         if answer.signature != *current {
-            return false;
+            return AnswerEffect::default();
         }
         self.searching = false;
-        self.result_count = i32::try_from(answer.hits.len()).unwrap_or(i32::MAX);
-        match &answer.raw {
-            Some(raw) => {
-                self.raw_text = QString::from(raw.text.as_str());
-                self.raw_command = QString::from(raw.command.as_str());
-            }
-            None => {
-                self.raw_text = QString::from("");
-                self.raw_command = QString::from("");
-            }
-        }
+        let (text, command) = match &answer.raw {
+            Some(raw) => (raw.text.as_str(), raw.command.as_str()),
+            None => ("", ""),
+        };
+        let raw_text_moved = self.raw_text.to_string() != text;
+        let raw_command_moved = self.raw_command.to_string() != command;
+        self.raw_text = QString::from(text);
+        self.raw_command = QString::from(command);
         match &answer.error {
             Some(err) => {
                 self.search_error = QString::from(err.key());
@@ -833,17 +760,11 @@ impl QueryBackendRust {
                 self.search_error_args = QStringList::default();
             }
         }
-        true
-    }
-
-    /// Applies a fresh answer, unless the newest one already has those hits.
-    fn finish_answer(&mut self, answer: SearchAnswer, current: &SearchSignature) -> bool {
-        if answer.signature != *current {
-            return false;
+        AnswerEffect {
+            fresh: true,
+            raw_text_moved,
+            raw_command_moved,
         }
-        let same = self.answer.signature == answer.signature && self.answer.hits == answer.hits;
-        self.answer = answer;
-        !same
     }
 
     /// Applies a finished facts read unless a newer one owns the window.
@@ -867,33 +788,23 @@ impl QueryBackendRust {
 }
 
 impl qobject::QueryBackend {
-    /// Reads the hits on a worker thread and hands them back on the GUI thread.
+    /// Runs the take on a worker thread and hands the output back on the GUI
+    /// thread.
     fn run_search(self: Pin<&mut Self>, signature: SearchSignature) {
         let generation = self.rust().search_generation.load(Ordering::SeqCst);
         let thread = self.qt_thread();
         let current = self.search_generation.clone();
         let invoke = self.invoke.clone();
+        let command = crate::xbps_runner::query_take_argv(signature.mode, &signature.query);
         std::thread::spawn(move || {
-            let answer = if signature.lists_packages() {
-                let result = read_search(&*invoke, signature.source, &signature.query);
-                SearchAnswer {
-                    signature,
-                    error: result.as_ref().err().cloned(),
-                    hits: result.unwrap_or_default(),
-                    raw: None,
-                }
-            } else {
-                let result = read_raw(&*invoke, &signature.mode, &signature.query);
-                let (raw, error) = match result {
-                    Ok(raw) => (Some(raw), None),
-                    Err(err) => (None, Some(err)),
-                };
-                SearchAnswer {
-                    signature,
-                    error,
-                    hits: Vec::new(),
-                    raw,
-                }
+            let (raw, error) = match read_raw(&*invoke, &command) {
+                Ok(raw) => (Some(raw), None),
+                Err(err) => (None, Some(err)),
+            };
+            let answer = SearchAnswer {
+                signature,
+                error,
+                raw,
             };
             // The closure runs on the GUI thread; `thread.queue` fails only
             // once the backend is gone, and then nobody wants the result.
@@ -914,25 +825,27 @@ impl qobject::QueryBackend {
             return;
         }
         let signature = self.rust().signature.clone();
-        let fresh = {
+        let effect = {
             let data = Pin::get_mut(self.as_mut().rust_mut());
             data.announce_answer(&answer, &signature)
         };
-        if !fresh {
+        if !effect.fresh {
             return;
         }
-        let changed = {
+        // The newest answer becomes the one a repeated take is compared with,
+        // so pressing Enter twice does not run xbps twice.
+        {
             let data = Pin::get_mut(self.as_mut().rust_mut());
-            data.finish_answer(answer, &signature)
-        };
+            data.answer = answer;
+        }
         self.as_mut().searching_changed();
-        self.as_mut().result_count_changed();
         self.as_mut().search_error_changed();
         self.as_mut().search_error_args_changed();
-        if changed {
-            let data = Pin::get_mut(self.as_mut().rust_mut());
-            data.results_revision = data.results_revision.wrapping_add(1);
-            self.as_mut().results_revision_changed();
+        if effect.raw_text_moved {
+            self.as_mut().raw_text_changed();
+        }
+        if effect.raw_command_moved {
+            self.as_mut().raw_command_changed();
         }
     }
 
@@ -1018,16 +931,6 @@ mod tests {
             .unwrap_or(false)
     }
 
-    fn hit(name: &str, version: &str, installed: bool) -> SearchHit {
-        SearchHit {
-            installed,
-            name: name.to_owned(),
-            version: version.to_owned(),
-            pkgver: format!("{name}-{version}"),
-            description: format!("{name} description"),
-        }
-    }
-
     fn reply(exit_code: i32, stdout: &str, stderr: &str) -> String {
         serde_json::json!({
             "exitCode": exit_code,
@@ -1065,13 +968,15 @@ mod tests {
         }
     }
 
-    /// A finished answer for `query`, as a worker would hand it back.
-    fn answer(source: SearchSource, query: &str, hits: Vec<SearchHit>) -> SearchAnswer {
+    /// A finished raw answer, as a worker would hand it back.
+    fn raw_answer(signature: SearchSignature, command: &str, text: &str) -> SearchAnswer {
         SearchAnswer {
-            signature: SearchSignature::new(source, "", query),
+            signature,
             error: None,
-            hits,
-            raw: None,
+            raw: Some(RawOutput {
+                command: command.to_owned(),
+                text: text.to_owned(),
+            }),
         }
     }
 
@@ -1101,88 +1006,69 @@ mod tests {
     }
 
     #[test]
-    fn every_mode_token_selects_the_database_it_names() {
-        let backend = QueryBackendRust::default();
-        for token in ["l", "m", "O", "H"] {
-            assert_eq!(
-                backend.source_for_mode(token),
-                SearchSource::Installed,
-                "token {token}"
-            );
-        }
-        for token in [
-            "Rs", "s", "R", "show", "x", "X", "f", "o", "L", "p", "nonsense",
-        ] {
-            assert_eq!(
-                backend.source_for_mode(token),
-                SearchSource::Repository,
-                "token {token}"
-            );
-        }
-    }
-
-    #[test]
-    fn a_finished_search_replaces_the_hits_and_the_count() {
-        let mut backend = with_invoke(fake(vec![("-Rs", reply(0, "", ""))]));
-        backend.begin_search(SearchSignature::new(SearchSource::Repository, "", "lib"));
-        let signature = backend.signature.clone();
-        let landed = answer(
-            SearchSource::Repository,
-            "lib",
-            vec![hit("lib", "6.18.63_1", true), hit("libx", "1_1", false)],
+    fn a_raw_answer_publishes_its_text_and_command_and_asks_for_both_notifications() {
+        let mut backend = QueryBackendRust::default();
+        let signature = SearchSignature::new(QueryMode::X, "vim");
+        backend.begin_search(signature.clone());
+        let landed = raw_answer(signature.clone(), "xbps-query -x vim", "glibc>=2.41_1\n");
+        let effect = backend.announce_answer(&landed, &signature);
+        assert!(effect.fresh);
+        assert!(
+            effect.raw_text_moved,
+            "the output block has to re-read its text"
         );
-        assert!(backend.announce_answer(&landed, &signature));
-        let changed = backend.finish_answer(landed, &signature);
-        assert!(changed, "a new set of hits is a new revision");
-        assert_eq!(backend.result_count, 2);
-        assert_eq!(backend.answer.hits[0].name, "lib");
+        assert!(
+            effect.raw_command_moved,
+            "the command label has to re-read its command"
+        );
+        assert_eq!(backend.raw_text.to_string(), "glibc>=2.41_1\n");
+        assert_eq!(backend.raw_command.to_string(), "xbps-query -x vim");
         assert!(!backend.searching);
         assert_eq!(backend.search_error.to_string(), "");
     }
 
     #[test]
-    fn a_stale_search_answer_never_overwrites_a_newer_query() {
-        let mut backend = with_invoke(fake(vec![("-Rs", reply(0, "", ""))]));
-        backend.begin_search(SearchSignature::new(SearchSource::Repository, "", "lib"));
-        let slow = answer(
-            SearchSource::Repository,
-            "lib",
-            vec![hit("lib", "6.18.63_1", true)],
+    fn a_stale_raw_answer_never_overwrites_a_newer_query() {
+        let mut backend = QueryBackendRust::default();
+        let slow = raw_answer(
+            SearchSignature::new(QueryMode::X, "vim"),
+            "xbps-query -x vim",
+            "glibc>=2.41_1\n",
         );
         // The field moved on before the slow answer arrived.
-        backend.begin_search(SearchSignature::new(SearchSource::Repository, "", "li"));
+        backend.begin_search(SearchSignature::new(QueryMode::X, "vi"));
         let current = backend.signature.clone();
+        let effect = backend.announce_answer(&slow, &current);
         assert!(
-            !backend.announce_answer(&slow, &current),
+            !effect.fresh,
             "an answer for a query nobody is asking any more is dropped"
         );
-        assert!(
-            !backend.finish_answer(slow, &current),
-            "and it never becomes the window"
-        );
-        assert_eq!(backend.result_count, 0);
-        assert_eq!(backend.answer.hits.len(), 0);
+        assert!(!effect.raw_text_moved);
+        assert_eq!(backend.raw_text.to_string(), "");
+        assert_eq!(backend.raw_command.to_string(), "");
     }
 
     #[test]
-    fn a_failed_search_keeps_no_rows_and_names_the_key() {
-        let mut backend = with_invoke(fake(vec![("-Rs", reply(0, "", ""))]));
-        backend.begin_search(SearchSignature::new(SearchSource::Repository, "", "lib"));
-        let signature = backend.signature.clone();
+    fn a_failed_raw_take_names_the_key_and_keeps_the_block_empty() {
+        let mut backend = QueryBackendRust::default();
+        let signature = SearchSignature::new(QueryMode::P, "pkgver vim");
+        backend.begin_search(signature.clone());
         let landed = SearchAnswer {
             signature: signature.clone(),
             error: Some(SnapshotError::Exit {
                 program: "xbps-query".into(),
                 code: 2,
-                stderr: "broken index".into(),
+                stderr: "missing package".into(),
             }),
-            hits: Vec::new(),
             raw: None,
         };
-        assert!(backend.announce_answer(&landed, &signature));
-        backend.finish_answer(landed, &signature);
-        assert_eq!(backend.result_count, 0, "a failure leaves no rows");
-        assert!(backend.answer.hits.is_empty());
+        let effect = backend.announce_answer(&landed, &signature);
+        assert!(effect.fresh);
+        assert!(
+            !effect.raw_text_moved,
+            "a failure prints no text and the empty state says so"
+        );
+        assert_eq!(backend.raw_text.to_string(), "");
         assert_eq!(backend.search_error.to_string(), "errorXbpsExit");
         assert_eq!(
             backend
@@ -1190,57 +1076,29 @@ mod tests {
                 .iter()
                 .map(QString::to_string)
                 .collect::<Vec<_>>(),
-            ["xbps-query", "2", "broken index"]
+            ["xbps-query", "2", "missing package"]
         );
     }
 
     #[test]
-    fn a_mode_that_is_not_a_list_answers_with_text_and_no_rows() {
-        let mut backend = with_invoke(fake(vec![(
-            "-L",
-            reply(0, "1 https://repo.voidlinux.org/current (RSA signed)\n", ""),
-        )]));
-        // `-L` never reads the installed database and never parses a hit.
-        assert!(!backend.lists_packages("L"));
-        backend.begin_search(SearchSignature::new(SearchSource::Repository, "L", ""));
-        let signature = backend.signature.clone();
-        let raw = read_raw(
-            &*backend.invoke.clone(),
-            &QueryBackendRust::raw_flag("L"),
-            "",
-        )
-        .expect("a repository list lands");
-        let landed = SearchAnswer {
-            signature: signature.clone(),
-            error: None,
-            hits: Vec::new(),
-            raw: Some(raw),
-        };
+    fn an_empty_query_clears_the_text_the_command_and_the_error() {
+        let mut backend = QueryBackendRust::default();
+        let signature = SearchSignature::new(QueryMode::X, "vim");
+        backend.begin_search(signature.clone());
+        let landed = raw_answer(signature.clone(), "xbps-query -x vim", "glibc\n");
         backend.announce_answer(&landed, &signature);
-        backend.finish_answer(landed, &signature);
-        assert_eq!(backend.result_count, 0, "no row is invented from a line");
-        assert!(backend.answer.hits.is_empty());
-        assert_eq!(backend.raw_command.to_string(), "xbps-query -L");
-        assert!(
-            backend
-                .raw_text
-                .to_string()
-                .starts_with("1 https://repo.voidlinux.org/current"),
-            "the block shows what xbps printed"
-        );
-    }
+        assert_eq!(backend.raw_text.to_string(), "glibc\n");
 
-    #[test]
-    fn only_the_list_modes_are_read_as_packages() {
-        let backend = QueryBackendRust::default();
-        for token in ["Rs", "s", "l", "m", "O", "H"] {
-            assert!(backend.lists_packages(token), "token {token}");
-        }
-        for token in ["L", "show", "x", "X", "f", "o", "R", "p"] {
-            assert!(!backend.lists_packages(token), "token {token}");
-        }
-        assert_eq!(QueryBackendRust::raw_flag("show"), "-show");
-        assert_eq!(QueryBackendRust::raw_flag("Rs"), "-Rs");
+        backend.clear_answer();
+        assert_eq!(
+            backend.raw_text.to_string(),
+            "",
+            "an empty field answers nothing"
+        );
+        assert_eq!(backend.raw_command.to_string(), "");
+        assert_eq!(backend.search_error.to_string(), "");
+        assert!(!backend.searching);
+        assert_eq!(backend.signature, SearchSignature::default());
     }
 
     #[test]
@@ -1376,28 +1234,6 @@ mod tests {
     }
 
     #[test]
-    fn an_empty_query_clears_the_rows_and_the_error() {
-        let mut backend = with_invoke(fake(vec![("-Rs", reply(0, "", ""))]));
-        backend.begin_search(SearchSignature::new(SearchSource::Repository, "", "lib"));
-        let signature = backend.signature.clone();
-        let landed = answer(
-            SearchSource::Repository,
-            "lib",
-            vec![hit("lib", "6.18.63_1", true)],
-        );
-        backend.announce_answer(&landed, &signature);
-        backend.finish_answer(landed, &signature);
-        assert_eq!(backend.result_count, 1);
-
-        backend.clear_answer();
-        assert_eq!(backend.result_count, 0, "an empty query answers nothing");
-        assert!(backend.answer.hits.is_empty());
-        assert!(!backend.searching);
-        assert_eq!(backend.search_error.to_string(), "");
-        assert_eq!(backend.signature, SearchSignature::default());
-    }
-
-    #[test]
     fn a_facts_read_for_an_older_pkgver_is_dropped() {
         let mut backend = QueryBackendRust::default();
         backend.begin_facts("vim-9.2.1031_1");
@@ -1504,81 +1340,6 @@ mod tests {
         assert!(flag_of(&map, "explicit"));
         assert!(flag_of(&map, "isUpdate"));
         assert_eq!(text_of(&map, "queuedAction"), "remove");
-    }
-
-    #[test]
-    fn a_search_hit_map_carries_the_snapshot_and_no_invented_facts() {
-        let backend = QueryBackendRust::default();
-        let map = backend.hit_map(&hit("libx", "1_1", false));
-        assert_eq!(text_of(&map, "name"), "libx");
-        assert_eq!(text_of(&map, "version"), "1_1");
-        assert_eq!(text_of(&map, "pkgver"), "libx-1_1");
-        assert_eq!(text_of(&map, "installedVersion"), "");
-        assert_eq!(text_of(&map, "short"), "libx description");
-        assert_eq!(text_of(&map, "repo"), "", "`-Rs` reports no repository");
-        assert_eq!(text_of(&map, "category"), "", "and no category");
-        assert_eq!(text_of(&map, "size"), "", "and no size");
-        assert!(!flag_of(&map, "installed"));
-    }
-
-    #[test]
-    fn a_search_hit_map_reports_the_installed_record_it_knows() {
-        let mut installed = InstalledMap::new();
-        installed.insert(
-            "vim".to_owned(),
-            Inst {
-                version: "9.2.1031_1".to_owned(),
-                explicit: true,
-                held: false,
-                at: 7,
-            },
-        );
-        let mut backend = QueryBackendRust::default();
-        backend.apply_snapshot(installed, Vec::new(), Vec::new(), Vec::new());
-        let map = backend.hit_map(&hit("vim", "9.2.1031_1", true));
-        assert_eq!(text_of(&map, "installedVersion"), "9.2.1031_1");
-        assert!(
-            flag_of(&map, "explicit"),
-            "the hit repeats the installed record"
-        );
-        assert_eq!(text_of(&map, "short"), "vim description");
-        assert!(!flag_of(&map, "isUpdate"), "nothing is pending for vim");
-        assert!(!flag_of(&map, "held"));
-        assert_eq!(text_of(&map, "queuedAction"), "");
-    }
-
-    #[test]
-    fn a_search_hit_map_reports_the_pending_update_and_the_queue() {
-        let mut installed = InstalledMap::new();
-        installed.insert(
-            "vim".to_owned(),
-            Inst {
-                version: "9.2.1031_1".to_owned(),
-                explicit: true,
-                held: false,
-                at: 7,
-            },
-        );
-        let updates: Vec<UpdateEntry> = serde_json::from_str(
-            r#"[{"name":"vim","version":"9.9","pkgver":"vim-9.9_1","action":"update",
-                 "arch":"x86_64","repository":"https://r/current",
-                 "installedSize":1,"downloadSize":1}]"#,
-        )
-        .unwrap();
-        let mut backend = QueryBackendRust::default();
-        backend.apply_snapshot(
-            installed,
-            vec![QueueItem {
-                name: "vim".into(),
-                action: QueueAction::Update,
-            }],
-            updates,
-            Vec::new(),
-        );
-        let map = backend.hit_map(&hit("vim", "9.2.1031_1", true));
-        assert!(flag_of(&map, "isUpdate"));
-        assert_eq!(text_of(&map, "updateVersion"), "9.9");
-        assert_eq!(text_of(&map, "queuedAction"), "update");
     }
 
     #[test]

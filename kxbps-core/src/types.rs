@@ -115,98 +115,67 @@ pub enum ListFilter {
     Queued,
 }
 
-/// The `xbps-query` modes offered by the query view.
+/// The `xbps-query` takes the Query page still offers.
 ///
-/// Variant names spell the `xbps-query` flag exactly as the web app's
-/// `QueryMode` union does, so `serde` keeps the wire format identical.
+/// The page is the window's raw xbps front end, so it keeps only the questions
+/// no other page answers: the ones that print something other than a package
+/// list. The five tokens live here, not in QML, and the selector renders
+/// [`QueryMode::ALL`] exactly — the backend turns the same value into argv.
 #[derive(Serialize, Deserialize, Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub enum QueryMode {
-    /// `-Rs`: search the repository pool.
-    #[serde(rename = "Rs")]
-    Rs,
-    /// `-s`: search installed packages.
-    #[serde(rename = "s")]
-    S,
-    /// `-l`: list installed packages.
-    #[serde(rename = "l")]
-    L,
-    /// `-R`: show a repository package.
-    #[serde(rename = "R")]
-    R,
-    /// `xbps-query <pkg>`: show an installed package.
-    #[serde(rename = "show")]
-    Show,
-    /// `-x`: dependencies.
+    /// `-x`: dependencies of a package.
     #[serde(rename = "x")]
     X,
-    /// `-X`: reverse dependencies.
+    /// `-X`: reverse dependencies of a package.
     #[serde(rename = "X")]
     RevX,
-    /// `-f`: files owned by a package.
+    /// `-f`: files a package owns.
     #[serde(rename = "f")]
     F,
-    /// `-o`: owner of a file.
+    /// `-o`: which package owns a file.
     #[serde(rename = "o")]
     O,
-    /// `-m`: manually installed packages.
-    #[serde(rename = "m")]
-    M,
-    /// `-O`: orphaned packages.
-    #[serde(rename = "O")]
-    Orphans,
-    /// `-H`: held packages.
-    #[serde(rename = "H")]
-    H,
-    /// `-L`: configured repositories.
-    #[serde(rename = "L")]
-    RepoL,
-    /// `-p <prop>`: one package property.
+    /// `-p <property> <package>`: one or more properties of a package.
     #[serde(rename = "p")]
     P,
 }
 
 impl QueryMode {
-    /// Flag as typed on the command line; `show` has none because it is the
-    /// bare `xbps-query <pkg>` form.
+    /// The modes in the order the selector offers them.
+    pub const ALL: [QueryMode; 5] = [
+        QueryMode::X,
+        QueryMode::RevX,
+        QueryMode::F,
+        QueryMode::O,
+        QueryMode::P,
+    ];
+
+    /// The token the selector shows, without the leading dash. It is command
+    /// syntax, so it is never translated.
+    pub fn token(self) -> &'static str {
+        match self {
+            QueryMode::X => "x",
+            QueryMode::RevX => "X",
+            QueryMode::F => "f",
+            QueryMode::O => "o",
+            QueryMode::P => "p",
+        }
+    }
+
+    /// The mode a selector token names, if the page offers it.
+    pub fn from_token(token: &str) -> Option<Self> {
+        Self::ALL.into_iter().find(|mode| mode.token() == token)
+    }
+
+    /// Flag as typed on the command line.
     pub fn flag(self) -> &'static str {
         match self {
-            QueryMode::Rs => "-Rs",
-            QueryMode::S => "-s",
-            QueryMode::L => "-l",
-            QueryMode::R => "-R",
-            QueryMode::Show => "",
             QueryMode::X => "-x",
             QueryMode::RevX => "-X",
             QueryMode::F => "-f",
             QueryMode::O => "-o",
-            QueryMode::M => "-m",
-            QueryMode::Orphans => "-O",
-            QueryMode::H => "-H",
-            QueryMode::RepoL => "-L",
             QueryMode::P => "-p",
         }
-    }
-
-    /// Whether the mode takes a pattern argument at all. `-l`, `-m`, `-O`, `-H`
-    /// and `-L` are argument-less listings, everything else needs one.
-    pub fn needs_pattern(self) -> bool {
-        !matches!(
-            self,
-            QueryMode::L | QueryMode::M | QueryMode::Orphans | QueryMode::H | QueryMode::RepoL
-        )
-    }
-
-    /// Modes whose argument names a single package rather than matching text.
-    pub fn names_single_package(self) -> bool {
-        matches!(
-            self,
-            QueryMode::R
-                | QueryMode::Show
-                | QueryMode::X
-                | QueryMode::RevX
-                | QueryMode::F
-                | QueryMode::P
-        )
     }
 }
 
@@ -415,5 +384,37 @@ mod tests {
         let json = serde_json::to_string(&prefs).expect("serialise");
         assert!(json.contains("\"startWithSession\":false"));
         assert_eq!(serde_json::from_str::<Prefs>(&json).expect("decode"), prefs);
+    }
+
+    #[test]
+    fn the_query_page_offers_exactly_the_five_diagnostics_in_order() {
+        let tokens: Vec<&str> = QueryMode::ALL
+            .iter()
+            .copied()
+            .map(QueryMode::token)
+            .collect();
+        assert_eq!(tokens, ["x", "X", "f", "o", "p"]);
+    }
+
+    #[test]
+    fn a_query_token_round_trips_and_a_retired_one_does_not() {
+        for mode in QueryMode::ALL {
+            assert_eq!(
+                QueryMode::from_token(mode.token()),
+                Some(mode),
+                "token {}",
+                mode.token()
+            );
+        }
+        for token in ["Rs", "s", "l", "R", "show", "m", "O", "H", "L", ""] {
+            assert_eq!(QueryMode::from_token(token), None, "token {token}");
+        }
+    }
+
+    #[test]
+    fn every_query_flag_is_the_dash_plus_its_token() {
+        for mode in QueryMode::ALL {
+            assert_eq!(mode.flag(), format!("-{}", mode.token()));
+        }
     }
 }

@@ -358,7 +358,7 @@ Kirigami.ApplicationWindow {
 
     function headerSubtitle(count) {
         if (section === "query") {
-            return i18ndp("kxbps", "%1 result", "%1 results", queryView.resultCount)
+            return ""
         }
         if (section === "mirrors") {
             if (mirrorBackend.probing) {
@@ -1142,7 +1142,6 @@ Kirigami.ApplicationWindow {
                     }
 
                     QueryView {
-                        id: queryView
                         catalogBackend: catalogBackend
                     }
 

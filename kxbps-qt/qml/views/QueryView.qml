@@ -1,15 +1,17 @@
-// `xbps-query` by hand: a mode, a pattern, and what xbps answers.
+// `xbps-query` for the questions no other page answers.
 //
-// The mode tokens are command syntax and stay untranslated; only their
-// accessible name and the hint line are copy.
+// The package list already shows what is installed, upgradable, marked,
+// explicit, orphaned or held; "Dostępne" lists and searches every package in
+// the repositories; the Repositories page reads `xbps-query -L`; the details
+// pane shows a selected package's facts. What is left is the diagnostic side:
+// dependencies (`-x`), reverse dependencies (`-X`), owned files (`-f`), the
+// owner of a file (`-o`) and a package's properties (`-p`).
 //
-// The answer comes from xbps itself: `catalogBackend.search()` starts one
-// `xbps-query` take on a worker thread and `resultsRevision` says when a new
-// answer can be read. The listing modes (`-Rs`, `-s`, `-l`, `-m`, `-O`, `-H`)
-// answer with package rows. Every other mode prints something that is not a
-// package list (repositories, dependencies, properties), and a row built from
-// one of those lines would be invented, so the raw output is shown verbatim in
-// a monospace block under the command that produced it.
+// The tokens are command syntax and stay untranslated; the backend renders the
+// same `QueryMode::ALL` list, so the selector cannot drift from the modes the
+// core knows. Every one of these takes prints text rather than package rows,
+// so the answer is shown verbatim in a monospace block under the command that
+// produced it.
 
 import QtQuick
 import QtQuick.Controls as QQC2
@@ -23,87 +25,46 @@ Item {
 
     property var catalogBackend
 
-    // The newest answer, in the role-keyed maps the backend hands out.
-    property var results: []
-    readonly property int resultCount: results.length
     readonly property string errorKey: catalogBackend.searchError
     readonly property var errorArgs: catalogBackend.searchErrorArgs
-    // The text of a mode that answers with output rather than rows.
+    // The text of the newest take and the command it came from.
     readonly property string rawText: catalogBackend.rawText
     readonly property string rawCommand: catalogBackend.rawCommand
+    readonly property bool searching: catalogBackend.searching
 
-    // The selection, by pkgver: one package, read on demand.
-    property string selectedPkgver: ""
+    // The tokens the core offers, in its order: `x`, `X`, `f`, `o`, `p`.
+    readonly property var modes: catalogBackend.queryModes
+    readonly property string modeToken: modeCombo.currentIndex >= 0
+                                          && modeCombo.currentIndex < view.modes.length
+                                          ? view.modes[modeCombo.currentIndex]
+                                          : ""
 
-    readonly property real versionWidth: Kirigami.Units.gridUnit * 9.5
-
-    // The fourteen modes the core knows. `-Rs` is the default, like the web app.
-    readonly property var modes: ["Rs", "s", "l", "R", "show", "x", "X", "f", "o", "m", "O", "H", "L", "p"]
-
-    // Modes whose answer is a package list; the rest print raw output.
-    readonly property var listModes: ["Rs", "s", "l", "m", "O", "H"]
-
-    // The mode the combo shows. `Main.qml` drives it ("Show installed in
-    // xbps-query -L"); everything below reads this instead of the combo, so the
-    // window and the view cannot disagree about what is selected.
-    readonly property string modeToken: view.modes[modeCombo.currentIndex]
-
-    function isListMode(mode) {
-        return view.listModes.indexOf(mode) >= 0
-    }
-
-    // Selects a mode and runs it: the menu entry asks for the answer, not just
-    // for the combo to move. The pattern is left alone; `-L` reads the whole
-    // repository list. The debounce is stopped, so a pending pattern does not
-    // overwrite the answer with a listing mode's empty query.
-    function selectMode(token) {
-        const index = view.modes.indexOf(token)
-        if (index < 0) {
-            return
-        }
-        debounce.stop()
-        modeCombo.currentIndex = index
-        view.run()
-    }
-
+    // One take: the backend builds the argv from the token and the text, so
+    // the `-p` split lives in Rust and not here.
     function run() {
-        const mode = view.modeToken
-        const query = searchField.text.trim()
-        view.selectedPkgver = ""
-        // A listing mode needs a pattern; typing one is the next thing the
-        // user does, so an empty field clears instead of reading everything.
-        if (view.isListMode(mode) && query.length === 0) {
-            view.results = []
+        if (view.modeToken.length === 0) {
             return
         }
-        view.catalogBackend.search(query, mode)
-    }
-
-    function reloadResults() {
-        view.results = view.catalogBackend.results()
+        view.catalogBackend.search(searchField.text.trim(), view.modeToken)
     }
 
     function hint() {
-        const mode = view.modeToken
-        const query = searchField.text
-        return i18nd("kxbps", "Equivalent: %1", ("xbps-query -" + mode + " " + query).trim())
+        if (view.modeToken.length === 0) {
+            return ""
+        }
+        return i18nd("kxbps", "Equivalent: %1",
+                     ("xbps-query -" + view.modeToken + " " + searchField.text).trim())
     }
 
     function emptyText() {
-        if (view.errorKey.length > 0 || view.catalogBackend.searching) {
+        if (view.errorKey.length > 0 || view.searching) {
             return ""
         }
-        if (view.isListMode(view.modeToken) && searchField.text.length === 0) {
+        if (searchField.text.trim().length === 0) {
             return i18nd("kxbps", "Type a query.")
         }
-        if (!view.isListMode(view.modeToken) && view.rawText.length === 0) {
-            // The take answered nothing: say so, rather than a blank block.
-            return i18nd("kxbps", "xbps printed nothing.")
-        }
-        if (view.isListMode(view.modeToken)) {
-            return i18nd("kxbps", "No matches.")
-        }
-        return ""
+        // The take answered nothing: say so, rather than a blank block.
+        return i18nd("kxbps", "xbps printed nothing.")
     }
 
     // The one sentence for a failed take, chosen by the key the backend sent.
@@ -171,7 +132,7 @@ Item {
             elide: Text.ElideRight
         }
 
-        // A failed take is shown, never hidden behind an empty list.
+        // A failed take is shown, never hidden behind an empty block.
         QQC2.Label {
             Layout.fillWidth: true
             Layout.leftMargin: Kirigami.Units.largeSpacing
@@ -182,42 +143,13 @@ Item {
             wrapMode: Text.WordWrap
         }
 
-        // The listing modes: one row per package xbps printed.
-        ListView {
-            id: resultsList
-            Layout.fillWidth: true
-            Layout.fillHeight: view.isListMode(view.modeToken)
-            visible: view.isListMode(view.modeToken)
-            clip: true
-            model: view.results
-            QQC2.ScrollBar.vertical: QQC2.ScrollBar {}
-
-            delegate: QueryDelegate {
-                width: resultsList.width
-                versionWidth: view.versionWidth
-                current: view.selectedPkgver === modelData.pkgver
-                onClicked: {
-                    view.selectedPkgver = modelData.pkgver
-                    view.catalogBackend.requestFacts(modelData.pkgver)
-                }
-            }
-
-            QQC2.Label {
-                anchors.centerIn: parent
-                visible: view.resultCount === 0 && text.length > 0
-                text: view.emptyText()
-                color: Kirigami.Theme.disabledTextColor
-            }
-        }
-
-        // Every other mode: the output as xbps printed it.
+        // The answer as xbps printed it, under the command it came from.
         ColumnLayout {
             Layout.fillWidth: true
-            Layout.fillHeight: !view.isListMode(view.modeToken)
+            Layout.fillHeight: true
             Layout.leftMargin: Kirigami.Units.largeSpacing
             Layout.rightMargin: Kirigami.Units.largeSpacing
             Layout.bottomMargin: Kirigami.Units.smallSpacing
-            visible: !view.isListMode(view.modeToken)
             spacing: Kirigami.Units.smallSpacing
 
             QQC2.Label {
@@ -260,38 +192,14 @@ Item {
                 }
             }
         }
-
-        QQC2.Label {
-            Layout.fillWidth: true
-            Layout.leftMargin: Kirigami.Units.largeSpacing
-            Layout.rightMargin: Kirigami.Units.largeSpacing
-            Layout.bottomMargin: Kirigami.Units.smallSpacing
-            visible: view.isListMode(view.modeToken) && view.resultCount > 0
-            text: i18ndp("kxbps", "%1 result", "%1 results", view.resultCount)
-            color: Kirigami.Theme.disabledTextColor
-            font: Kirigami.Theme.smallFont
-            elide: Text.ElideRight
-        }
     }
 
-    // Typing runs the query after the pattern settles; Enter runs it at once,
-    // so it does not wait for the timer.
+    // Typing runs the take after the text settles; Enter runs it at once, so it
+    // does not wait for the timer.
     Timer {
         id: debounce
         interval: 250
         onTriggered: view.run()
-    }
-
-    Connections {
-        target: view.catalogBackend
-        function onResultsRevisionChanged() {
-            view.reloadResults()
-        }
-        // A fresh answer with hits identical to the previous one does not bump
-        // the revision; the error state still has to leave the banner.
-        function onSearchErrorChanged() {
-            view.results = view.catalogBackend.results()
-        }
     }
 
     Component.onCompleted: view.run()
