@@ -57,6 +57,11 @@ pub mod qobject {
         #[cxx_name = "kxbps_setup_i18n"]
         fn setup_i18n(engine: Pin<&mut QQmlEngine>);
 
+        /// Implemented in `src/k18n_shim.cpp`; caps the application font at
+        /// 10 pt before the QML engine starts.
+        #[cxx_name = "kxbps_set_compact_font"]
+        fn set_compact_font();
+
         // The tray icon, implemented in `src/tray_shim.h`. A StatusNotifierItem
         // owns the menu over D-Bus, so no widget QMenu is created and Wayland
         // has nothing to grab. Installed as the `trayBackend` context property
@@ -277,6 +282,15 @@ pub fn setup_i18n(engine: Pin<&mut cxx_qt_lib::QQmlApplicationEngine>) {
     use cxx_qt::casting::Upcast;
 
     qobject::setup_i18n(Upcast::<cxx_qt_lib::QQmlEngine>::upcast_pin(engine));
+}
+
+/// Caps the application font at 10 pt.
+///
+/// Must run after the `QApplication` exists and before the QML engine loads:
+/// Kirigami reads the font once to derive `gridUnit`, so every size in the
+/// window follows this call. A system font smaller than 10 pt is left alone.
+pub fn set_compact_font() {
+    qobject::set_compact_font();
 }
 
 /// Creates the tray icon and installs it as the `trayBackend` context property.

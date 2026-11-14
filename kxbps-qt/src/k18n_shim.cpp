@@ -14,6 +14,9 @@
 #include <QQmlContext>
 #include <QQmlEngine>
 
+#include <QFont>
+#include <QGuiApplication>
+
 #include <KLocalizedContext>
 #include <KLocalizedString>
 
@@ -30,6 +33,15 @@ void kxbps_setup_i18n(QQmlEngine &engine)
 {
     KLocalizedString::setApplicationDomain("kxbps");
     engine.rootContext()->setContextObject(new KLocalizedContext(&engine));
+}
+
+void kxbps_set_compact_font()
+{
+    QFont font = QGuiApplication::font();
+    if (font.pointSize() > 10) {
+        font.setPointSize(10);
+        QGuiApplication::setFont(font);
+    }
 }
 
 #if defined(__GNUC__) || defined(__clang__)

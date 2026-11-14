@@ -9,3 +9,9 @@
 class QQmlEngine;
 
 void kxbps_setup_i18n(QQmlEngine &engine);
+
+/// Caps the application font at 10 pt. The desktop's default (12 pt here) is
+/// sized for documents; a table of versions and sizes reads oversized next to
+/// the panel and the window titles at that size. A smaller system setting is
+/// left alone.
+void kxbps_set_compact_font();
