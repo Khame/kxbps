@@ -961,7 +961,10 @@ Item {
         DetailsPane {
             visible: view.detailsVisible
             Layout.fillWidth: true
-            Layout.preferredHeight: view.detailsVisible ? Kirigami.Units.gridUnit * 13 : 0
+            // Tall enough for every fact plus the action row under them: the
+            // body still scrolls for a long dependency list, but the facts
+            // must not be cut in half at the bottom edge.
+            Layout.preferredHeight: view.detailsVisible ? Kirigami.Units.gridUnit * 17 : 0
             rowLayout: view.rowLayout
             catalogBackend: view.catalogBackend
             installedBackend: view.installedBackend
