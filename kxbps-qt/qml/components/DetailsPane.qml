@@ -318,43 +318,6 @@ Item {
             mono: true
         }
 
-        RowLayout {
-            Layout.fillWidth: true
-            Layout.minimumWidth: 0
-            Layout.topMargin: Kirigami.Units.smallSpacing
-            spacing: Kirigami.Units.smallSpacing
-
-            QQC2.Button {
-                Layout.fillWidth: true
-                text: pane.actionLabel
-                icon.name: pane.actionIcon
-                font: Kirigami.Theme.smallFont
-                enabled: pane.packageName.length > 0 && pane.factsReady
-                onClicked: {
-                    if (pane.queuedAction.length > 0) {
-                        pane.installedBackend.removeQueued(pane.name)
-                    } else {
-                        pane.installedBackend.toggleQueue(pane.name, pane.actionToken)
-                    }
-                }
-            }
-
-            QQC2.Button {
-                visible: pane.installed
-                text: pane.info.held ? i18nd("kxbps", "Unhold") : i18nd("kxbps", "Hold")
-                icon.name: pane.info.held ? "object-unlocked" : "object-locked"
-                font: Kirigami.Theme.smallFont
-                onClicked: pane.installedBackend.toggleHold(pane.name)
-            }
-
-            QQC2.Button {
-                text: i18nd("kxbps", "Files")
-                font: Kirigami.Theme.smallFont
-                enabled: pane.packageName.length > 0
-                Accessible.name: i18nd("kxbps", "Files of the package")
-                onClicked: filesDialog.open()
-            }
-        }
     }
 
     // Panel 2: the two xbps lists, on their own so a long dependency list
@@ -406,7 +369,11 @@ Item {
     // scrolling. The scrollbar takes its own strip, or it covers the right-aligned
     // values.
     Flickable {
-        anchors.fill: parent
+        anchors.left: parent.left
+        anchors.right: parent.right
+        anchors.top: parent.top
+        anchors.bottom: actions.top
+        anchors.bottomMargin: Kirigami.Units.smallSpacing
         clip: true
         contentWidth: width - paneBar.width
         contentHeight: content.implicitHeight + Kirigami.Units.largeSpacing * 2
@@ -457,6 +424,56 @@ Item {
 
             DepsPanel {}
         }
+        }
+    }
+
+    // The actions, on a line of their own under both panels: inside the
+    // information column they were squeezed by its width, and the pane has the
+    // room for them across its whole width. Pinned, so a long dependency list
+    // scrolls under them instead of carrying them away.
+    RowLayout {
+        id: actions
+        anchors.left: parent.left
+        anchors.right: parent.right
+        anchors.bottom: parent.bottom
+        anchors.margins: Kirigami.Units.largeSpacing
+        spacing: Kirigami.Units.smallSpacing
+
+        QQC2.Button {
+            text: pane.actionLabel
+            icon.name: pane.actionIcon
+            font: Kirigami.Theme.smallFont
+            enabled: pane.packageName.length > 0 && pane.factsReady
+            onClicked: {
+                if (pane.queuedAction.length > 0) {
+                    pane.installedBackend.removeQueued(pane.name)
+                } else {
+                    pane.installedBackend.toggleQueue(pane.name, pane.actionToken)
+                }
+            }
+        }
+
+        // The queue action on the left, the two package-level ones on the
+        // right: a row of buttons at both ends reads as a toolbar, while a
+        // stretched primary button reads as a form.
+        Item {
+            Layout.fillWidth: true
+        }
+
+        QQC2.Button {
+            visible: pane.installed
+            text: pane.info.held ? i18nd("kxbps", "Unhold") : i18nd("kxbps", "Hold")
+            icon.name: pane.info.held ? "object-unlocked" : "object-locked"
+            font: Kirigami.Theme.smallFont
+            onClicked: pane.installedBackend.toggleHold(pane.name)
+        }
+
+        QQC2.Button {
+            text: i18nd("kxbps", "Files")
+            font: Kirigami.Theme.smallFont
+            enabled: pane.packageName.length > 0
+            Accessible.name: i18nd("kxbps", "Files of the package")
+            onClicked: filesDialog.open()
         }
     }
 
