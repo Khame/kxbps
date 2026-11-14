@@ -3,7 +3,7 @@
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 the project uses semantic versioning.
 
-## [Unreleased]
+## [1.0.2] - 2026-11-14
 
 ### Added
 
@@ -11,17 +11,23 @@ the project uses semantic versioning.
   where the state lives, translated with the rest of the interface.
 - `--help` and `--version` on the command line, answered before Qt starts, so
   they work without a display, and a `kxbps(1)` manual page.
+- The update check's own xbps output, and the command it ran, in the Log
+  drawer. A check is not a transaction, so its lines get a model of their own.
 
 ### Changed
 
 - The log drawer is called `Log`. It shows what xbps printed, but the old name
   read as another program's log rather than a part of this window.
+- The Log drawer's bar sits on the bottom edge: the log grows upward from the
+  status strip, so the control that opened it belongs at that edge.
 
 ### Fixed
 
 - The log drawer opens before the first transaction and says there is nothing
   to show yet. The button used to be disabled until a transaction had run,
   which read as a broken control.
+
+## [Unreleased]
 
 ## [1.0.1] - 2026-11-14
 
