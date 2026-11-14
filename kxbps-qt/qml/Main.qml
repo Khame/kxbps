@@ -31,9 +31,9 @@ Kirigami.ApplicationWindow {
     // the page title above it a second time.
     pageStack.globalToolBar.style: Kirigami.ApplicationHeaderStyle.None
 
-    // Which sidebar entry is active. The four package sections share one view
-    // and differ only by the model's filter; only Query and Mirrors are pages of
-    // their own.
+    // Which sidebar entry is active. The package sections share one view and
+    // differ only by the model's filter; Mirrors, Repositories, Settings and
+    // Help are pages of their own.
     property string section: "packages"
 
     // The current or last finished job. It is kept until the next transaction
@@ -145,7 +145,8 @@ Kirigami.ApplicationWindow {
         return ""
     }
 
-    // Query helpers over xbps (`search`, `get`).
+    // The xbps reads behind the details pane and the Available listing
+    // (`get`, `readPackageFiles`, `readFileOwner`, `readListSearch`).
     QueryBackend {
         id: catalogBackend
     }
@@ -234,11 +235,11 @@ Kirigami.ApplicationWindow {
             root.selectFilter(Qt.application.arguments[at + 1])
         }
         // `--section <name>` opens on a page, for screenshots and for a launcher
-        // that points at one: packages, query, mirrors, repositories, settings.
+        // that points at one: packages, mirrors, repositories, settings, help.
         const sectionAt = Qt.application.arguments.indexOf("--section")
         if (sectionAt >= 0 && sectionAt + 1 < Qt.application.arguments.length) {
             const name = Qt.application.arguments[sectionAt + 1]
-            if (["packages", "query", "mirrors", "settings", "repositories"].indexOf(name) >= 0) {
+            if (["packages", "mirrors", "settings", "repositories", "help"].indexOf(name) >= 0) {
                 root.section = name
             }
         }
@@ -322,9 +323,6 @@ Kirigami.ApplicationWindow {
     // The header follows the filter, not the sidebar entry: clicking "Orphans"
     // must not keep saying "Installed".
     function headerTitle() {
-        if (section === "query") {
-            return i18nd("kxbps", "Query")
-        }
         if (section === "mirrors") {
             return i18nd("kxbps", "Mirrors")
         }
@@ -357,9 +355,6 @@ Kirigami.ApplicationWindow {
     }
 
     function headerSubtitle(count) {
-        if (section === "query") {
-            return ""
-        }
         if (section === "mirrors") {
             if (mirrorBackend.probing) {
                 return i18nd("kxbps", "%1 of %2 mirrors probed",
@@ -886,14 +881,6 @@ Kirigami.ApplicationWindow {
 
                     NavItem {
                         Layout.fillWidth: true
-                        label: i18nd("kxbps", "Query")
-                        iconName: "utilities-terminal"
-                        highlighted: root.section === "query"
-                        onClicked: root.section = "query"
-                    }
-
-                    NavItem {
-                        Layout.fillWidth: true
                         label: i18nd("kxbps", "Mirrors")
                         iconName: "network-server"
                         highlighted: root.section === "mirrors"
@@ -968,9 +955,9 @@ Kirigami.ApplicationWindow {
                 spacing: 0
 
                 // The window toolbar. It exists only where it carries an
-                // action: the package list and the mirrors page. Query and
-                // Settings have their own controls, and an empty bar above
-                // them said nothing.
+                // action: the package list and the mirrors page. The other
+                // pages have their own controls, and an empty bar above them
+                // said nothing.
                 Rectangle {
                     Layout.fillWidth: true
                     visible: root.section === "packages" || root.section === "mirrors"
@@ -1118,16 +1105,14 @@ Kirigami.ApplicationWindow {
                     Layout.fillHeight: true
                     currentIndex: {
                         switch (root.section) {
-                        case "query":
-                            return 1
                         case "mirrors":
-                            return 2
+                            return 1
                         case "settings":
-                            return 3
+                            return 2
                         case "repositories":
-                            return 4
+                            return 3
                         case "help":
-                            return 5
+                            return 4
                         }
                         return 0
                     }
@@ -1139,10 +1124,6 @@ Kirigami.ApplicationWindow {
                         catalogBackend: catalogBackend
                         job: root.job
                         onSearchFieldRequested: toolbarSearch.forceActiveFocus()
-                    }
-
-                    QueryView {
-                        catalogBackend: catalogBackend
                     }
 
                     MirrorsView {

@@ -115,70 +115,6 @@ pub enum ListFilter {
     Queued,
 }
 
-/// The `xbps-query` takes the Query page still offers.
-///
-/// The page is the window's raw xbps front end, so it keeps only the questions
-/// no other page answers: the ones that print something other than a package
-/// list. The five tokens live here, not in QML, and the selector renders
-/// [`QueryMode::ALL`] exactly — the backend turns the same value into argv.
-#[derive(Serialize, Deserialize, Clone, Copy, Debug, PartialEq, Eq, Hash)]
-pub enum QueryMode {
-    /// `-x`: dependencies of a package.
-    #[serde(rename = "x")]
-    X,
-    /// `-X`: reverse dependencies of a package.
-    #[serde(rename = "X")]
-    RevX,
-    /// `-f`: files a package owns.
-    #[serde(rename = "f")]
-    F,
-    /// `-o`: which package owns a file.
-    #[serde(rename = "o")]
-    O,
-    /// `-p <property> <package>`: one or more properties of a package.
-    #[serde(rename = "p")]
-    P,
-}
-
-impl QueryMode {
-    /// The modes in the order the selector offers them.
-    pub const ALL: [QueryMode; 5] = [
-        QueryMode::X,
-        QueryMode::RevX,
-        QueryMode::F,
-        QueryMode::O,
-        QueryMode::P,
-    ];
-
-    /// The token the selector shows, without the leading dash. It is command
-    /// syntax, so it is never translated.
-    pub fn token(self) -> &'static str {
-        match self {
-            QueryMode::X => "x",
-            QueryMode::RevX => "X",
-            QueryMode::F => "f",
-            QueryMode::O => "o",
-            QueryMode::P => "p",
-        }
-    }
-
-    /// The mode a selector token names, if the page offers it.
-    pub fn from_token(token: &str) -> Option<Self> {
-        Self::ALL.into_iter().find(|mode| mode.token() == token)
-    }
-
-    /// Flag as typed on the command line.
-    pub fn flag(self) -> &'static str {
-        match self {
-            QueryMode::X => "-x",
-            QueryMode::RevX => "-X",
-            QueryMode::F => "-f",
-            QueryMode::O => "-o",
-            QueryMode::P => "-p",
-        }
-    }
-}
-
 /// Currently open modal dialog.
 ///
 /// The web app discriminates the union by `kind`; the tag keeps that shape on
@@ -384,37 +320,5 @@ mod tests {
         let json = serde_json::to_string(&prefs).expect("serialise");
         assert!(json.contains("\"startWithSession\":false"));
         assert_eq!(serde_json::from_str::<Prefs>(&json).expect("decode"), prefs);
-    }
-
-    #[test]
-    fn the_query_page_offers_exactly_the_five_diagnostics_in_order() {
-        let tokens: Vec<&str> = QueryMode::ALL
-            .iter()
-            .copied()
-            .map(QueryMode::token)
-            .collect();
-        assert_eq!(tokens, ["x", "X", "f", "o", "p"]);
-    }
-
-    #[test]
-    fn a_query_token_round_trips_and_a_retired_one_does_not() {
-        for mode in QueryMode::ALL {
-            assert_eq!(
-                QueryMode::from_token(mode.token()),
-                Some(mode),
-                "token {}",
-                mode.token()
-            );
-        }
-        for token in ["Rs", "s", "l", "R", "show", "m", "O", "H", "L", ""] {
-            assert_eq!(QueryMode::from_token(token), None, "token {token}");
-        }
-    }
-
-    #[test]
-    fn every_query_flag_is_the_dash_plus_its_token() {
-        for mode in QueryMode::ALL {
-            assert_eq!(mode.flag(), format!("-{}", mode.token()));
-        }
     }
 }

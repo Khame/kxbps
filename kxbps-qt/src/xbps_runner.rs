@@ -140,26 +140,14 @@ pub fn required_by_argv(package: &str) -> Vec<String> {
     argv(XPBS_QUERY, &["-X", package])
 }
 
-/// The `xbps-query` take one Query-page mode runs.
-///
-/// Every mode but `-p` takes the whole query as one argument, spaces included.
-/// `-p` takes the property list first and the package second, so the page's
-/// `pkgver vim` becomes two arguments; a property list with no package stays
-/// one argument, and xbps reports the missing package itself.
-pub fn query_take_argv(mode: kxbps_core::QueryMode, query: &str) -> Vec<String> {
-    if mode != kxbps_core::QueryMode::P {
-        return argv(XPBS_QUERY, &[mode.flag(), query]);
-    }
-    let mut words = query.splitn(2, char::is_whitespace);
-    let property = words.next().unwrap_or_default();
-    match words
-        .next()
-        .map(str::trim)
-        .filter(|package| !package.is_empty())
-    {
-        Some(package) => argv(XPBS_QUERY, &[mode.flag(), property, package]),
-        None => argv(XPBS_QUERY, &[mode.flag(), property]),
-    }
+/// `xbps-query -f <package>`: the files a package owns.
+pub fn files_argv(package: &str) -> Vec<String> {
+    argv(XPBS_QUERY, &["-f", package])
+}
+
+/// `xbps-query -o <path>`: which package owns a file.
+pub fn owner_argv(path: &str) -> Vec<String> {
+    argv(XPBS_QUERY, &["-o", path])
 }
 
 /// `xbps-query -m`: the packages installed on purpose.
@@ -232,7 +220,6 @@ pub fn run(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use kxbps_core::QueryMode;
 
     #[test]
     fn read_commands_have_the_documented_argv() {
@@ -245,6 +232,11 @@ mod tests {
         );
         assert_eq!(repos_argv(), ["xbps-query", "-L"]);
         assert_eq!(search_argv("vim"), ["xbps-query", "-Rs", "vim"]);
+        assert_eq!(files_argv("neovim"), ["xbps-query", "-f", "neovim"]);
+        assert_eq!(
+            owner_argv("/usr/bin/nvim"),
+            ["xbps-query", "-o", "/usr/bin/nvim"]
+        );
         assert_eq!(
             property_argv("pkgver", "vim"),
             ["xbps-query", "-p", "pkgver", "vim"]
@@ -392,51 +384,5 @@ mod tests {
     fn run_reports_a_reply_it_cannot_decode() {
         let output = run(&installed_argv(), READ_TIMEOUT_MS, |_, _| "{}".to_owned());
         assert!(matches!(output, Err(RunnerError::InvalidReply(_))));
-    }
-
-    #[test]
-    fn each_query_mode_builds_its_documented_argv() {
-        assert_eq!(
-            query_take_argv(QueryMode::X, "vim"),
-            ["xbps-query", "-x", "vim"]
-        );
-        assert_eq!(
-            query_take_argv(QueryMode::RevX, "vim"),
-            ["xbps-query", "-X", "vim"]
-        );
-        assert_eq!(
-            query_take_argv(QueryMode::F, "vim"),
-            ["xbps-query", "-f", "vim"]
-        );
-        assert_eq!(
-            query_take_argv(QueryMode::O, "/usr/bin/vim"),
-            ["xbps-query", "-o", "/usr/bin/vim"]
-        );
-    }
-
-    #[test]
-    fn a_property_take_splits_the_property_list_from_the_package() {
-        assert_eq!(
-            query_take_argv(QueryMode::P, "pkgver vim"),
-            ["xbps-query", "-p", "pkgver", "vim"]
-        );
-        assert_eq!(
-            query_take_argv(QueryMode::P, "pkgver,short_desc vim"),
-            ["xbps-query", "-p", "pkgver,short_desc", "vim"]
-        );
-        assert_eq!(
-            query_take_argv(QueryMode::P, "pkgver   vim"),
-            ["xbps-query", "-p", "pkgver", "vim"],
-            "the padding between the two words is not a second argument"
-        );
-    }
-
-    #[test]
-    fn a_property_take_without_a_package_leaves_the_error_to_xbps() {
-        assert_eq!(
-            query_take_argv(QueryMode::P, "pkgver"),
-            ["xbps-query", "-p", "pkgver"],
-            "xbps answers the missing package itself; nothing is invented here"
-        );
     }
 }

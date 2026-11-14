@@ -1,19 +1,19 @@
-//! Query façade for QML: the raw `xbps-query` takes of the Query page and the
-//! facts of one package, both read from xbps through the runner.
+//! Query façade for QML: the details pane's facts, the file list and owner of
+//! one package, and the repository answers the package list searches with.
 //!
 //! The package *model* is owned by [`crate::installed_backend::InstalledBackend`],
 //! because it needs the store's installed and queue snapshots. This object
-//! answers the Query page's `search()` (verbatim output, no rows) and the
-//! details pane's `get()`, and it receives the *same* snapshot from that
-//! backend (`queryBackend` in QML), so the facts answer `isUpdate`/`held` from
-//! the same source as a list row.
+//! answers the details pane's `get()` and the two file diagnostics (`-f` and
+//! `-o`), and it receives the *same* snapshot from that backend (`queryBackend`
+//! in QML), so the facts answer `isUpdate`/`held` from the same source as a
+//! list row.
 //!
-//! Neither answer comes from the embedded catalog: the Query page runs one of
-//! the five diagnostics in [`QueryMode::ALL`] (`-x`, `-X`, `-f`, `-o`, `-p`),
-//! and the facts of one package run the two property takes and the two
-//! dependency lists, both on a worker thread through the same injected
-//! transport as the snapshot reads. The Available listing has its own path
-//! (`read_list_search`), which stays a repository search and is not this one.
+//! Nothing here comes from an embedded catalog: the facts of one package run
+//! the two property takes and the two dependency lists, the file list runs
+//! `xbps-query -f` and the owner lookup runs `xbps-query -o`, all on a worker
+//! thread through the same injected transport as the snapshot reads. The
+//! Available listing has its own path (`read_list_search`), which stays a
+//! repository search and is not this one.
 
 use std::collections::HashMap;
 use std::pin::Pin;
@@ -23,9 +23,10 @@ use std::sync::atomic::{AtomicU64, Ordering};
 use cxx_qt::CxxQtType;
 use cxx_qt::Threading;
 use cxx_qt_lib::{QMap, QMapPair_QString_QVariant, QString, QStringList, QVariant};
-use kxbps_core::{InstalledMap, QueryMode, QueueAction, QueueItem, UpdateEntry, split_pkgver};
+use kxbps_core::{InstalledMap, QueueAction, QueueItem, UpdateEntry, split_pkgver};
 
 use crate::package_model::InstalledState;
+use crate::xbps_runner::{files_argv, owner_argv};
 use crate::xbps_snapshot::{
     PackageFacts, RawOutput, SearchSource, SharedInvoke, SnapshotError, read_package, read_raw,
     read_search,
@@ -105,32 +106,28 @@ pub mod qobject {
     unsafe extern "RustQt" {
         #[qobject]
         #[qml_element]
-        #[qproperty(QString, search_error, READ, NOTIFY)]
-        #[qproperty(QStringList, search_error_args, READ, NOTIFY)]
-        /// The mode selector's tokens, in the order it offers them. Command
-        /// syntax, never translated; QML renders this list instead of keeping
-        /// a second copy that could drift from `QueryMode::ALL`.
-        #[qproperty(QStringList, query_modes, READ, CONSTANT)]
-        /// Whether the newest query is still being read.
-        #[qproperty(bool, searching, READ, NOTIFY)]
-        // Every take of this page prints text, never package rows: the output
-        // of the newest `read_raw` answer and the command it came from.
-        #[qproperty(QString, raw_text, READ, NOTIFY)]
-        #[qproperty(QString, raw_command, READ, NOTIFY)]
         #[qproperty(QString, facts_error, READ, NOTIFY)]
         #[qproperty(QStringList, facts_error_args, READ, NOTIFY)]
         #[qproperty(QString, facts_pkgver, READ, NOTIFY)]
         #[qproperty(i32, facts_revision, READ, NOTIFY)]
+        /// The files one package owns (`xbps-query -f`), the pkgver they belong
+        /// to, and the read in flight.
+        #[qproperty(QStringList, files, READ, NOTIFY)]
+        #[qproperty(QString, files_pkgver, READ, NOTIFY)]
+        #[qproperty(bool, files_loading, READ, NOTIFY)]
+        #[qproperty(QString, files_error, READ, NOTIFY)]
+        #[qproperty(QStringList, files_error_args, READ, NOTIFY)]
+        /// Which package owns a path (`xbps-query -o`), the path asked about,
+        /// and the read in flight.
+        #[qproperty(QString, owner, READ, NOTIFY)]
+        #[qproperty(QString, owner_path, READ, NOTIFY)]
+        #[qproperty(bool, owner_loading, READ, NOTIFY)]
+        #[qproperty(QString, owner_error, READ, NOTIFY)]
+        #[qproperty(QStringList, owner_error_args, READ, NOTIFY)]
         type QueryBackend = super::QueryBackendRust;
 
         #[qinvokable]
         fn version(self: &QueryBackend) -> QString;
-
-        /// Runs one diagnostic take on a worker thread. The output of the
-        /// previous answer stays until the new one lands; `rawText` and
-        /// `rawCommand` notify when it does.
-        #[qinvokable]
-        fn search(self: Pin<&mut QueryBackend>, query: &QString, mode: &QString);
 
         /// The facts of one pkgver, as a role-keyed map. An empty map while the
         /// first read is in flight; QML re-reads through `factsRevision`.
@@ -144,6 +141,16 @@ pub mod qobject {
         /// The version a read reported, or the one the pkgver carries.
         #[qinvokable]
         fn version_of(self: &QueryBackend, pkgver: &QString) -> QString;
+
+        /// Reads the files a package owns, on a worker thread. The list and its
+        /// error notify when the answer lands; an empty pkgver clears both.
+        #[qinvokable]
+        fn read_package_files(self: Pin<&mut QueryBackend>, pkgver: &QString);
+
+        /// Reads which package owns a path, on a worker thread. The answer is
+        /// one line, or the error xbps printed.
+        #[qinvokable]
+        fn read_file_owner(self: Pin<&mut QueryBackend>, path: &QString);
 
         /// Reads the repository hits for the package list's search field and
         /// answers through `listSearchDone` when the read lands.
@@ -205,28 +212,15 @@ pub struct QueryBackendRust {
     queue: HashMap<String, QueueAction>,
     /// Derived from `installed`, shared with the model.
     state: InstalledState,
-    /// The newest read owns the window: one counter for search and one for
-    /// the facts, so a slow answer in one never cancels the other.
+    /// The newest read owns the window: one counter per read kind — the list
+    /// search, the facts, the file list and the owner lookup — so a slow
+    /// answer in one never cancels another.
     search_generation: Arc<AtomicU64>,
     facts_generation: Arc<AtomicU64>,
     /// The process transport. Tests install a fake here, so the suite never
     /// starts xbps; production installs the closure
     /// [`crate::xbps_bridge::production_invoke`] returns.
     invoke: SharedInvoke,
-    /// The newest search answer, tagged with the signature it answers.
-    answer: SearchAnswer,
-    /// The signature of the newest search, pending or answered.
-    signature: SearchSignature,
-    /// The mode selector's tokens, in the order it offers them. A property of
-    /// its own so QML renders exactly `QueryMode::ALL` instead of keeping a
-    /// second list that could drift.
-    query_modes: QStringList,
-    search_error: QString,
-    search_error_args: QStringList,
-    searching: bool,
-    /// The text the newest take printed, and its command.
-    raw_text: QString,
-    raw_command: QString,
     /// The facts of one package per pkgver read.
     facts: HashMap<String, PackageFacts>,
     /// The pkgver whose read is in flight, if any.
@@ -235,6 +229,21 @@ pub struct QueryBackendRust {
     facts_error_args: QStringList,
     facts_pkgver: QString,
     facts_revision: i32,
+    /// The files of one package, the pkgver they belong to and the read state.
+    files: QStringList,
+    files_pkgver: QString,
+    files_loading: bool,
+    files_error: QString,
+    files_error_args: QStringList,
+    /// The owner answer for one path, and the read state.
+    owner: QString,
+    owner_path: QString,
+    owner_loading: bool,
+    owner_error: QString,
+    owner_error_args: QStringList,
+    /// The newest file/owner read owns the window.
+    files_generation: Arc<AtomicU64>,
+    owner_generation: Arc<AtomicU64>,
     /// The repository answers the list already shows, so a request that is not
     /// re-read is still answered from here instead of hanging the page.
     ///
@@ -242,57 +251,6 @@ pub struct QueryBackendRust {
     /// a pattern already on screen costs no second `xbps-query`, which is what
     /// keeps Enter from re-reading what typing already found.
     answers: ListAnswers,
-}
-
-/// What a search is asked for: a moved signature makes an answer stale.
-#[derive(Clone, Debug, PartialEq, Eq)]
-struct SearchSignature {
-    /// The diagnostic that was run.
-    mode: QueryMode,
-    query: String,
-}
-
-impl Default for SearchSignature {
-    /// The signature of no query at all.
-    fn default() -> Self {
-        Self {
-            mode: QueryMode::X,
-            query: String::new(),
-        }
-    }
-}
-
-impl SearchSignature {
-    fn new(mode: QueryMode, query: &str) -> Self {
-        Self {
-            mode,
-            query: query.to_owned(),
-        }
-    }
-}
-
-/// One answer of a search, tagged with the signature it answers.
-///
-/// A failed take keeps the error next to no text: the window shows the key and
-/// never output it invented.
-#[derive(Default)]
-struct SearchAnswer {
-    signature: SearchSignature,
-    error: Option<SnapshotError>,
-    /// What the take printed; `None` when it failed before printing.
-    raw: Option<RawOutput>,
-}
-
-/// What a landed answer moved, so the bridge emits exactly the notifications
-/// its properties declare.
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
-struct AnswerEffect {
-    /// The answer belongs to the newest query.
-    fresh: bool,
-    /// `rawText` changed and its NOTIFY has to be emitted.
-    raw_text_moved: bool,
-    /// `rawCommand` changed and its NOTIFY has to be emitted.
-    raw_command_moved: bool,
 }
 
 impl Default for QueryBackendRust {
@@ -303,24 +261,25 @@ impl Default for QueryBackendRust {
             state: InstalledState::new(&[], &[]),
             search_generation: Arc::new(AtomicU64::new(0)),
             facts_generation: Arc::new(AtomicU64::new(0)),
+            files_generation: Arc::new(AtomicU64::new(0)),
+            owner_generation: Arc::new(AtomicU64::new(0)),
             invoke: crate::xbps_bridge::production_invoke(),
-            answer: SearchAnswer::default(),
-            signature: SearchSignature::default(),
-            query_modes: QueryMode::ALL
-                .iter()
-                .map(|mode| QString::from(mode.token()))
-                .collect(),
-            search_error: QString::from(""),
-            search_error_args: QStringList::default(),
-            searching: false,
-            raw_text: QString::from(""),
-            raw_command: QString::from(""),
             facts: HashMap::new(),
             facts_pending: None,
             facts_error: QString::from(""),
             facts_error_args: QStringList::default(),
             facts_pkgver: QString::from(""),
             facts_revision: 0,
+            files: QStringList::default(),
+            files_pkgver: QString::from(""),
+            files_loading: false,
+            files_error: QString::from(""),
+            files_error_args: QStringList::default(),
+            owner: QString::from(""),
+            owner_path: QString::from(""),
+            owner_loading: false,
+            owner_error: QString::from(""),
+            owner_error_args: QStringList::default(),
             answers: ListAnswers::default(),
         }
     }
@@ -337,40 +296,53 @@ impl qobject::QueryBackend {
         QString::from(env!("CARGO_PKG_VERSION"))
     }
 
-    /// One diagnostic `xbps-query` take, on a worker thread; `rawText` and
-    /// `rawCommand` notify when its output lands.
-    fn search(mut self: Pin<&mut Self>, query: &cxx_qt_lib::QString, mode: &cxx_qt_lib::QString) {
-        let token = mode.to_string();
-        let query = trimmed(query);
-        // The selector renders `QueryMode::ALL`, so an unknown token can only
-        // come from a broken caller; running nothing is the honest answer.
-        let Some(mode) = QueryMode::from_token(&token) else {
-            return;
-        };
-        let signature = SearchSignature::new(mode, &query);
-        {
+    /// Reads the files a package owns, on a worker thread; the list and its
+    /// error notify when the answer lands.
+    ///
+    /// An empty pkgver clears the list and its error: the dialog has no
+    /// package to ask about, and a stale list would read as an answer.
+    fn read_package_files(mut self: Pin<&mut Self>, pkgver: &cxx_qt_lib::QString) {
+        let pkgver = pkgver.to_string().trim().to_owned();
+        let generation = {
             let data = Pin::get_mut(self.as_mut().rust_mut());
-            // The newest answer already covers this take; nothing to read.
-            if data.answer.signature == signature {
-                return;
-            }
-            if query.is_empty() {
-                // No diagnostic answers an empty pattern: the field is what the
-                // take asks about, and any read still in flight is now stale.
-                data.clear_answer();
+            if pkgver.is_empty() {
+                data.clear_files();
+                None
             } else {
-                data.begin_search(signature.clone());
+                Some(data.begin_files(&pkgver))
             }
+        };
+        self.as_mut().files_changed();
+        self.as_mut().files_pkgver_changed();
+        self.as_mut().files_loading_changed();
+        self.as_mut().files_error_changed();
+        self.as_mut().files_error_args_changed();
+        if let Some(generation) = generation {
+            self.as_mut().run_files(generation, pkgver);
         }
-        self.as_mut().searching_changed();
-        if query.is_empty() {
-            self.as_mut().search_error_changed();
-            self.as_mut().search_error_args_changed();
-            self.as_mut().raw_text_changed();
-            self.as_mut().raw_command_changed();
-            return;
+    }
+
+    /// Reads which package owns a path, on a worker thread; the answer is the
+    /// one line xbps printed, or the error it reported.
+    fn read_file_owner(mut self: Pin<&mut Self>, path: &cxx_qt_lib::QString) {
+        let path = path.to_string().trim().to_owned();
+        let generation = {
+            let data = Pin::get_mut(self.as_mut().rust_mut());
+            if path.is_empty() {
+                data.clear_owner();
+                None
+            } else {
+                Some(data.begin_owner(&path))
+            }
+        };
+        self.as_mut().owner_changed();
+        self.as_mut().owner_path_changed();
+        self.as_mut().owner_loading_changed();
+        self.as_mut().owner_error_changed();
+        self.as_mut().owner_error_args_changed();
+        if let Some(generation) = generation {
+            self.as_mut().run_owner(generation, path);
         }
-        self.as_mut().run_search(signature);
     }
 
     /// The facts of one pkgver: the cached answer, or an empty map while a read
@@ -705,65 +677,86 @@ impl QueryBackendRust {
         Some(self.facts_generation.fetch_add(1, Ordering::SeqCst) + 1)
     }
 
-    /// Moves the window to a new query; the previous answer stays until it
-    /// lands.
-    fn begin_search(&mut self, signature: SearchSignature) {
-        self.signature = signature;
-        self.search_error = QString::from("");
-        self.search_error_args = QStringList::default();
-        self.searching = true;
-        self.search_generation.fetch_add(1, Ordering::SeqCst);
+    /// Starts a files read for `pkgver`: the list empties, the error clears and
+    /// the read owns the newest generation.
+    fn begin_files(&mut self, pkgver: &str) -> u64 {
+        self.files = QStringList::default();
+        self.files_pkgver = QString::from(pkgver);
+        self.files_loading = true;
+        self.files_error = QString::from("");
+        self.files_error_args = QStringList::default();
+        self.files_generation.fetch_add(1, Ordering::SeqCst) + 1
     }
 
-    /// Drops the answer of an emptied field and invalidates any read in
-    /// flight.
-    fn clear_answer(&mut self) {
-        self.signature = SearchSignature::default();
-        self.search_generation.fetch_add(1, Ordering::SeqCst);
-        self.answer = SearchAnswer::default();
-        self.search_error = QString::from("");
-        self.search_error_args = QStringList::default();
-        self.searching = false;
-        self.raw_text = QString::from("");
-        self.raw_command = QString::from("");
+    /// Drops the file list and its error; an empty pkgver answers nothing.
+    fn clear_files(&mut self) {
+        self.files = QStringList::default();
+        self.files_pkgver = QString::from("");
+        self.files_loading = false;
+        self.files_error = QString::from("");
+        self.files_error_args = QStringList::default();
+        // A read still in flight answers for the package the dialog left.
+        self.files_generation.fetch_add(1, Ordering::SeqCst);
     }
 
-    /// Applies a landed answer and reports which properties moved.
-    ///
-    /// A stale answer has no side effect. The caller emits exactly the
-    /// notifications this names: the two raw properties declared NOTIFY, and
-    /// nothing was ever emitting theirs before.
-    fn announce_answer(
-        &mut self,
-        answer: &SearchAnswer,
-        current: &SearchSignature,
-    ) -> AnswerEffect {
-        if answer.signature != *current {
-            return AnswerEffect::default();
+    /// Applies a landed files read unless the dialog moved to another package.
+    fn finish_files(&mut self, pkgver: &str, result: Result<RawOutput, SnapshotError>) {
+        if self.files_pkgver.to_string() != pkgver {
+            return;
         }
-        self.searching = false;
-        let (text, command) = match &answer.raw {
-            Some(raw) => (raw.text.as_str(), raw.command.as_str()),
-            None => ("", ""),
-        };
-        let raw_text_moved = self.raw_text.to_string() != text;
-        let raw_command_moved = self.raw_command.to_string() != command;
-        self.raw_text = QString::from(text);
-        self.raw_command = QString::from(command);
-        match &answer.error {
-            Some(err) => {
-                self.search_error = QString::from(err.key());
-                self.search_error_args = args_of(err);
+        self.files_loading = false;
+        match result {
+            Ok(raw) => {
+                self.files = output_lines(&raw.text);
+                self.files_error = QString::from("");
+                self.files_error_args = QStringList::default();
             }
-            None => {
-                self.search_error = QString::from("");
-                self.search_error_args = QStringList::default();
+            Err(err) => {
+                self.files = QStringList::default();
+                self.files_error = QString::from(err.key());
+                self.files_error_args = args_of(&err);
             }
         }
-        AnswerEffect {
-            fresh: true,
-            raw_text_moved,
-            raw_command_moved,
+    }
+
+    /// Starts an owner read for `path`: the answer clears and the read owns the
+    /// newest generation.
+    fn begin_owner(&mut self, path: &str) -> u64 {
+        self.owner = QString::from("");
+        self.owner_path = QString::from(path);
+        self.owner_loading = true;
+        self.owner_error = QString::from("");
+        self.owner_error_args = QStringList::default();
+        self.owner_generation.fetch_add(1, Ordering::SeqCst) + 1
+    }
+
+    /// Drops the owner answer and its error; an empty path asks nothing.
+    fn clear_owner(&mut self) {
+        self.owner = QString::from("");
+        self.owner_path = QString::from("");
+        self.owner_loading = false;
+        self.owner_error = QString::from("");
+        self.owner_error_args = QStringList::default();
+        self.owner_generation.fetch_add(1, Ordering::SeqCst);
+    }
+
+    /// Applies a landed owner read unless the dialog moved to another path.
+    fn finish_owner(&mut self, path: &str, result: Result<RawOutput, SnapshotError>) {
+        if self.owner_path.to_string() != path {
+            return;
+        }
+        self.owner_loading = false;
+        match result {
+            Ok(raw) => {
+                self.owner = first_line(&raw.text);
+                self.owner_error = QString::from("");
+                self.owner_error_args = QStringList::default();
+            }
+            Err(err) => {
+                self.owner = QString::from("");
+                self.owner_error = QString::from(err.key());
+                self.owner_error_args = args_of(&err);
+            }
         }
     }
 
@@ -788,65 +781,72 @@ impl QueryBackendRust {
 }
 
 impl qobject::QueryBackend {
-    /// Runs the take on a worker thread and hands the output back on the GUI
-    /// thread.
-    fn run_search(self: Pin<&mut Self>, signature: SearchSignature) {
-        let generation = self.rust().search_generation.load(Ordering::SeqCst);
+    /// Runs `xbps-query -f` on a worker thread and hands the output back on the
+    /// GUI thread.
+    fn run_files(self: Pin<&mut Self>, generation: u64, pkgver: String) {
         let thread = self.qt_thread();
-        let current = self.search_generation.clone();
+        let current = self.files_generation.clone();
         let invoke = self.invoke.clone();
-        let command = crate::xbps_runner::query_take_argv(signature.mode, &signature.query);
+        let command = files_argv(&pkgver);
         std::thread::spawn(move || {
-            let (raw, error) = match read_raw(&*invoke, &command) {
-                Ok(raw) => (Some(raw), None),
-                Err(err) => (None, Some(err)),
-            };
-            let answer = SearchAnswer {
-                signature,
-                error,
-                raw,
-            };
+            let result = read_raw(&*invoke, &command);
             // The closure runs on the GUI thread; `thread.queue` fails only
             // once the backend is gone, and then nobody wants the result.
             thread
-                .queue(move |backend| backend.deliver_search(generation, &current, answer))
+                .queue(move |backend| backend.deliver_files(generation, &current, pkgver, result))
                 .ok();
         });
     }
 
-    /// Applies a landed search unless a newer query has started since.
-    fn deliver_search(
+    /// Applies a landed file list unless the dialog moved on.
+    fn deliver_files(
         mut self: Pin<&mut Self>,
         generation: u64,
         current: &Arc<AtomicU64>,
-        answer: SearchAnswer,
+        pkgver: String,
+        result: Result<RawOutput, SnapshotError>,
     ) {
         if current.load(Ordering::SeqCst) != generation {
             return;
         }
-        let signature = self.rust().signature.clone();
-        let effect = {
-            let data = Pin::get_mut(self.as_mut().rust_mut());
-            data.announce_answer(&answer, &signature)
-        };
-        if !effect.fresh {
+        Pin::get_mut(self.as_mut().rust_mut()).finish_files(&pkgver, result);
+        self.as_mut().files_changed();
+        self.as_mut().files_loading_changed();
+        self.as_mut().files_error_changed();
+        self.as_mut().files_error_args_changed();
+    }
+
+    /// Runs `xbps-query -o` on a worker thread and hands the answer back on the
+    /// GUI thread.
+    fn run_owner(self: Pin<&mut Self>, generation: u64, path: String) {
+        let thread = self.qt_thread();
+        let current = self.owner_generation.clone();
+        let invoke = self.invoke.clone();
+        let command = owner_argv(&path);
+        std::thread::spawn(move || {
+            let result = read_raw(&*invoke, &command);
+            thread
+                .queue(move |backend| backend.deliver_owner(generation, &current, path, result))
+                .ok();
+        });
+    }
+
+    /// Applies a landed owner answer unless the dialog moved on.
+    fn deliver_owner(
+        mut self: Pin<&mut Self>,
+        generation: u64,
+        current: &Arc<AtomicU64>,
+        path: String,
+        result: Result<RawOutput, SnapshotError>,
+    ) {
+        if current.load(Ordering::SeqCst) != generation {
             return;
         }
-        // The newest answer becomes the one a repeated take is compared with,
-        // so pressing Enter twice does not run xbps twice.
-        {
-            let data = Pin::get_mut(self.as_mut().rust_mut());
-            data.answer = answer;
-        }
-        self.as_mut().searching_changed();
-        self.as_mut().search_error_changed();
-        self.as_mut().search_error_args_changed();
-        if effect.raw_text_moved {
-            self.as_mut().raw_text_changed();
-        }
-        if effect.raw_command_moved {
-            self.as_mut().raw_command_changed();
-        }
+        Pin::get_mut(self.as_mut().rust_mut()).finish_owner(&path, result);
+        self.as_mut().owner_changed();
+        self.as_mut().owner_loading_changed();
+        self.as_mut().owner_error_changed();
+        self.as_mut().owner_error_args_changed();
     }
 
     /// Reads one package's facts on a worker thread.
@@ -897,9 +897,25 @@ fn args_of(err: &SnapshotError) -> QStringList {
         .collect::<QStringList>()
 }
 
-/// A trimmed query; a field of blanks searches for nothing.
-fn trimmed(query: &cxx_qt_lib::QString) -> String {
-    query.to_string().trim().to_owned()
+/// The non-empty lines of an `xbps-query` output, in the order it printed them.
+///
+/// `-f` prints one path per line; a trailing newline is not an entry.
+fn output_lines(text: &str) -> QStringList {
+    text.lines()
+        .map(str::trim)
+        .filter(|line| !line.is_empty())
+        .map(QString::from)
+        .collect::<QStringList>()
+}
+
+/// The one line `xbps-query -o` answers with; empty when it printed nothing.
+fn first_line(text: &str) -> QString {
+    QString::from(
+        text.lines()
+            .map(str::trim)
+            .find(|line| !line.is_empty())
+            .unwrap_or_default(),
+    )
 }
 
 /// The hits of one list-search answer, in the shape `SearchHit` serialises.
@@ -969,14 +985,10 @@ mod tests {
     }
 
     /// A finished raw answer, as a worker would hand it back.
-    fn raw_answer(signature: SearchSignature, command: &str, text: &str) -> SearchAnswer {
-        SearchAnswer {
-            signature,
-            error: None,
-            raw: Some(RawOutput {
-                command: command.to_owned(),
-                text: text.to_owned(),
-            }),
+    fn raw_answer(command: &str, text: &str) -> RawOutput {
+        RawOutput {
+            command: command.to_owned(),
+            text: text.to_owned(),
         }
     }
 
@@ -1005,100 +1017,165 @@ mod tests {
         }
     }
 
-    #[test]
-    fn a_raw_answer_publishes_its_text_and_command_and_asks_for_both_notifications() {
-        let mut backend = QueryBackendRust::default();
-        let signature = SearchSignature::new(QueryMode::X, "vim");
-        backend.begin_search(signature.clone());
-        let landed = raw_answer(signature.clone(), "xbps-query -x vim", "glibc>=2.41_1\n");
-        let effect = backend.announce_answer(&landed, &signature);
-        assert!(effect.fresh);
-        assert!(
-            effect.raw_text_moved,
-            "the output block has to re-read its text"
-        );
-        assert!(
-            effect.raw_command_moved,
-            "the command label has to re-read its command"
-        );
-        assert_eq!(backend.raw_text.to_string(), "glibc>=2.41_1\n");
-        assert_eq!(backend.raw_command.to_string(), "xbps-query -x vim");
-        assert!(!backend.searching);
-        assert_eq!(backend.search_error.to_string(), "");
+    fn lines_of(list: &QStringList) -> Vec<String> {
+        list.iter().map(QString::to_string).collect()
     }
 
     #[test]
-    fn a_stale_raw_answer_never_overwrites_a_newer_query() {
+    fn a_files_answer_publishes_one_line_per_path() {
         let mut backend = QueryBackendRust::default();
-        let slow = raw_answer(
-            SearchSignature::new(QueryMode::X, "vim"),
-            "xbps-query -x vim",
-            "glibc>=2.41_1\n",
+        backend.begin_files("neovim-0.12.6_1");
+        backend.finish_files(
+            "neovim-0.12.6_1",
+            Ok(raw_answer(
+                "xbps-query -f neovim",
+                "/usr/bin/nvim\n/usr/share/applications/nvim.desktop\n",
+            )),
         );
-        // The field moved on before the slow answer arrived.
-        backend.begin_search(SearchSignature::new(QueryMode::X, "vi"));
-        let current = backend.signature.clone();
-        let effect = backend.announce_answer(&slow, &current);
-        assert!(
-            !effect.fresh,
-            "an answer for a query nobody is asking any more is dropped"
+        assert_eq!(
+            lines_of(&backend.files),
+            ["/usr/bin/nvim", "/usr/share/applications/nvim.desktop"]
         );
-        assert!(!effect.raw_text_moved);
-        assert_eq!(backend.raw_text.to_string(), "");
-        assert_eq!(backend.raw_command.to_string(), "");
+        assert!(!backend.files_loading);
+        assert_eq!(backend.files_error.to_string(), "");
     }
 
     #[test]
-    fn a_failed_raw_take_names_the_key_and_keeps_the_block_empty() {
+    fn a_stale_files_answer_never_overwrites_a_newer_package() {
         let mut backend = QueryBackendRust::default();
-        let signature = SearchSignature::new(QueryMode::P, "pkgver vim");
-        backend.begin_search(signature.clone());
-        let landed = SearchAnswer {
-            signature: signature.clone(),
-            error: Some(SnapshotError::Exit {
+        // The dialog asked for neovim, then moved to vim before the answer.
+        backend.begin_files("neovim-0.12.6_1");
+        backend.begin_files("vim-9.2.1031_1");
+        backend.finish_files(
+            "neovim-0.12.6_1",
+            Ok(raw_answer("xbps-query -f neovim", "/usr/bin/nvim\n")),
+        );
+        assert!(
+            lines_of(&backend.files).is_empty(),
+            "a list for a package nobody is asking about is dropped"
+        );
+        assert!(backend.files_loading, "the newer read is still in flight");
+        assert_eq!(backend.files_pkgver.to_string(), "vim-9.2.1031_1");
+    }
+
+    #[test]
+    fn a_failed_files_read_names_the_key_and_keeps_the_list_empty() {
+        let mut backend = QueryBackendRust::default();
+        backend.begin_files("vim-9.2.1031_1");
+        backend.finish_files(
+            "vim-9.2.1031_1",
+            Err(SnapshotError::Exit {
                 program: "xbps-query".into(),
                 code: 2,
-                stderr: "missing package".into(),
+                stderr: "package not installed".into(),
             }),
-            raw: None,
-        };
-        let effect = backend.announce_answer(&landed, &signature);
-        assert!(effect.fresh);
-        assert!(
-            !effect.raw_text_moved,
-            "a failure prints no text and the empty state says so"
         );
-        assert_eq!(backend.raw_text.to_string(), "");
-        assert_eq!(backend.search_error.to_string(), "errorXbpsExit");
+        assert!(lines_of(&backend.files).is_empty());
+        assert!(!backend.files_loading);
+        assert_eq!(backend.files_error.to_string(), "errorXbpsExit");
         assert_eq!(
-            backend
-                .search_error_args
-                .iter()
-                .map(QString::to_string)
-                .collect::<Vec<_>>(),
-            ["xbps-query", "2", "missing package"]
+            lines_of(&backend.files_error_args),
+            ["xbps-query", "2", "package not installed"]
         );
     }
 
     #[test]
-    fn an_empty_query_clears_the_text_the_command_and_the_error() {
+    fn an_empty_pkgver_clears_the_files_and_the_error() {
         let mut backend = QueryBackendRust::default();
-        let signature = SearchSignature::new(QueryMode::X, "vim");
-        backend.begin_search(signature.clone());
-        let landed = raw_answer(signature.clone(), "xbps-query -x vim", "glibc\n");
-        backend.announce_answer(&landed, &signature);
-        assert_eq!(backend.raw_text.to_string(), "glibc\n");
-
-        backend.clear_answer();
-        assert_eq!(
-            backend.raw_text.to_string(),
-            "",
-            "an empty field answers nothing"
+        backend.begin_files("neovim-0.12.6_1");
+        backend.finish_files(
+            "neovim-0.12.6_1",
+            Ok(raw_answer("xbps-query -f neovim", "/usr/bin/nvim\n")),
         );
-        assert_eq!(backend.raw_command.to_string(), "");
-        assert_eq!(backend.search_error.to_string(), "");
-        assert!(!backend.searching);
-        assert_eq!(backend.signature, SearchSignature::default());
+        assert_eq!(lines_of(&backend.files), ["/usr/bin/nvim"]);
+
+        backend.clear_files();
+        assert!(lines_of(&backend.files).is_empty(), "no package, no list");
+        assert_eq!(backend.files_pkgver.to_string(), "");
+        assert!(!backend.files_loading);
+        assert_eq!(backend.files_error.to_string(), "");
+    }
+
+    #[test]
+    fn an_owner_answer_keeps_the_one_line_xbps_printed() {
+        let mut backend = QueryBackendRust::default();
+        backend.begin_owner("/usr/bin/nvim");
+        backend.finish_owner(
+            "/usr/bin/nvim",
+            Ok(raw_answer(
+                "xbps-query -o /usr/bin/nvim",
+                "neovim-0.12.6_1: /usr/bin/nvim (regular file)\n",
+            )),
+        );
+        assert_eq!(
+            backend.owner.to_string(),
+            "neovim-0.12.6_1: /usr/bin/nvim (regular file)"
+        );
+        assert!(!backend.owner_loading);
+        assert_eq!(backend.owner_error.to_string(), "");
+    }
+
+    #[test]
+    fn a_stale_owner_answer_never_overwrites_a_newer_path() {
+        let mut backend = QueryBackendRust::default();
+        backend.begin_owner("/usr/bin/nvim");
+        backend.begin_owner("/usr/bin/vim");
+        backend.finish_owner(
+            "/usr/bin/nvim",
+            Ok(raw_answer(
+                "xbps-query -o /usr/bin/nvim",
+                "neovim-0.12.6_1: /usr/bin/nvim (regular file)\n",
+            )),
+        );
+        assert_eq!(
+            backend.owner.to_string(),
+            "",
+            "an answer for a path nobody is asking about is dropped"
+        );
+        assert!(backend.owner_loading);
+        assert_eq!(backend.owner_path.to_string(), "/usr/bin/vim");
+    }
+
+    #[test]
+    fn a_failed_owner_read_names_the_key_and_keeps_the_answer_empty() {
+        let mut backend = QueryBackendRust::default();
+        backend.begin_owner("/usr/bin/nosuch");
+        backend.finish_owner(
+            "/usr/bin/nosuch",
+            Err(SnapshotError::Exit {
+                program: "xbps-query".into(),
+                code: 2,
+                stderr: String::new(),
+            }),
+        );
+        assert_eq!(backend.owner.to_string(), "");
+        assert!(!backend.owner_loading);
+        assert_eq!(backend.owner_error.to_string(), "errorXbpsExit");
+        assert_eq!(
+            lines_of(&backend.owner_error_args),
+            ["xbps-query", "2", ""],
+            "xbps printed nothing and the sentence says exactly that"
+        );
+    }
+
+    #[test]
+    fn an_empty_path_clears_the_owner_answer() {
+        let mut backend = QueryBackendRust::default();
+        backend.begin_owner("/usr/bin/nvim");
+        backend.finish_owner(
+            "/usr/bin/nvim",
+            Ok(raw_answer(
+                "xbps-query -o /usr/bin/nvim",
+                "neovim-0.12.6_1: /usr/bin/nvim (regular file)\n",
+            )),
+        );
+        assert!(!backend.owner.to_string().is_empty());
+
+        backend.clear_owner();
+        assert_eq!(backend.owner.to_string(), "", "no path, no answer");
+        assert_eq!(backend.owner_path.to_string(), "");
+        assert!(!backend.owner_loading);
+        assert_eq!(backend.owner_error.to_string(), "");
     }
 
     #[test]

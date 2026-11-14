@@ -328,6 +328,35 @@ Item {
                 font: Kirigami.Theme.smallFont
                 onClicked: pane.installedBackend.toggleHold(pane.name)
             }
+
+            // The two questions the pane itself cannot show: which files the
+            // package owns, and which package owns a path. Both need room the
+            // pane does not have, so they open in one compact dialog.
+            QQC2.ToolButton {
+                id: moreButton
+                text: i18nd("kxbps", "More")
+                icon.name: "overflow-menu"
+                font: Kirigami.Theme.smallFont
+                enabled: pane.packageName.length > 0
+                Accessible.name: i18nd("kxbps", "More package queries")
+                onClicked: moreMenu.open()
+
+                QQC2.Menu {
+                    id: moreMenu
+                    y: moreButton.height
+
+                    QQC2.MenuItem {
+                        text: i18nd("kxbps", "Package files…")
+                        enabled: pane.packageName.length > 0
+                        onTriggered: filesDialog.openFiles()
+                    }
+
+                    QQC2.MenuItem {
+                        text: i18nd("kxbps", "File owner…")
+                        onTriggered: filesDialog.openOwner()
+                    }
+                }
+            }
         }
     }
 
@@ -481,5 +510,12 @@ Item {
         font: Kirigami.Theme.smallFont
         horizontalAlignment: Text.AlignHCenter
         wrapMode: Text.WordWrap
+    }
+
+    PackageFilesDialog {
+        id: filesDialog
+        catalogBackend: pane.catalogBackend
+        packageName: pane.packageName
+        packageLabel: pane.name
     }
 }

@@ -51,8 +51,8 @@ pub use transaction::{
 };
 pub use types::{
     Blocked, DEFAULT_UPDATE_CHECK_MINUTES, DialogState, Inst, InstalledMap, ListFilter, PlanAction,
-    PlanItem, PlanReason, Prefs, ProbeState, QueryMode, QueueAction, QueueItem, Repos,
-    UPDATE_INTERVALS, ViewId, normalize_interval,
+    PlanItem, PlanReason, Prefs, ProbeState, QueueAction, QueueItem, Repos, UPDATE_INTERVALS,
+    ViewId, normalize_interval,
 };
 pub use update_check::{
     AUTO_GAP_MS, CheckOutcome, CheckStatus, UpdatesOrigin, check_status, claims_up_to_date, is_due,

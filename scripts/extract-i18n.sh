@@ -122,6 +122,26 @@ xgettext --language=JavaScript --from-code=UTF-8 \
     --directory="$ROOT" \
     --output="$WORK/qml.pot" $(sed "s|^$ROOT/||" "$WORK/qml-files")
 
+# --- 1b. C++ entries --------------------------------------------------------
+#
+# The tray menu is built in C++ (`tray_item.h`) and calls the same KI18n
+# helpers as QML. Without this step the next `--write` would drop those two
+# labels and the plural from the catalogs, and the tray would fall back to
+# English in every language.
+
+find "$ROOT/kxbps-qt/src" \( -name '*.h' -o -name '*.cpp' \) -print \
+    | LC_ALL=C sort >"$WORK/cpp-files"
+# shellcheck disable=SC2046 # paths come from find and hold no whitespace
+xgettext --language=C++ --from-code=UTF-8 \
+    --keyword=i18nd:2 --keyword=i18ndc:2c,3 --keyword=i18ndp:2,3 \
+    --package-name="$DOMAIN" --add-comments --no-wrap \
+    --directory="$ROOT" \
+    --output="$WORK/cpp.pot" $(sed "s|^$ROOT/||" "$WORK/cpp-files")
+
+# One template for both languages: msguniq merges the duplicates later.
+msgcat --no-wrap --output-file="$WORK/strings.pot" "$WORK/qml.pot" "$WORK/cpp.pot"
+cat "$WORK/qml-files" "$WORK/cpp-files" >"$WORK/source-files"
+
 # --- 2. Rust keys -----------------------------------------------------------
 
 rust_files=
@@ -138,7 +158,7 @@ python3 "$ROOT/scripts/i18n-rust-keys.py" $rust_files >"$WORK/rust-keys.txt"
 # --- 3. Assemble and order --------------------------------------------------
 
 python3 "$ROOT/scripts/assemble-pot.py" \
-    "$WORK/qml.pot" "$WORK/rust-keys.txt" "$WORK/$DOMAIN.unsorted.pot"
+    "$WORK/strings.pot" "$WORK/rust-keys.txt" "$WORK/$DOMAIN.unsorted.pot"
 # msguniq merges duplicate msgids (reference lists are concatenated); it has no
 # stable sort of its own, so assemble-pot.py already wrote the entries sorted.
 msguniq --no-wrap --output-file="$WORK/$DOMAIN.pot" "$WORK/$DOMAIN.unsorted.pot"
@@ -147,7 +167,7 @@ msguniq --no-wrap --output-file="$WORK/$DOMAIN.pot" "$WORK/$DOMAIN.unsorted.pot"
 
 fail=0
 
-if ! python3 "$ROOT/scripts/check-refs.py" "$WORK/$DOMAIN.pot" "$ROOT" "$WORK/qml-files"; then
+if ! python3 "$ROOT/scripts/check-refs.py" "$WORK/$DOMAIN.pot" "$ROOT" "$WORK/source-files"; then
     fail=1
 fi
 
