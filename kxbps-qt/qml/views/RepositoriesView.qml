@@ -10,6 +10,7 @@ import QtQuick.Controls as QQC2
 import QtQuick.Layouts
 import org.kde.kirigami as Kirigami
 import org.kde.ki18n 1.0
+import "../components"
 
 Item {
     id: view
@@ -101,7 +102,7 @@ Item {
                 onAccepted: view.add()
             }
 
-            QQC2.Button {
+            DenseButton {
                 text: i18nd("kxbps", "Add repository")
                 icon.name: "list-add"
                 enabled: view.ready && !view.busy && view.newUrl.trim().length > 0

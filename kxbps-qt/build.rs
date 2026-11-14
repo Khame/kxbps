@@ -18,6 +18,7 @@ fn main() {
             .qml_file("qml/components/PackageDelegate.qml")
             .qml_file("qml/components/QueueDelegate.qml")
             .qml_file("qml/components/MirrorDelegate.qml")
+            .qml_file("qml/components/DenseButton.qml")
             .qml_file("qml/components/DetailsPane.qml")
             .qml_file("qml/components/PackageFilesDialog.qml")
             .qml_file("qml/components/StatusStrip.qml")

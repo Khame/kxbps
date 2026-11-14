@@ -15,6 +15,7 @@ import QtQuick.Controls as QQC2
 import QtQuick.Layouts
 import org.kde.kirigami as Kirigami
 import org.kde.ki18n 1.0
+import "../components"
 
 Item {
     id: view
@@ -165,7 +166,7 @@ Item {
                 wrapMode: Text.WordWrap
             }
 
-            QQC2.Button {
+            DenseButton {
                 text: i18nd("kxbps", "About KXbps")
                 icon.name: "help-about"
                 onClicked: view.aboutRequested()

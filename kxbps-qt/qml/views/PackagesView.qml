@@ -939,7 +939,7 @@ Item {
                 implicitHeight: Kirigami.Units.gridUnit * 1.5
             }
 
-            QQC2.Button {
+            DenseButton {
                 enabled: !view.installedBackend.checking
                 icon.name: "view-refresh"
                 text: view.installedBackend.checking

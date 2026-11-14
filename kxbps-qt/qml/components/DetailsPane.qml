@@ -448,7 +448,7 @@ Item {
         anchors.margins: Kirigami.Units.largeSpacing
         spacing: Kirigami.Units.smallSpacing
 
-        QQC2.Button {
+        DenseButton {
             text: pane.actionLabel
             icon.name: pane.actionIcon
             font: Kirigami.Theme.smallFont
@@ -469,7 +469,7 @@ Item {
             Layout.fillWidth: true
         }
 
-        QQC2.Button {
+        DenseButton {
             visible: pane.installed
             text: pane.info.held ? i18nd("kxbps", "Unhold") : i18nd("kxbps", "Hold")
             icon.name: pane.info.held ? "object-unlocked" : "object-locked"
@@ -477,7 +477,7 @@ Item {
             onClicked: pane.installedBackend.toggleHold(pane.name)
         }
 
-        QQC2.Button {
+        DenseButton {
             text: i18nd("kxbps", "Files")
             font: Kirigami.Theme.smallFont
             enabled: pane.packageName.length > 0

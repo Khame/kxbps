@@ -986,7 +986,7 @@ Kirigami.ApplicationWindow {
                         //
                         // A button, not a tool button: the row is buttons, and
                         // a flat icon among bordered ones reads as disabled.
-                        QQC2.Button {
+                        DenseButton {
                             icon.name: "view-refresh"
                             text: i18nd("kxbps", "Refresh")
                             Accessible.name: i18nd("kxbps", "Refresh")
@@ -1012,7 +1012,7 @@ Kirigami.ApplicationWindow {
                         // The two bulk gestures. Below 60 gu they keep their
                         // icons and drop the words, so the toolbar stays one row
                         // without losing an action.
-                        QQC2.Button {
+                        DenseButton {
                             visible: root.section === "packages"
                             text: i18nd("kxbps", "Mark all upgrades")
                             display: root.narrow ? QQC2.AbstractButton.IconOnly
@@ -1024,7 +1024,7 @@ Kirigami.ApplicationWindow {
                             onClicked: installedBackend.queueAllUpdates()
                         }
 
-                        QQC2.Button {
+                        DenseButton {
                             visible: root.section === "packages"
                             text: i18nd("kxbps", "Unmark all")
                             display: root.narrow ? QQC2.AbstractButton.IconOnly
@@ -1038,7 +1038,7 @@ Kirigami.ApplicationWindow {
 
                         // The one accent action of the window: it opens the dry
                         // run, which is the only step that can change the system.
-                        QQC2.Button {
+                        DenseButton {
                             visible: root.section === "packages"
                             text: installedBackend.queueCount > 0
                                   ? i18ndp("kxbps", "Apply (%1)", "Apply (%1)", installedBackend.queueCount)
@@ -1049,7 +1049,7 @@ Kirigami.ApplicationWindow {
                             onClicked: root.reviewQueue()
                         }
 
-                        QQC2.Button {
+                        DenseButton {
                             visible: root.section === "mirrors"
                             text: i18nd("kxbps", "Probe all")
                             icon.name: "network-connect"
@@ -1059,7 +1059,7 @@ Kirigami.ApplicationWindow {
 
                         // Writing `/etc/xbps.d` needs root, so the button only
                         // opens a confirmation; the job dialog carries progress.
-                        QQC2.Button {
+                        DenseButton {
                             visible: root.section === "mirrors"
                             text: i18nd("kxbps", "Apply to system")
                             icon.name: "dialog-ok-apply"

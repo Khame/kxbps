@@ -425,7 +425,7 @@ Kirigami.Dialog {
                 }
             }
 
-            QQC2.Button {
+            DenseButton {
                 text: i18nd("kxbps", "Review blocked packages")
                 onClicked: dialog.requestBlocked()
             }

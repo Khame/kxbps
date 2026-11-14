@@ -96,7 +96,7 @@ Rectangle {
             elide: Text.ElideRight
         }
 
-        QQC2.Button {
+        DenseButton {
             // A cancel is only possible before xbps exists; hiding the control
             // once it runs avoids a click that would do nothing.
             visible: bar.running && (bar.job === null || bar.job.cancellable)
@@ -106,7 +106,7 @@ Rectangle {
             onClicked: bar.cancelRequested()
         }
 
-        QQC2.Button {
+        DenseButton {
             text: i18nd("kxbps", "Log")
             icon.name: "utilities-terminal"
             font: Kirigami.Theme.smallFont

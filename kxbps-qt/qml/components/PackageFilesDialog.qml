@@ -210,7 +210,7 @@ QQC2.Dialog {
             Layout.fillWidth: true
         }
 
-        QQC2.Button {
+        DenseButton {
             text: i18nd("kxbps", "Close")
             onClicked: dialog.close()
         }

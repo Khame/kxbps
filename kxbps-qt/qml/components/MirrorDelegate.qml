@@ -178,7 +178,7 @@ QQC2.ItemDelegate {
 
         // The mockup makes the choice a named button: a row that only reacts
         // to a click reads as text, and "Choose" says what the click does.
-        QQC2.Button {
+        DenseButton {
             text: delegate.inUse ? i18nd("kxbps", "In use") : i18nd("kxbps", "Choose")
             font: Kirigami.Theme.smallFont
             enabled: !delegate.inUse
