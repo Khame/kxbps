@@ -40,9 +40,17 @@ QtObject {
             return ""
         }
         const offer = JSON.parse(raw)
-        appBackend.notify(i18nd("kxbps", offer.summaryKey),
-                          i18ndp("kxbps", offer.bodyOneKey, offer.bodyManyKey,
-                                 Number(offer.bodyArg)),
+        const count = Number(offer.count)
+        // The sentences are written here, not in Rust: `i18nd` and `i18ndp` are
+        // the only place the extractor looks, so a string held on the Rust side
+        // would never reach the catalogs.
+        const body = offer.kind === "reminder"
+            ? i18ndp("kxbps", "%1 package is still waiting to be installed.",
+                     "%1 packages are still waiting to be installed.", count)
+            : i18ndp("kxbps", "%1 package can be updated.",
+                     "%1 packages can be updated.", count)
+        appBackend.notify(i18nd("kxbps", "Updates available"),
+                          body,
                           "kxbps-updates",
                           i18nd("kxbps", "Show KXbps"))
         return offer.kind

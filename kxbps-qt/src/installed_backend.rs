@@ -290,7 +290,7 @@ pub mod qobject {
 
         // Offers one announcement, if the decision table in
         // `crate::notification` allows it, and records it in the same call.
-        // Returns `{kind, summaryKey, bodyKey, bodyArg, signature}` as JSON, or
+        // Returns `{kind, count, signature}` as JSON, or
         // an empty string when nothing is announced. `visible` is the window's
         // visibility: a popup over the list the user is reading is noise, so a
         // visible window only defers the announcement to a later call.
@@ -1775,18 +1775,14 @@ fn take_announcement_with(store: &mut Store, now: i64, visible: bool) -> String 
         }
     }
     let payload = crate::notification::payload_for(kind, count);
-    let body_arg = payload.body_args.first().cloned().unwrap_or_default();
-    let (body_one, body_many) = payload.body_keys();
+    // Only the kind and the count: the sentences are QML's, so the extractor
+    // finds them and every language gets them.
     serde_json::json!({
-        "kind": match kind {
+        "kind": match payload.kind {
             crate::notification::Announcement::First => "first",
             crate::notification::Announcement::Reminder => "reminder",
         },
-        "summaryKey": payload.title_key,
-        "bodyKey": payload.body_key,
-        "bodyOneKey": body_one,
-        "bodyManyKey": body_many,
-        "bodyArg": body_arg,
+        "count": payload.count,
         "signature": signature,
     })
     .to_string()

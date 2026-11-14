@@ -14,9 +14,6 @@
 //! the plural form through `i18ndp`, because the plural rule belongs to the
 //! translation, not to Rust.
 
-/// Wire id of the announcement; the notifier's own id, not translated.
-pub const UPDATES_EVENT: &str = "updates-available";
-
 /// How long after the first announcement the one reminder goes out.
 pub const REMINDER_AFTER_MS: i64 = 3 * 60 * 60 * 1000;
 
@@ -25,18 +22,6 @@ pub const REMINDER_AFTER_MS: i64 = 3 * 60 * 60 * 1000;
 /// Without it a set that changes daily would pop up on every start; with it the
 /// tray icon carries the news for the rest of the day.
 pub const FIRST_NOTICE_FLOOR_MS: i64 = 24 * 60 * 60 * 1000;
-
-/// The title of a first announcement and of its reminder, in both cases the
-/// same event; QML builds the body.
-pub const UPDATES_TITLE: &str = "Updates available";
-/// The first body, singular; QML's `i18ndp` chooses between it and the plural.
-pub const UPDATES_BODY_ONE: &str = "%1 package can be updated.";
-/// The first body, plural.
-pub const UPDATES_BODY_MANY: &str = "%1 packages can be updated.";
-/// The reminder body, singular.
-pub const REMINDER_BODY_ONE: &str = "%1 package is still waiting to be installed.";
-/// The reminder body, plural.
-pub const REMINDER_BODY_MANY: &str = "%1 packages are still waiting to be installed.";
 
 /// Which of the two popups this is.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -49,46 +34,21 @@ pub enum Announcement {
 
 /// What QML needs to build one notification.
 ///
-/// `title_key` and `body_key` are English msgids for `i18nd`/`i18ndp`;
-/// `body_args` carries the count as its only element, so the plural form is
-/// chosen by the translation rather than glued in Rust.
-#[derive(Clone, Debug, PartialEq, Eq)]
+/// Only the kind and the count travel. The sentences live in `Notifier.qml`,
+/// where the extractor sees them and the catalogs get them; an English msgid
+/// held here would never reach the template, and the reminder body would stay
+/// English in every language. The plural form is still chosen by `i18ndp` in
+/// QML, because the plural rule belongs to the translation.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct NotificationPayload {
-    pub event_id: &'static str,
     pub kind: Announcement,
-    pub title_key: &'static str,
-    pub body_key: &'static str,
-    pub body_args: Vec<String>,
+    pub count: usize,
 }
 
 impl NotificationPayload {
     /// The payload for one announcement of `count` packages.
     fn new(kind: Announcement, count: usize) -> Self {
-        let body_key = match kind {
-            Announcement::First if count == 1 => UPDATES_BODY_ONE,
-            Announcement::First => UPDATES_BODY_MANY,
-            Announcement::Reminder if count == 1 => REMINDER_BODY_ONE,
-            Announcement::Reminder => REMINDER_BODY_MANY,
-        };
-        Self {
-            event_id: UPDATES_EVENT,
-            kind,
-            title_key: UPDATES_TITLE,
-            body_key,
-            body_args: vec![count.to_string()],
-        }
-    }
-
-    /// The two plural forms of this announcement's body, for `i18ndp`.
-    ///
-    /// The chosen `body_key` is the one matching `count`, but QML has to pass
-    /// both to `i18ndp`; sending the pair keeps the msgids in one place (this
-    /// module) instead of repeating them in QML.
-    pub fn body_keys(&self) -> (&'static str, &'static str) {
-        match self.kind {
-            Announcement::First => (UPDATES_BODY_ONE, UPDATES_BODY_MANY),
-            Announcement::Reminder => (REMINDER_BODY_ONE, REMINDER_BODY_MANY),
-        }
+        Self { kind, count }
     }
 }
 
@@ -387,27 +347,16 @@ mod tests {
     }
 
     #[test]
-    fn the_first_payload_carries_the_count_and_the_plural_key() {
-        let one = payload_for(Announcement::First, 1);
-        assert_eq!(one.body_args, ["1"]);
-        assert_eq!(one.body_key, UPDATES_BODY_ONE);
-        assert_eq!(one.title_key, "Updates available");
-        assert_eq!(one.event_id, UPDATES_EVENT);
+    fn the_payload_carries_the_kind_and_the_count() {
+        let first = payload_for(Announcement::First, 1);
+        assert_eq!(first.kind, Announcement::First);
+        assert_eq!(first.count, 1);
 
         let many = payload_for(Announcement::First, 5);
-        assert_eq!(many.body_args, ["5"]);
-        assert_eq!(many.body_key, UPDATES_BODY_MANY);
-    }
+        assert_eq!(many.count, 5);
 
-    #[test]
-    fn the_reminder_payload_says_the_packages_are_still_waiting() {
-        let one = payload_for(Announcement::Reminder, 1);
-        assert_eq!(one.kind, Announcement::Reminder);
-        assert_eq!(one.body_key, REMINDER_BODY_ONE);
-        assert_eq!(one.body_args, ["1"]);
-
-        let many = payload_for(Announcement::Reminder, 3);
-        assert_eq!(many.body_key, REMINDER_BODY_MANY);
-        assert_eq!(many.body_args, ["3"]);
+        let reminder = payload_for(Announcement::Reminder, 3);
+        assert_eq!(reminder.kind, Announcement::Reminder);
+        assert_eq!(reminder.count, 3);
     }
 }
