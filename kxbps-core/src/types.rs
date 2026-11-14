@@ -238,6 +238,9 @@ pub enum DialogState {
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Eq)]
 #[serde(rename_all = "camelCase")]
 pub struct Prefs {
+    /// Whether a set found at start is announced. A check the app runs while it
+    /// is open announces regardless, so this switch silences a start, not the
+    /// whole notifier.
     pub notify_on_start: bool,
     pub desktop: bool,
     /// Dismissed notification key, empty when nothing was dismissed.

@@ -16,8 +16,8 @@ the project uses semantic versioning.
   is current.
 - Desktop notification when updates are available: one per set of updates, one
   reminder after three hours, then only the tray icon. Clicking the popup opens
-  the window on the Upgradable list, and one Settings switch turns the
-  notifications off.
+  the window on the Upgradable list, and two Settings switches decide what is
+  announced.
 - Tray icon in two states: the plain stack and the stack with an arrow while
   updates wait. The icon is a theme name, so the panel recolours it, and the
   tooltip carries the count.
@@ -29,6 +29,9 @@ the project uses semantic versioning.
 - New icon set: a stack of packages for the application, and a monochrome tray
   icon that switches to the update variant while updates are waiting. The tray
   icon is a theme name, so Plasma recolours it for the panel.
+- Settings has the start-time switch back: "Announce available updates on
+  startup" keeps a start silent and lets a check run from the window report,
+  while "Use desktop notifications" covers the popups as a whole.
 
 ## [1.0.0] - 2026-11-13
 

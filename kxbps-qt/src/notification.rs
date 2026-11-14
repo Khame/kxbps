@@ -74,6 +74,11 @@ pub struct AnnounceState {
     pub desktop_notifications: bool,
     /// Whether a window is on screen; a popup over the list is noise.
     pub window_visible: bool,
+    /// Whether a set found at start is announced at all.
+    pub announce_on_start: bool,
+    /// Whether this call is the start-time offer, a deferred retry of it
+    /// included. A check the app runs while it is open is not one.
+    pub startup: bool,
 }
 
 /// Decides which announcement, if any, this moment calls for.
@@ -88,8 +93,15 @@ pub fn announcement(state: &AnnounceState) -> Option<Announcement> {
     if state.count == 0 || state.signature.is_empty() {
         return None;
     }
-    // The user turned the one switch off: only the tray icon changes.
+    // The user turned the popup switch off: only the tray icon changes.
     if !state.desktop_notifications {
+        return None;
+    }
+    // The start switch is off: a start says nothing, and the tray icon carries
+    // the news until a check the app runs while it is open offers the set. The
+    // reminder a start makes due is still a popup at start, so it waits too.
+    // Nothing is written here, which is what lets that later check announce.
+    if state.startup && !state.announce_on_start {
         return None;
     }
     // The user is looking at the list; the announcement waits for a later call.
@@ -144,6 +156,8 @@ mod tests {
             count: 5,
             desktop_notifications: true,
             window_visible: false,
+            announce_on_start: true,
+            startup: true,
         }
     }
 
@@ -181,6 +195,50 @@ mod tests {
             ..allowed()
         };
         assert_eq!(announcement(&state), None);
+    }
+
+    #[test]
+    fn a_start_with_the_start_switch_off_says_nothing() {
+        let state = AnnounceState {
+            announce_on_start: false,
+            ..allowed()
+        };
+        assert_eq!(
+            announcement(&state),
+            None,
+            "the switch is the start-time announcement"
+        );
+    }
+
+    #[test]
+    fn a_running_check_announces_with_the_start_switch_off() {
+        // The switch silences a start, not a check the user asked for: the same
+        // set is news when the app is already open.
+        let state = AnnounceState {
+            announce_on_start: false,
+            startup: false,
+            ..allowed()
+        };
+        assert_eq!(announcement(&state), Some(Announcement::First));
+    }
+
+    #[test]
+    fn the_start_switch_off_also_holds_back_the_reminder_a_start_makes_due() {
+        // A restart past the three-hour mark would remind; with the switch off
+        // that is still a popup at start, so it waits for a running check.
+        let state = AnnounceState {
+            dismissed: "sig-a".to_string(),
+            notified_at: T0,
+            now: T0 + REMINDER_AFTER_MS,
+            announce_on_start: false,
+            ..allowed()
+        };
+        assert_eq!(announcement(&state), None);
+        let checked = AnnounceState {
+            startup: false,
+            ..state
+        };
+        assert_eq!(announcement(&checked), Some(Announcement::Reminder));
     }
 
     #[test]

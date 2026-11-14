@@ -51,8 +51,10 @@ carries the count. The icon is there whether the window is open or not.
 
 One desktop notification announces a set of updates. A single reminder follows
 after three hours, and after that only the icon keeps reporting. Clicking the
-popup opens the window on the Upgradable list. The Settings switch turns the
-notifications off; it leaves the tray icon alone.
+popup opens the window on the Upgradable list. Two Settings switches decide what
+is announced: "Announce available updates on startup" keeps a start silent while
+a check you run from the window still reports, and "Use desktop notifications"
+turns the popups off altogether. Neither touches the tray icon.
 
 ## Privileges
 

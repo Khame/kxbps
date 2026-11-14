@@ -294,8 +294,14 @@ pub mod qobject {
         // an empty string when nothing is announced. `visible` is the window's
         // visibility: a popup over the list the user is reading is noise, so a
         // visible window only defers the announcement to a later call.
+        // `startup` marks the offer a start makes, a deferred retry of it
+        // included: the start switch gates that one, not a running check.
         #[qinvokable]
-        fn take_announcement(self: Pin<&mut InstalledBackend>, visible: bool) -> QString;
+        fn take_announcement(
+            self: Pin<&mut InstalledBackend>,
+            visible: bool,
+            startup: bool,
+        ) -> QString;
 
         fn set_query_backend(self: Pin<&mut InstalledBackend>, value: QObjectMutPtr);
 
@@ -631,12 +637,16 @@ impl qobject::InstalledBackend {
     /// See [`take_announcement_with`] for the rules. One save for the whole
     /// announcement, and none at all when nothing was announced: a deferred
     /// popup must not write a file.
-    fn take_announcement(mut self: Pin<&mut Self>, visible: bool) -> cxx_qt_lib::QString {
+    fn take_announcement(
+        mut self: Pin<&mut Self>,
+        visible: bool,
+        startup: bool,
+    ) -> cxx_qt_lib::QString {
         let now = now_ms();
         let (json, changed) = {
             let data = Pin::get_mut(self.as_mut().rust_mut());
             let before = data.store.prefs.clone();
-            let json = take_announcement_with(&mut data.store, now, visible);
+            let json = take_announcement_with(&mut data.store, now, visible, startup);
             (json, data.store.prefs != before)
         };
         if changed {
@@ -1746,9 +1756,13 @@ fn next_revision(current: i32) -> i32 {
 /// back. `None` writes nothing, so a deferred announcement (a visible window, a
 /// switch turned off) is offered again later instead of being lost.
 ///
+/// The start switch gates the start offer, a deferred retry of it included, and
+/// the desktop switch gates the popups as a whole; a check the app runs while it
+/// is open is not gated by the start switch.
+///
 /// The payload carries keys, not sentences: QML picks the plural form, because
 /// the plural rule belongs to the translation.
-fn take_announcement_with(store: &mut Store, now: i64, visible: bool) -> String {
+fn take_announcement_with(store: &mut Store, now: i64, visible: bool, startup: bool) -> String {
     let signature = pending_signature_of(store);
     let count = effective_updates(store.pending_updates(), &store.installed).len();
     let state = crate::notification::AnnounceState {
@@ -1760,6 +1774,8 @@ fn take_announcement_with(store: &mut Store, now: i64, visible: bool) -> String 
         count,
         desktop_notifications: store.prefs.desktop,
         window_visible: visible,
+        announce_on_start: store.prefs.notify_on_start,
+        startup,
     };
     let Some(kind) = crate::notification::announcement(&state) else {
         return String::new();
@@ -2610,14 +2626,21 @@ mod tests {
     }
 
     /// The announcement offer for one store at `now`, through the same
-    /// function the bridge method calls; the window is hidden.
+    /// function the bridge method calls; the window is hidden, and it is the
+    /// offer a start makes.
     fn offer(store: &mut Store, now: i64) -> String {
-        take_announcement_with(store, now, false)
+        take_announcement_with(store, now, false, true)
     }
 
     /// The same offer with the window on screen.
     fn offer_visible(store: &mut Store, now: i64) -> String {
-        take_announcement_with(store, now, true)
+        take_announcement_with(store, now, true, true)
+    }
+
+    /// The offer a check the app runs while it is open makes; the window is
+    /// hidden, and the start switch does not gate it.
+    fn offer_check(store: &mut Store, now: i64) -> String {
+        take_announcement_with(store, now, false, false)
     }
 
     #[test]
@@ -2671,6 +2694,19 @@ mod tests {
         assert_eq!(offer(&mut store, now), "");
         assert!(store.prefs.dismissed.is_empty());
         assert_eq!(store.prefs.notified_at, 0);
+    }
+
+    #[test]
+    fn a_start_with_the_start_switch_off_offers_nothing_then_a_check_announces() {
+        let now = 1_700_000_000_000;
+        let (mut store, _) = read_store();
+        store.set_pref_notify_on_start(false);
+        // The start offers nothing and writes no bookkeeping, so the set is
+        // still offered by a check the app runs while it is open.
+        assert_eq!(offer(&mut store, now), "");
+        assert!(store.prefs.dismissed.is_empty());
+        assert_eq!(store.prefs.notified_at, 0);
+        assert!(offer_check(&mut store, now).contains("\"kind\":\"first\""));
     }
 
     #[test]

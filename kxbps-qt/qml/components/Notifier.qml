@@ -27,15 +27,17 @@ QtObject {
 
     // Offers one announcement to the desktop service, if the backend decides
     // one is due. `visible` is the window's visibility: a popup over the list
-    // the user is reading is noise, so the backend defers instead.
+    // the user is reading is noise, so the backend defers instead. `startup` is
+    // true for the offer a start makes, a deferred retry of it included: the
+    // start switch gates that one, not a running check.
     //
     // Returns `first`, `reminder`, or an empty string when nothing was sent, so
     // the caller knows whether to arm the reminder timer or try again later.
-    function consider(visible) {
+    function consider(visible, startup) {
         if (installedBackend === null || appBackend === null) {
             return ""
         }
-        const raw = installedBackend.takeAnnouncement(visible)
+        const raw = installedBackend.takeAnnouncement(visible, startup)
         if (raw.length === 0) {
             return ""
         }

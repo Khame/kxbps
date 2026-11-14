@@ -434,6 +434,11 @@ Kirigami.ApplicationWindow {
         }
     }
 
+    // Whether the next announcement offer may leave the start sequence: the
+    // start switch gates it, and a popup that went out closes the sequence; a
+    // deferred start offer is retried with this still true.
+    property bool startupOffer: true
+
     // The notification tries exactly once per start, when the first read has
     // answered. `stateRevision` is not the hook: a hold toggle moves it too,
     // and the popup is a start-time event.
@@ -464,7 +469,12 @@ Kirigami.ApplicationWindow {
         if (notifierLoader.item === null) {
             return
         }
-        const kind = notifierLoader.item.consider(root.visible)
+        const kind = notifierLoader.item.consider(root.visible, root.startupOffer)
+        if (kind !== "") {
+            // A popup went out — the start offer counted or a running check
+            // delivered — so the start gate is closed for the next cycle.
+            root.startupOffer = false
+        }
         if (kind === "first") {
             reminderTimer.restart()
             root.announcementDeferred = false
@@ -502,11 +512,16 @@ Kirigami.ApplicationWindow {
         }
         // A reload while the window sits in the tray: only a set the user has
         // not dismissed yet produces a popup, because the signature moved.
+        // The first consideration belongs to the start sequence; a later one is
+        // a check the app runs while it is open, which the start switch does not
+        // gate.
         function onPendingSignatureChanged() {
+            const first = !root.startNotified
             root.updateStartNotified()
-            if (!root.startNotified) {
+            if (first) {
                 return
             }
+            root.startupOffer = false
             root.considerAnnouncement()
         }
     }

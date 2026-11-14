@@ -261,11 +261,12 @@ impl Store {
                 migrated = true;
             }
             if store.prefs.schema < 5 {
-                // Version 5 retires `notifyOnStart`: `desktop` is the single
-                // switch now. A user who had the announcement off kept it off,
-                // so the retired key's `false` moves to the surviving switch; an
-                // on value says nothing about the desktop preference and leaves
-                // it as stored. The key stays in the struct so these files load.
+                // Version 5 mirrored `notifyOnStart` into `desktop`: for one
+                // release the start announcement was the only switch, so an off
+                // value also turned the popups off. The start switch is back and
+                // both are visible in Settings again, but the migration stays as
+                // it shipped: a schema-4 file that had the announcement off
+                // keeps that decision in both keys.
                 if !store.prefs.notify_on_start {
                     store.prefs.desktop = false;
                 }
@@ -360,9 +361,10 @@ impl Store {
 
     /// Whether updates should be announced when the window opens.
     ///
-    /// Retired by schema 5: `desktop` is the single switch and the notifier no
-    /// longer reads this value. The setter stays so an older file, and the
-    /// preferences backend that mirrors it, still round-trip.
+    /// The start-time switch in Settings. It gates the offer a start makes,
+    /// including the reminder a start makes due; a check the app runs while it
+    /// is open announces regardless, which is why this is not the same switch
+    /// as [`Self::set_pref_desktop_notifications`].
     pub fn set_pref_notify_on_start(&mut self, on: bool) {
         self.prefs.notify_on_start = on;
         self.dirty = true;
@@ -950,7 +952,7 @@ mod tests {
         assert!(!store.prefs.notify_on_start, "the stored keys still win");
         assert!(
             !store.prefs.desktop,
-            "schema 5 carries an off announcement over to the one switch"
+            "schema 5 mirrored the off announcement into the popup switch"
         );
 
         store.set_pref_start_with_session(false);
@@ -984,9 +986,9 @@ mod tests {
 
     #[test]
     fn a_schema_four_file_with_the_announcement_off_keeps_notifications_off() {
-        // Version 5 retires `notifyOnStart` in favour of the one `desktop`
-        // switch. A user who had announcements off must not start receiving
-        // them because the switch moved.
+        // Version 5 mirrored `notifyOnStart` into the `desktop` switch. A user
+        // who had announcements off must not start receiving them because the
+        // switch moved.
         let (_dir, store, path) = load_seeded(
             "prefs-v5-off",
             br#"{"schema":4,"notifyOnStart":false,"desktop":true,"dismissed":"kept","startWithSession":true}"#,
