@@ -27,6 +27,9 @@ fn main() {
     // Before the engine loads: Kirigami derives `gridUnit` from the font once,
     // and every row, icon and padding in the window follows it.
     kxbps_qt::set_compact_font();
+    // Before the engine loads: the style decides how every button label is
+    // painted, and the desktop style underlines the Alt mnemonic by default.
+    kxbps_qt::set_plain_buttons();
     cxx_qt_lib::QGuiApplication::set_desktop_file_name(&QString::from("io.github.khame.kxbps"));
     if env::var("QT_QUICK_CONTROLS_STYLE").is_err() {
         QQuickStyle::set_style(&QString::from("org.kde.desktop"));

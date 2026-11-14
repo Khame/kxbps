@@ -62,6 +62,13 @@ pub mod qobject {
         #[cxx_name = "kxbps_set_compact_font"]
         fn set_compact_font();
 
+        /// Implemented in `src/style_shim.cpp`; stops the desktop style from
+        /// underlining button mnemonics.
+        include!("style_shim.h");
+
+        #[cxx_name = "kxbps_set_plain_buttons"]
+        fn set_plain_buttons();
+
         // The tray icon, implemented in `src/tray_shim.h`. A StatusNotifierItem
         // owns the menu over D-Bus, so no widget QMenu is created and Wayland
         // has nothing to grab. Installed as the `trayBackend` context property
@@ -291,6 +298,17 @@ pub fn setup_i18n(engine: Pin<&mut cxx_qt_lib::QQmlApplicationEngine>) {
 /// window follows this call. A system font smaller than 10 pt is left alone.
 pub fn set_compact_font() {
     qobject::set_compact_font();
+}
+
+/// Stops the desktop style from underlining the keyboard mnemonic in a button
+/// label.
+///
+/// Must run after the `QApplication` exists and before the QML engine loads:
+/// the style decides how every button is painted, and the buttons are built
+/// while the QML file loads. Alt shortcuts keep working; only the underline
+/// goes away.
+pub fn set_plain_buttons() {
+    qobject::set_plain_buttons();
 }
 
 /// Creates the tray icon and installs it as the `trayBackend` context property.

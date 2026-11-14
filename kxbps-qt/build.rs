@@ -63,6 +63,9 @@ fn main() {
     // `QFile` access to the protected `QAbstractItemModel` members the Rust
     // model cannot reach.
     .cpp_file("src/k18n_shim.cpp")
+    // The style proxy that keeps the desktop style from underlining button
+    // mnemonics.
+    .cpp_file("src/style_shim.cpp")
     .cpp_file("src/model_shim.cpp")
     // The mirror model's factory and the `QNetworkAccessManager` probe
     // transport, which `cxx-qt-lib` 0.10 has no binding for.
