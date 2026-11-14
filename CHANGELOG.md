@@ -9,6 +9,11 @@ the project uses semantic versioning.
 
 - Update-check interval in Settings: 30 minutes, 1, 3, 6, 12 or 24 hours,
   default 6 hours. The tray re-check follows the same preference.
+- Fresh update checks through `xbps-install -M -un`, which fetches the
+  repository indexes into memory without root and writes nothing. The
+  Upgradable page has a Check for updates button, and the status bar names a
+  failed check and the age of the last good list instead of claiming the system
+  is current.
 
 ### Changed
 

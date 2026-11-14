@@ -15,7 +15,7 @@ The sidebar filters the package table:
 | Filter | Read from |
 | --- | --- |
 | Installed | `xbps-query -l` |
-| Upgradable | `xbps-install -un` |
+| Upgradable | `xbps-install -un`, then `xbps-install -M -un` on a check |
 | Available | `xbps-query -Rs ''`, and `xbps-query -Rs <text>` while you type |
 | Marked | the queue file, `~/.local/share/kxbps/queue.json` |
 | Explicit | `xbps-query -m` |
@@ -29,6 +29,19 @@ touch the queue), Mirrors (the mirror list and the system mirror), Repositories
 A row adds a package to the queue or takes it out. The bar at the bottom of the window
 carries the queue size, the Apply button and the state of the last job. The
 `xbps log` button opens the raw output of every command that ran.
+
+## Update checks
+
+`xbps-install -un` reads the local index, so the Upgradable list is as old as the
+last repository sync. The **Check for updates** button on that page, the timer in
+Settings (30 minutes, 1, 3, 6, 12 or 24 hours) and the start of the app run
+`xbps-install -M -un` instead: xbps fetches the repository indexes into memory,
+writes nothing and needs no root.
+
+A check that cannot read a repository leaves the list as it was and says why,
+together with the age of the last successful check; it never claims the system
+is current on stale data. With no network connection the automatic check does
+not start, and the app says so in the status bar.
 
 ## Privileges
 
