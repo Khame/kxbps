@@ -364,6 +364,15 @@ Item {
         }
     }
 
+    // The pane asks for the height its content needs, so no fact is cut in
+    // half and the table above is not pushed down by a fixed guess. A very long
+    // dependency list is capped and scrolls instead.
+    readonly property real wantedHeight: content.implicitHeight
+                                        + actions.implicitHeight
+                                        + Kirigami.Units.largeSpacing * 3
+    implicitHeight: Math.max(Kirigami.Units.gridUnit * 6,
+                             Math.min(wantedHeight, Kirigami.Units.gridUnit * 18))
+
     // The scroll body: the two panels are taller than the slot on a narrow
     // window, and a plain layout would draw over the log strip instead of
     // scrolling. The scrollbar takes its own strip, or it covers the right-aligned
