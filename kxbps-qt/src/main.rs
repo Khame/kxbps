@@ -36,6 +36,9 @@ fn main() {
         // Root context must carry KI18n's `KLocalizedContext` before the QML file
         // is compiled, or every `i18nd()` call is a `ReferenceError`.
         kxbps_qt::setup_i18n(engine.as_mut());
+        // The tray is a StatusNotifierItem owned by C++; the window binds its
+        // count and its two requests to the `trayBackend` context property.
+        kxbps_qt::install_tray(engine.as_mut());
         engine.load(&QUrl::from("qrc:/qt/qml/org/kde/kxbps/qml/Main.qml"));
     }
     if let Some(app) = app.as_mut() {

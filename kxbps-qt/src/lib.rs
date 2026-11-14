@@ -57,6 +57,15 @@ pub mod qobject {
         #[cxx_name = "kxbps_setup_i18n"]
         fn setup_i18n(engine: Pin<&mut QQmlEngine>);
 
+        // The tray icon, implemented in `src/tray_shim.h`. A StatusNotifierItem
+        // owns the menu over D-Bus, so no widget QMenu is created and Wayland
+        // has nothing to grab. Installed as the `trayBackend` context property
+        // before the QML file loads.
+        include!("tray_shim.h");
+
+        #[cxx_name = "kxbps_install_tray"]
+        fn install_tray(engine: Pin<&mut QQmlEngine>);
+
         // Implemented in `src/backend_shim.cpp`; Qt Widgets owns the native
         // tray, so QML asks before it creates a `SystemTrayIcon`.
         include!("backend_shim.h");
@@ -268,6 +277,18 @@ pub fn setup_i18n(engine: Pin<&mut cxx_qt_lib::QQmlApplicationEngine>) {
     use cxx_qt::casting::Upcast;
 
     qobject::setup_i18n(Upcast::<cxx_qt_lib::QQmlEngine>::upcast_pin(engine));
+}
+
+/// Creates the tray icon and installs it as the `trayBackend` context property.
+///
+/// Must run before `QQmlApplicationEngine::load`: `Main.qml` binds the update
+/// count and connects the two tray signals while it is constructed. The object
+/// is a `KStatusNotifierItem`, so the menu is exported over D-Bus instead of
+/// being a `QMenu` window Wayland cannot grab.
+pub fn install_tray(engine: Pin<&mut cxx_qt_lib::QQmlApplicationEngine>) {
+    use cxx_qt::casting::Upcast;
+
+    qobject::install_tray(Upcast::<cxx_qt_lib::QQmlEngine>::upcast_pin(engine));
 }
 
 /// The module URI is spelled out in four independent literals that no compiler

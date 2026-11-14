@@ -26,16 +26,18 @@ fn main() {
             .qml_file("qml/components/PlanDialog.qml")
             .qml_file("qml/components/BlockedDialog.qml")
             .qml_file("qml/components/AboutDialog.qml")
-            // Each of these two is the only place one optional module is
-            // imported; `Main.qml` loads them through `Loader`s so a missing
-            // module costs the feature, not the window.
-            .qml_file("qml/components/TrayIcon.qml")
+            // The notification is the one component with an optional module
+            // import; `Main.qml` loads it through a `Loader` so a missing module
+            // costs the feature, not the window.
             .qml_file("qml/components/Notifier.qml"),
     )
     .qt_module("Network")
     // The notification goes straight to `org.freedesktop.Notifications`; the
     // KNotification module dropped the event without telling anyone.
     .qt_module("DBus")
+    // The tray's menu is a `QMenu` owned by KStatusNotifierItem, which exports
+    // it over D-Bus and never shows it; the headers come from Qt Widgets.
+    .qt_module("Widgets")
     // The application icon, kept in `packaging/` as the single source. The
     // `.qrc` alias puts it under the QML module's own import path, so QML reads
     // it as `qrc:/qt/qml/org/kde/kxbps/icons/kxbps.svg`.
@@ -77,7 +79,12 @@ fn main() {
     .cpp_file("src/network_shim.cpp")
     // The notification click slot. A header so `cxx-qt-build` runs moc over it;
     // the slot cannot live in Rust, where CXX-Qt 0.10 has no slot support.
-    .cpp_file("src/notification_watcher.h");
+    .cpp_file("src/notification_watcher.h")
+    // The tray: a StatusNotifierItem with a D-Bus menu. The header carries the
+    // Q_OBJECT class, so moc runs over it; `Qt.labs.platform` is no longer used,
+    // so no widget popup is created and Wayland has nothing to grab.
+    .cpp_file("src/tray_item.h")
+    .cpp_file("src/tray_shim.cpp");
 
     // `cxx-qt-build` has no `include_path` helper, so add the KI18n header
     // directory through the underlying `cc::Build`. The crate's own `src` dir is
@@ -87,6 +94,7 @@ fn main() {
     let builder = unsafe {
         builder.cc_builder(move |cc| {
             cc.include("/usr/include/KF6/KI18n");
+            cc.include("/usr/include/KF6/KStatusNotifierItem");
             cc.include(format!("{manifest_dir}/src"));
         })
     };
@@ -97,6 +105,8 @@ fn main() {
     // libKF6I18n; neither is pulled in by the Qt module list.
     println!("cargo:rustc-link-lib=KF6I18nQml");
     println!("cargo:rustc-link-lib=KF6I18n");
+    // The tray item: KStatusNotifierItem, whose menu is exported over D-Bus.
+    println!("cargo:rustc-link-lib=KF6StatusNotifierItem");
 
     // The C++ archive generated for this crate carries the QML module registration
     // (`cxx_qt_init_qml_module_org_kde_kxbps`) and the `AppBackend` QObject code.

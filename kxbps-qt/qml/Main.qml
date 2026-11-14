@@ -189,15 +189,13 @@ Kirigami.ApplicationWindow {
         }
     }
 
-    // The tray icon, if the session has a tray host. A missing
-    // `Qt.labs.platform` leaves `item` null and every use below guards for it.
-    Loader {
-        id: trayLoader
-        // Qt Widgets backs the tray; on a platform without one (offscreen, a
-        // plain WM) creating the icon only prints Qt warnings.
-        active: appBackend.trayAvailable
-        source: "components/TrayIcon.qml"
-        onLoaded: item.installedBackend = installedBackend
+    // The tray icon is a StatusNotifierItem owned by C++ (`tray_shim.h`): the
+    // menu is exported over D-Bus, so no widget popup exists for Wayland to
+    // grab. The window only feeds it the count and answers its two requests.
+    Binding {
+        target: trayBackend
+        property: "updateCount"
+        value: installedBackend !== null ? installedBackend.updatesCount : 0
     }
 
     // The desktop notification. The notifier itself never fails to load: it is
@@ -246,9 +244,10 @@ Kirigami.ApplicationWindow {
         }
     }
 
-    // Whether closing the window should hand it to the tray. Bound, not copied:
-    // the tray Loader fills (or fails) after this object is complete.
-    readonly property bool trayAvailable: trayLoader.item !== null
+    // Whether closing the window should hand it to the tray. The C++ side
+    // checks for a status notifier host, which is what decides both the icon
+    // and whether hiding the window can strand the process.
+    readonly property bool trayAvailable: appBackend.trayAvailable
 
     // The window's `visible` has to describe the real state, or a close that the
     // tray intercepted still counts as a close. `quitting` is set by the tray's
@@ -556,7 +555,7 @@ Kirigami.ApplicationWindow {
     }
 
     Connections {
-        target: trayLoader.item
+        target: trayBackend
         function onShowRequested() {
             root.showUpdates()
         }
