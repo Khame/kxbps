@@ -1,16 +1,15 @@
-// The two `xbps-query` questions the details pane had nowhere to ask.
+// The list of files one package owns.
 //
-// The pane already shows the facts, the dependencies and the reverse
-// dependencies of the selected package. What it cannot show is the list of
-// files a package owns (`-f`) and which package owns a given path (`-o`): one
-// is too long for the pane, the other is not about the selected package at all.
-// Both live here, behind the pane's "More" menu, in one compact dialog with a
-// tab each.
+// `xbps-query -f` answers from the installed database and `-R -f` from the
+// repository index on disk, so the list exists for a package that is not
+// installed too, without a network round trip. The details pane has no room
+// for a list this long — some packages own thousands of paths — so it opens
+// here.
 //
-// The dialog is sized in grid units and capped against the window, so it never
-// covers the whole screen and scales with the font. Every answer comes from the
-// backend's worker thread; nothing here invents a row while the read is in
-// flight.
+// The dialog is sized in grid units and capped against the window: it takes
+// most of the window, never all of it, and scales with the font. Every answer
+// comes from the backend's worker thread; nothing here invents a row while the
+// read is in flight.
 
 import QtQuick
 import QtQuick.Controls as QQC2
@@ -22,10 +21,9 @@ QQC2.Dialog {
     id: dialog
 
     property var catalogBackend
-    // The selected package as `name-version_revision`; empty disables the files
-    // tab, because `-f` needs a package to ask about.
+    // The selected package as `name-version_revision`.
     property string packageName: ""
-    // The name without the version, for the tab title.
+    // The name without the version, for the heading.
     property string packageLabel: ""
 
     // The rows the filter lets through. Recomputed when the backend answers or
@@ -33,16 +31,15 @@ QQC2.Dialog {
     // linux-firmware has thousands of paths.
     property var shownFiles: []
 
-    title: i18nd("kxbps", "Package files and owner")
+    title: i18nd("kxbps", "Package files")
     modal: true
     closePolicy: QQC2.Popup.CloseOnEscape | QQC2.Popup.CloseOnPressOutside
     // Centred over the window, not over the pane: the pane is short and the
     // dialog would inherit its height.
     parent: QQC2.Overlay.overlay
     anchors.centerIn: parent
-    // Most of the window: a package like linux-firmware has thousands of
-    // paths, and the list is what the dialog is for. Still capped, so the
-    // window behind stays visible and this never becomes a second window.
+    // Most of the window: the list is what the dialog is for. Still capped, so
+    // the window behind stays visible and this never becomes a second window.
     width: Math.min(Kirigami.Units.gridUnit * 100,
                     parent ? parent.width * 0.9 : Kirigami.Units.gridUnit * 100)
     height: Math.min(Kirigami.Units.gridUnit * 48,
@@ -90,32 +87,14 @@ QQC2.Dialog {
         dialog.shownFiles = kept
     }
 
-    // Opens on the files tab and reads them again: the list is as old as the
-    // last time this dialog asked, and the package may have moved since.
-    function openFiles() {
-        tabBar.currentIndex = 0
+    // Reading on open, not on construction: the dialog is built with the pane
+    // and the package changes while it is closed.
+    onOpened: {
         dialog.refilter()
         if (dialog.packageName.length > 0) {
             dialog.catalogBackend.readPackageFiles(dialog.packageName)
         }
-        dialog.open()
-    }
-
-    // Opens on the owner tab; the path field keeps what was typed last, because
-    // looking up a second path next to the first is the usual reason to come
-    // back.
-    function openOwner() {
-        tabBar.currentIndex = 1
-        dialog.open()
-    }
-
-    onOpened: {
-        if (tabBar.currentIndex === 0) {
-            dialog.refilter()
-            filterField.forceActiveFocus()
-        } else {
-            pathField.forceActiveFocus()
-        }
+        filterField.forceActiveFocus()
     }
 
     Connections {
@@ -128,205 +107,99 @@ QQC2.Dialog {
     contentItem: ColumnLayout {
         spacing: Kirigami.Units.smallSpacing
 
-        QQC2.TabBar {
-            id: tabBar
+        QQC2.Label {
             Layout.fillWidth: true
             Layout.minimumWidth: 0
-
-            QQC2.TabButton {
-                text: i18nd("kxbps", "Files")
-                enabled: dialog.packageName.length > 0
-                Accessible.name: i18nd("kxbps", "Files of the package")
-            }
-
-            QQC2.TabButton {
-                text: i18nd("kxbps", "Owner")
-                Accessible.name: i18nd("kxbps", "Owner of a file")
-            }
+            text: dialog.packageLabel.length > 0
+                  ? i18nd("kxbps", "Files owned by %1", dialog.packageLabel)
+                  : i18nd("kxbps", "No package selected.")
+            color: Kirigami.Theme.disabledTextColor
+            font: Kirigami.Theme.smallFont
+            elide: Text.ElideRight
         }
 
-        // Files: one path per row, filtered by the field above the list.
-        ColumnLayout {
+        Kirigami.SearchField {
+            id: filterField
             Layout.fillWidth: true
-            Layout.fillHeight: true
-            Layout.minimumWidth: 0
-            visible: tabBar.currentIndex === 0
-            spacing: Kirigami.Units.smallSpacing
-
-            QQC2.Label {
-                Layout.fillWidth: true
-                Layout.minimumWidth: 0
-                text: dialog.packageLabel.length > 0
-                      ? i18nd("kxbps", "Files owned by %1", dialog.packageLabel)
-                      : i18nd("kxbps", "No package selected.")
-                color: Kirigami.Theme.disabledTextColor
-                font: Kirigami.Theme.smallFont
-                elide: Text.ElideRight
-            }
-
-            Kirigami.SearchField {
-                id: filterField
-                Layout.fillWidth: true
-                placeholderText: i18nd("kxbps", "Filter paths…")
-                onTextChanged: dialog.refilter()
-            }
-
-            QQC2.Label {
-                Layout.fillWidth: true
-                visible: dialog.catalogBackend && dialog.catalogBackend.filesError.length > 0
-                text: visible
-                      ? dialog.errorText(dialog.catalogBackend.filesError,
-                                         dialog.catalogBackend.filesErrorArgs)
-                      : ""
-                color: Kirigami.Theme.negativeTextColor
-                font: Kirigami.Theme.smallFont
-                wrapMode: Text.WordWrap
-            }
-
-            Item {
-                Layout.fillWidth: true
-                Layout.fillHeight: true
-
-                QQC2.BusyIndicator {
-                    anchors.centerIn: parent
-                    running: dialog.catalogBackend && dialog.catalogBackend.filesLoading
-                    visible: running
-                }
-
-                ListView {
-                    id: fileList
-                    anchors.fill: parent
-                    clip: true
-                    visible: !(dialog.catalogBackend && dialog.catalogBackend.filesLoading)
-                             && dialog.shownFiles.length > 0
-                    model: dialog.shownFiles
-                    boundsBehavior: Flickable.StopAtBounds
-                    QQC2.ScrollBar.vertical: QQC2.ScrollBar {}
-
-                    delegate: QQC2.Label {
-                        required property string modelData
-                        width: fileList.width - Kirigami.Units.smallSpacing
-                        text: modelData
-                        font.family: "monospace"
-                        textFormat: Text.PlainText
-                        elide: Text.ElideMiddle
-                    }
-                }
-
-                QQC2.Label {
-                    anchors.centerIn: parent
-                    width: parent.width - Kirigami.Units.largeSpacing * 2
-                    visible: !(dialog.catalogBackend && dialog.catalogBackend.filesLoading)
-                             && dialog.catalogBackend
-                             && dialog.catalogBackend.filesError.length === 0
-                             && dialog.shownFiles.length === 0
-                    text: dialog.packageName.length === 0
-                          ? i18nd("kxbps", "Select a package first.")
-                          : (filterField.text.length > 0
-                             ? i18nd("kxbps", "No path matches the filter.")
-                             : i18nd("kxbps", "The package owns no files."))
-                    color: Kirigami.Theme.disabledTextColor
-                    font: Kirigami.Theme.smallFont
-                    horizontalAlignment: Text.AlignHCenter
-                    wrapMode: Text.WordWrap
-                }
-            }
-
-            QQC2.Label {
-                Layout.fillWidth: true
-                visible: !!dialog.catalogBackend
-                text: {
-                    if (!dialog.catalogBackend) {
-                        return ""
-                    }
-                    const total = dialog.catalogBackend.files.length
-                    const shown = dialog.shownFiles.length
-                    if (filterField.text.trim().length > 0) {
-                        return i18nd("kxbps", "%1 of %2 paths shown", shown, total)
-                    }
-                    return i18ndp("kxbps", "%1 path", "%1 paths", total)
-                }
-                color: Kirigami.Theme.disabledTextColor
-                font: Kirigami.Theme.smallFont
-            }
+            placeholderText: i18nd("kxbps", "Filter paths…")
+            onTextChanged: dialog.refilter()
         }
 
-        // Owner: a path in, the package that owns it out.
-        ColumnLayout {
+        QQC2.Label {
+            Layout.fillWidth: true
+            visible: dialog.catalogBackend && dialog.catalogBackend.filesError.length > 0
+            text: visible
+                  ? dialog.errorText(dialog.catalogBackend.filesError,
+                                     dialog.catalogBackend.filesErrorArgs)
+                  : ""
+            color: Kirigami.Theme.negativeTextColor
+            font: Kirigami.Theme.smallFont
+            wrapMode: Text.WordWrap
+        }
+
+        Item {
             Layout.fillWidth: true
             Layout.fillHeight: true
-            Layout.minimumWidth: 0
-            visible: tabBar.currentIndex === 1
-            spacing: Kirigami.Units.smallSpacing
-
-            QQC2.Label {
-                Layout.fillWidth: true
-                text: i18nd("kxbps", "Path")
-                font: Kirigami.Theme.smallFont
-                color: Kirigami.Theme.disabledTextColor
-            }
-
-            RowLayout {
-                Layout.fillWidth: true
-                Layout.minimumWidth: 0
-                spacing: Kirigami.Units.smallSpacing
-
-                QQC2.TextField {
-                    id: pathField
-                    Layout.fillWidth: true
-                    Accessible.name: i18nd("kxbps", "Path to look up")
-                    onAccepted: dialog.catalogBackend.readFileOwner(pathField.text)
-                }
-
-                QQC2.Button {
-                    text: i18nd("kxbps", "Check")
-                    enabled: pathField.text.trim().length > 0
-                    onClicked: dialog.catalogBackend.readFileOwner(pathField.text)
-                }
-            }
 
             QQC2.BusyIndicator {
-                Layout.alignment: Qt.AlignHCenter
-                running: dialog.catalogBackend && dialog.catalogBackend.ownerLoading
+                anchors.centerIn: parent
+                running: dialog.catalogBackend && dialog.catalogBackend.filesLoading
                 visible: running
             }
 
-            QQC2.Label {
-                Layout.fillWidth: true
-                visible: dialog.catalogBackend && dialog.catalogBackend.ownerError.length > 0
-                text: visible
-                      ? dialog.errorText(dialog.catalogBackend.ownerError,
-                                         dialog.catalogBackend.ownerErrorArgs)
-                      : ""
-                color: Kirigami.Theme.negativeTextColor
-                font: Kirigami.Theme.smallFont
-                wrapMode: Text.WordWrap
+            ListView {
+                id: fileList
+                anchors.fill: parent
+                clip: true
+                visible: !(dialog.catalogBackend && dialog.catalogBackend.filesLoading)
+                         && dialog.shownFiles.length > 0
+                model: dialog.shownFiles
+                boundsBehavior: Flickable.StopAtBounds
+                QQC2.ScrollBar.vertical: QQC2.ScrollBar {}
+
+                delegate: QQC2.Label {
+                    required property string modelData
+                    width: fileList.width - Kirigami.Units.smallSpacing
+                    text: modelData
+                    font.family: "monospace"
+                    textFormat: Text.PlainText
+                    elide: Text.ElideMiddle
+                }
             }
 
             QQC2.Label {
-                Layout.fillWidth: true
-                visible: dialog.catalogBackend && dialog.catalogBackend.owner.length > 0
-                text: visible ? dialog.catalogBackend.owner : ""
-                font.family: "monospace"
-                textFormat: Text.PlainText
-                wrapMode: Text.WrapAnywhere
-            }
-
-            QQC2.Label {
-                Layout.fillWidth: true
-                visible: dialog.catalogBackend
-                         && dialog.catalogBackend.owner.length === 0
-                         && dialog.catalogBackend.ownerError.length === 0
-                         && !dialog.catalogBackend.ownerLoading
-                text: i18nd("kxbps", "Type a path and press Check.")
+                anchors.centerIn: parent
+                width: parent.width - Kirigami.Units.largeSpacing * 2
+                visible: !(dialog.catalogBackend && dialog.catalogBackend.filesLoading)
+                         && dialog.catalogBackend
+                         && dialog.catalogBackend.filesError.length === 0
+                         && dialog.shownFiles.length === 0
+                text: filterField.text.length > 0
+                      ? i18nd("kxbps", "No path matches the filter.")
+                      : i18nd("kxbps", "The package owns no files.")
                 color: Kirigami.Theme.disabledTextColor
                 font: Kirigami.Theme.smallFont
+                horizontalAlignment: Text.AlignHCenter
                 wrapMode: Text.WordWrap
             }
+        }
 
-            Item {
-                Layout.fillHeight: true
+        QQC2.Label {
+            Layout.fillWidth: true
+            visible: !!dialog.catalogBackend
+            text: {
+                if (!dialog.catalogBackend) {
+                    return ""
+                }
+                const total = dialog.catalogBackend.files.length
+                const shown = dialog.shownFiles.length
+                if (filterField.text.trim().length > 0) {
+                    return i18nd("kxbps", "%1 of %2 paths shown", shown, total)
+                }
+                return i18ndp("kxbps", "%1 path", "%1 paths", total)
             }
+            color: Kirigami.Theme.disabledTextColor
+            font: Kirigami.Theme.smallFont
         }
     }
 

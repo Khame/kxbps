@@ -89,7 +89,7 @@ Item {
                                         : (pane.info.isUpdate ? "system-software-update"
                                            : (pane.installed ? "edit-delete" : "document-save"))
 
-    readonly property bool threeColumns: pane.rowLayout === 0
+    readonly property bool wideLayout: pane.rowLayout === 0
 
     // The one sentence for failed facts, chosen by the key the backend sent.
     function errorText(key, args) {
@@ -305,6 +305,19 @@ Item {
             wrapMode: Text.WordWrap
         }
 
+        // One row, not a panel of its own: two numbers on a third of the
+        // width left the pane looking empty. Installed first, then the
+        // download, the order a transaction moves them in.
+        Fact {
+            label: i18nd("kxbps", "Size")
+            value: (pane.info.size !== undefined && pane.info.size !== ""
+                    ? pane.info.size : "—")
+                   + " → "
+                   + (pane.info.download !== undefined && pane.info.download !== ""
+                      ? pane.info.download : "—")
+            mono: true
+        }
+
         RowLayout {
             Layout.fillWidth: true
             Layout.minimumWidth: 0
@@ -334,63 +347,17 @@ Item {
                 onClicked: pane.installedBackend.toggleHold(pane.name)
             }
 
-            // The two questions the pane itself cannot show: which files the
-            // package owns, and which package owns a path. Both need room the
-            // pane does not have, so they open in one compact dialog.
-            QQC2.ToolButton {
-                id: moreButton
-                text: i18nd("kxbps", "More")
-                icon.name: "overflow-menu"
+            QQC2.Button {
+                text: i18nd("kxbps", "Files")
                 font: Kirigami.Theme.smallFont
                 enabled: pane.packageName.length > 0
-                Accessible.name: i18nd("kxbps", "More package queries")
-                onClicked: moreMenu.open()
-
-                QQC2.Menu {
-                    id: moreMenu
-                    y: moreButton.height
-
-                    QQC2.MenuItem {
-                        text: i18nd("kxbps", "Package files…")
-                        enabled: pane.packageName.length > 0
-                        onTriggered: filesDialog.openFiles()
-                    }
-
-                    QQC2.MenuItem {
-                        text: i18nd("kxbps", "File owner…")
-                        onTriggered: filesDialog.openOwner()
-                    }
-                }
+                Accessible.name: i18nd("kxbps", "Files of the package")
+                onClicked: filesDialog.open()
             }
         }
     }
 
-    // Panel 2: what it costs. A zero byte size is an em dash, never a
-    // fabricated "0 B".
-    component SizePanel: ColumnLayout {
-        Layout.fillWidth: false
-        Layout.minimumWidth: Kirigami.Units.gridUnit * 11
-        Layout.alignment: Qt.AlignTop
-        spacing: Kirigami.Units.smallSpacing
-
-        PanelTitle {
-            heading: i18nd("kxbps", "Size statistics")
-        }
-
-        Fact {
-            label: i18nd("kxbps", "Installed")
-            value: pane.info.size !== undefined && pane.info.size !== "" ? pane.info.size : "—"
-            mono: true
-        }
-
-        Fact {
-            label: i18nd("kxbps", "Download")
-            value: pane.info.download !== undefined && pane.info.download !== "" ? pane.info.download : "—"
-            mono: true
-        }
-    }
-
-    // Panel 3: the two xbps lists, on their own so a long dependency list
+    // Panel 2: the two xbps lists, on their own so a long dependency list
     // wraps inside the panel instead of pushing the others.
     component DepsPanel: ColumnLayout {
         Layout.fillWidth: true
@@ -434,7 +401,7 @@ Item {
         }
     }
 
-    // The scroll body: the three panels are taller than the slot on a narrow
+    // The scroll body: the two panels are taller than the slot on a narrow
     // window, and a plain layout would draw over the log strip instead of
     // scrolling. The scrollbar takes its own strip, or it covers the right-aligned
     // values.
@@ -456,46 +423,37 @@ Item {
             width: pane.width - Kirigami.Units.largeSpacing * 2 - paneBar.width
             spacing: Kirigami.Units.largeSpacing
 
-        // Three panels on a wide pane, one column on a narrow one. The panels
+        // Two panels on a wide pane, one column on a narrow one. The panels
         // are inline components, so both forms show the same content instead
         // of a second copy that could drift.
         RowLayout {
-            visible: pane.threeColumns
+            visible: pane.wideLayout
             Layout.fillWidth: true
             Layout.minimumWidth: 0
-            // The hairlines are dividers, not borders: a gap on both sides
+            // The hairline is a divider, not a border: a gap on both sides
             // keeps every heading and every right-aligned value off the line.
             spacing: Kirigami.Units.largeSpacing
 
             InfoPanel {
                 Layout.fillWidth: true
-                Layout.preferredWidth: Kirigami.Units.gridUnit * 22
-            }
-
-            VSeparator {}
-
-            SizePanel {
-                Layout.fillWidth: false
-                Layout.preferredWidth: Kirigami.Units.gridUnit * 14
+                Layout.preferredWidth: Kirigami.Units.gridUnit * 30
             }
 
             VSeparator {}
 
             DepsPanel {
                 Layout.fillWidth: true
-                Layout.preferredWidth: Kirigami.Units.gridUnit * 26
+                Layout.preferredWidth: Kirigami.Units.gridUnit * 22
             }
         }
 
         ColumnLayout {
-            visible: !pane.threeColumns
+            visible: !pane.wideLayout
             Layout.fillWidth: true
             Layout.minimumWidth: 0
             spacing: Kirigami.Units.largeSpacing
 
             InfoPanel {}
-
-            SizePanel {}
 
             DepsPanel {}
         }

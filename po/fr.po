@@ -5,8 +5,8 @@ msgid ""
 msgstr ""
 "Project-Id-Version: kxbps 0.10.0\n"
 "Report-Msgid-Bugs-To: \n"
-"POT-Creation-Date: 2026-11-14 22:01+0000\n"
-"PO-Revision-Date: 2026-11-14 22:01+0000\n"
+"POT-Creation-Date: 2026-11-14 22:20+0000\n"
+"PO-Revision-Date: 2026-11-14 22:20+0000\n"
 "Last-Translator: KXbps translation contributors <khame.dev@protonmail.com>\n"
 "Language-Team: French\n"
 "Language: fr\n"
@@ -134,7 +134,7 @@ msgid "%1 did not answer within %2 s."
 msgstr "%1 n'a pas répondu en %2 s."
 
 #: kxbps-qt/qml/components/DetailsPane.qml:103
-#: kxbps-qt/qml/components/PackageFilesDialog.qml:61
+#: kxbps-qt/qml/components/PackageFilesDialog.qml:58
 #: kxbps-qt/qml/views/PackagesView.qml:477
 msgid "%1 did not answer within %2 seconds."
 msgstr "%1 n'a pas répondu en %2 secondes."
@@ -144,13 +144,13 @@ msgid "%1 exited with %2: %3"
 msgstr "%1 s'est arrêté avec %2 : %3"
 
 #: kxbps-qt/qml/components/DetailsPane.qml:110
-#: kxbps-qt/qml/components/PackageFilesDialog.qml:68
+#: kxbps-qt/qml/components/PackageFilesDialog.qml:65
 #: kxbps-qt/qml/views/PackagesView.qml:484
 msgid "%1 failed with exit code %2."
 msgstr "%1 a échoué avec le code %2."
 
 #: kxbps-qt/qml/components/DetailsPane.qml:109
-#: kxbps-qt/qml/components/PackageFilesDialog.qml:67
+#: kxbps-qt/qml/components/PackageFilesDialog.qml:64
 #: kxbps-qt/qml/views/PackagesView.qml:483
 msgid "%1 failed with exit code %2: %3"
 msgstr "%1 a échoué avec le code %2 : %3"
@@ -195,7 +195,7 @@ msgstr "%1 ms"
 msgid "%1 of %2 mirrors probed"
 msgstr "%1 miroirs testés sur %2"
 
-#: kxbps-qt/qml/components/PackageFilesDialog.qml:245
+#: kxbps-qt/qml/components/PackageFilesDialog.qml:197
 msgid "%1 of %2 paths shown"
 msgstr "%1 sur %2 chemins affichés"
 
@@ -218,14 +218,14 @@ msgid_plural "%1 packages are still waiting to be installed."
 msgstr[0] "%1 paquet est toujours en attente d'installation"
 msgstr[1] "%1 paquets sont toujours en attente d'installation"
 
-#: kxbps-qt/qml/components/PackageFilesDialog.qml:247
+#: kxbps-qt/qml/components/PackageFilesDialog.qml:199
 msgid "%1 path"
 msgid_plural "%1 paths"
 msgstr[0] "%1 chemin"
 msgstr[1] "%1 chemins"
 
 #: kxbps-qt/qml/components/DetailsPane.qml:112
-#: kxbps-qt/qml/components/PackageFilesDialog.qml:70
+#: kxbps-qt/qml/components/PackageFilesDialog.qml:67
 #: kxbps-qt/qml/views/PackagesView.qml:486
 msgid "%1 printed a line this version does not understand (line %2): %3"
 msgstr "%1 a affiché une ligne que cette version ne comprend pas (ligne %2) : %3"
@@ -239,7 +239,7 @@ msgid "%1 printed no packages."
 msgstr "%1 n'a affiché aucun paquet."
 
 #: kxbps-qt/qml/components/DetailsPane.qml:114
-#: kxbps-qt/qml/components/PackageFilesDialog.qml:72
+#: kxbps-qt/qml/components/PackageFilesDialog.qml:69
 msgid "%1 printed nothing."
 msgstr "%1 n'a rien affiché."
 
@@ -384,10 +384,6 @@ msgstr "Annulé."
 msgid "Cannot remove"
 msgstr "Suppression impossible"
 
-#: kxbps-qt/qml/components/PackageFilesDialog.qml:282
-msgid "Check"
-msgstr "Vérifier"
-
 #: kxbps-qt/qml/views/PackagesView.qml:947
 #: kxbps-qt/qml/views/PackagesView.qml:949
 msgid "Check for updates"
@@ -406,7 +402,7 @@ msgid "Choose"
 msgstr "Choisir"
 
 #: kxbps-qt/qml/components/AboutDialog.qml:29
-#: kxbps-qt/qml/components/PackageFilesDialog.qml:341
+#: kxbps-qt/qml/components/PackageFilesDialog.qml:214
 #: kxbps-qt/qml/components/PlanDialog.qml:272
 msgid "Close"
 msgstr "Fermer"
@@ -436,12 +432,12 @@ msgid "Could not read the xbps configuration: %1."
 msgstr "Impossible de lire la configuration xbps : %1."
 
 #: kxbps-qt/qml/components/DetailsPane.qml:101
-#: kxbps-qt/qml/components/PackageFilesDialog.qml:59
+#: kxbps-qt/qml/components/PackageFilesDialog.qml:56
 #: kxbps-qt/qml/views/PackagesView.qml:475
 msgid "Could not run %1: %2"
 msgstr "Impossible d'exécuter %1 : %2"
 
-#: kxbps-qt/qml/components/PackageFilesDialog.qml:74
+#: kxbps-qt/qml/components/PackageFilesDialog.qml:71
 msgid "Could not run the query: %1"
 msgstr "Impossible d'exécuter la requête : %1"
 
@@ -469,7 +465,7 @@ msgstr "Impossible d'écrire la configuration xbps."
 msgid "Could not write the xbps configuration: %1"
 msgstr "Impossible d'écrire la configuration xbps : %1"
 
-#: kxbps-qt/qml/components/DetailsPane.qml:402
+#: kxbps-qt/qml/components/DetailsPane.qml:369
 msgid "Dependencies / required by"
 msgstr "Dépendances / requis par"
 
@@ -478,7 +474,7 @@ msgstr "Dépendances / requis par"
 msgid "Dependency"
 msgstr "Dépendance"
 
-#: kxbps-qt/qml/components/DetailsPane.qml:408
+#: kxbps-qt/qml/components/DetailsPane.qml:375
 msgid "Depends"
 msgstr "Dépend de"
 
@@ -502,7 +498,6 @@ msgstr "Variation d'espace : 0"
 msgid "Disk change: −%1"
 msgstr "Variation d'espace : −%1"
 
-#: kxbps-qt/qml/components/DetailsPane.qml:387
 #: kxbps-qt/qml/views/PackagesView.qml:798
 msgid "Download"
 msgstr "Télécharger"
@@ -561,19 +556,15 @@ msgstr "Explicite"
 msgid "Failed"
 msgstr "Échec"
 
-#: kxbps-qt/qml/components/DetailsPane.qml:360
-msgid "File owner…"
-msgstr "Propriétaire du fichier…"
-
-#: kxbps-qt/qml/components/PackageFilesDialog.qml:137
+#: kxbps-qt/qml/components/DetailsPane.qml:351
 msgid "Files"
 msgstr "Fichiers"
 
-#: kxbps-qt/qml/components/PackageFilesDialog.qml:139
+#: kxbps-qt/qml/components/DetailsPane.qml:354
 msgid "Files of the package"
 msgstr "Fichiers du paquet"
 
-#: kxbps-qt/qml/components/PackageFilesDialog.qml:160
+#: kxbps-qt/qml/components/PackageFilesDialog.qml:114
 msgid "Files owned by %1"
 msgstr "Fichiers appartenant à %1"
 
@@ -581,7 +572,7 @@ msgstr "Fichiers appartenant à %1"
 msgid "Filter"
 msgstr "Filtre"
 
-#: kxbps-qt/qml/components/PackageFilesDialog.qml:170
+#: kxbps-qt/qml/components/PackageFilesDialog.qml:124
 msgid "Filter paths…"
 msgstr "Filtrer les chemins…"
 
@@ -607,7 +598,7 @@ msgstr "Aide"
 msgid "Hide"
 msgstr "Masquer"
 
-#: kxbps-qt/qml/components/DetailsPane.qml:331
+#: kxbps-qt/qml/components/DetailsPane.qml:344
 msgid "Hold"
 msgstr "Retenir"
 
@@ -634,7 +625,6 @@ msgid "Installation"
 msgstr "Installation"
 
 #: kxbps-qt/qml/Main.qml:340 kxbps-qt/qml/Main.qml:677
-#: kxbps-qt/qml/components/DetailsPane.qml:381
 #: kxbps-qt/qml/components/PackageDelegate.qml:243
 #: kxbps-qt/qml/views/PackagesView.qml:747
 msgid "Installed"
@@ -717,21 +707,16 @@ msgstr "Miroir défini, mais l'index des paquets n'a pas pu être actualisé : %
 msgid "Mirrors"
 msgstr "Miroirs"
 
-#: kxbps-qt/qml/components/DetailsPane.qml:342
 #: kxbps-qt/qml/views/HelpView.qml:60
 msgid "More"
 msgstr "Plus"
-
-#: kxbps-qt/qml/components/DetailsPane.qml:346
-msgid "More package queries"
-msgstr "Plus de requêtes sur le paquet"
 
 #: kxbps-qt/qml/components/BlockedDialog.qml:98
 #: kxbps-qt/qml/components/PlanDialog.qml:421
 msgid "Needed by: %1"
 msgstr "Requis par : %1"
 
-#: kxbps-qt/qml/components/DetailsPane.qml:415
+#: kxbps-qt/qml/components/DetailsPane.qml:382
 msgid "No dependencies"
 msgstr "Aucune dépendance"
 
@@ -759,7 +744,7 @@ msgstr "Aucun paquet n'est retenu."
 msgid "No package matches “%1”."
 msgstr "Aucun paquet ne correspond à « %1 »."
 
-#: kxbps-qt/qml/components/PackageFilesDialog.qml:161
+#: kxbps-qt/qml/components/PackageFilesDialog.qml:115
 msgid "No package selected."
 msgstr "Aucun paquet sélectionné."
 
@@ -771,7 +756,7 @@ msgstr "Aucun paquet installé."
 msgid "No packages."
 msgstr "Aucun paquet."
 
-#: kxbps-qt/qml/components/PackageFilesDialog.qml:226
+#: kxbps-qt/qml/components/PackageFilesDialog.qml:178
 msgid "No path matches the filter."
 msgstr "Aucun chemin ne correspond au filtre."
 
@@ -813,7 +798,7 @@ msgstr "Non installé : %1"
 msgid "Not probed"
 msgstr "Non testé"
 
-#: kxbps-qt/qml/components/DetailsPane.qml:431
+#: kxbps-qt/qml/components/DetailsPane.qml:398
 msgid "Nothing depends on it"
 msgstr "Rien n'en dépend"
 
@@ -863,26 +848,14 @@ msgstr "Orphelin"
 msgid "Orphans"
 msgstr "Orphelins"
 
-#: kxbps-qt/qml/components/PackageFilesDialog.qml:143
-msgid "Owner"
-msgstr "Propriétaire"
-
-#: kxbps-qt/qml/components/PackageFilesDialog.qml:144
-msgid "Owner of a file"
-msgstr "Propriétaire d'un fichier"
-
 #: kxbps-qt/qml/components/PlanDialog.qml:302
 #: kxbps-qt/qml/views/PackagesView.qml:713
 msgid "Package"
 msgstr "Paquet"
 
-#: kxbps-qt/qml/components/PackageFilesDialog.qml:36
-msgid "Package files and owner"
-msgstr "Fichiers du paquet et propriétaire"
-
-#: kxbps-qt/qml/components/DetailsPane.qml:354
-msgid "Package files…"
-msgstr "Fichiers du paquet…"
+#: kxbps-qt/qml/components/PackageFilesDialog.qml:34
+msgid "Package files"
+msgstr "Fichiers du paquet"
 
 #: kxbps-qt/qml/components/DetailsPane.qml:221
 msgid "Package information"
@@ -891,14 +864,6 @@ msgstr "Informations sur le paquet"
 #: kxbps-qt/qml/Main.qml:354
 msgid "Packages"
 msgstr "Paquets"
-
-#: kxbps-qt/qml/components/PackageFilesDialog.qml:264
-msgid "Path"
-msgstr "Chemin"
-
-#: kxbps-qt/qml/components/PackageFilesDialog.qml:277
-msgid "Path to look up"
-msgstr "Chemin à rechercher"
 
 #: kxbps-qt/qml/components/MirrorDelegate.qml:78
 msgid "Plain HTTP is not probed"
@@ -1025,7 +990,7 @@ msgstr "Dépôt %1 supprimé."
 msgid "Requested"
 msgstr "Demandé"
 
-#: kxbps-qt/qml/components/DetailsPane.qml:424
+#: kxbps-qt/qml/components/DetailsPane.qml:391
 msgid "Required by"
 msgstr "Requis par"
 
@@ -1049,11 +1014,7 @@ msgstr "Rechercher des paquets…"
 msgid "Searching the repositories…"
 msgstr "Recherche dans les dépôts…"
 
-#: kxbps-qt/qml/components/PackageFilesDialog.qml:224
-msgid "Select a package first."
-msgstr "Sélectionnez d'abord un paquet."
-
-#: kxbps-qt/qml/components/DetailsPane.qml:513
+#: kxbps-qt/qml/components/DetailsPane.qml:471
 msgid "Select a package to see its details."
 msgstr "Sélectionnez un paquet pour voir ses détails."
 
@@ -1084,14 +1045,11 @@ msgstr "Afficher KXbps"
 msgid "Signed"
 msgstr "Signé"
 
+#: kxbps-qt/qml/components/DetailsPane.qml:312
 #: kxbps-qt/qml/components/PlanDialog.qml:331
 #: kxbps-qt/qml/views/PackagesView.qml:771
 msgid "Size"
 msgstr "Taille"
-
-#: kxbps-qt/qml/components/DetailsPane.qml:377
-msgid "Size statistics"
-msgstr "Statistiques de taille"
 
 #: kxbps-qt/qml/views/MirrorsView.qml:83
 msgid "South America"
@@ -1166,7 +1124,7 @@ msgstr "Le programme auxiliaire de miroir a échoué : %1"
 msgid "The new repository URL is not in effect: %1"
 msgstr "La nouvelle adresse du dépôt n'est pas active : %1"
 
-#: kxbps-qt/qml/components/PackageFilesDialog.qml:227
+#: kxbps-qt/qml/components/PackageFilesDialog.qml:179
 msgid "The package owns no files."
 msgstr "Le paquet ne contient aucun fichier."
 
@@ -1254,11 +1212,7 @@ msgstr "Transaction échouée"
 msgid "Transaction plan"
 msgstr "Plan de la transaction"
 
-#: kxbps-qt/qml/components/PackageFilesDialog.qml:321
-msgid "Type a path and press Check."
-msgstr "Saisissez un chemin et appuyez sur « Vérifier »."
-
-#: kxbps-qt/qml/components/DetailsPane.qml:331
+#: kxbps-qt/qml/components/DetailsPane.qml:344
 msgid "Unhold"
 msgstr "Relâcher"
 

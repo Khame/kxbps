@@ -154,11 +154,6 @@ pub fn files_argv(package: &str, repository: bool) -> Vec<String> {
     }
 }
 
-/// `xbps-query -o <path>`: which package owns a file.
-pub fn owner_argv(path: &str) -> Vec<String> {
-    argv(XPBS_QUERY, &["-o", path])
-}
-
 /// `xbps-query -m`: the packages installed on purpose.
 pub fn manual_argv() -> Vec<String> {
     argv(XPBS_QUERY, &["-m"])
@@ -246,10 +241,6 @@ mod tests {
             files_argv("gimp-3.2.8_2", true),
             ["xbps-query", "-R", "-f", "gimp-3.2.8_2"],
             "a package that is not installed has no file list in the installed database"
-        );
-        assert_eq!(
-            owner_argv("/usr/bin/nvim"),
-            ["xbps-query", "-o", "/usr/bin/nvim"]
         );
         assert_eq!(
             property_argv("pkgver", "vim"),
