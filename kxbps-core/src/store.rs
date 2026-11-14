@@ -43,7 +43,9 @@ use serde::Serialize;
 use serde::de::DeserializeOwned;
 
 use crate::engine::{Plan, apply_installed};
-use crate::types::{Inst, InstalledMap, Prefs, QueueAction, QueueItem};
+use crate::types::{
+    DEFAULT_UPDATE_CHECK_MINUTES, Inst, InstalledMap, Prefs, QueueAction, QueueItem,
+};
 use crate::xbps::{InstalledPackage, UpdateEntry};
 
 /// Mirror used until the user picks another one.
@@ -167,6 +169,8 @@ fn default_prefs() -> Prefs {
         desktop: true,
         dismissed: String::new(),
         start_with_session: true,
+        update_check_minutes: DEFAULT_UPDATE_CHECK_MINUTES,
+        last_check_at: 0,
         schema: 4,
     }
 }
@@ -366,6 +370,33 @@ impl Store {
         self.dirty = true;
     }
 
+    /// How often to check for updates, in minutes, returning whether the stored
+    /// value changed.
+    ///
+    /// The value is normalized first, so a caller passing `45` stores the
+    /// default and the answer describes what the file holds, not what was
+    /// asked for: the Qt layer saves only when this returns `true`.
+    pub fn set_pref_update_check_minutes(&mut self, minutes: u32) -> bool {
+        let minutes = crate::types::normalize_interval(minutes);
+        if self.prefs.update_check_minutes == minutes {
+            return false;
+        }
+        self.prefs.update_check_minutes = minutes;
+        self.dirty = true;
+        true
+    }
+
+    /// When the last update check succeeded, in epoch milliseconds; `0` means
+    /// never. Returns whether the stored value changed, like the other setters.
+    pub fn set_pref_last_check_at(&mut self, at: i64) -> bool {
+        if self.prefs.last_check_at == at {
+            return false;
+        }
+        self.prefs.last_check_at = at;
+        self.dirty = true;
+        true
+    }
+
     /// Pins or unpins an installed package, returning whether it is now held.
     ///
     /// Returns `false` for a package that is not installed; nothing changes.
@@ -410,12 +441,12 @@ impl Store {
         self.updates.clear();
         self.queue.clear();
         self.mirror = DEFAULT_MIRROR.to_string();
+        // Built from `default_prefs` so the reset cannot drift away from the
+        // defaults a fresh store starts with; the desktop switch is the one
+        // value the web app keeps across a reset.
         self.prefs = Prefs {
-            notify_on_start: true,
             desktop: self.prefs.desktop,
-            dismissed: String::new(),
-            start_with_session: true,
-            schema: 4,
+            ..default_prefs()
         };
         self.synced_at = None;
         self.dirty = true;
@@ -829,6 +860,8 @@ mod tests {
             desktop: true,
             dismissed: "7".to_string(),
             start_with_session: false,
+            update_check_minutes: 60,
+            last_check_at: 0,
             schema: 4,
         };
         write_json(dir.path(), PREFS_FILE, &prefs).expect("seed prefs");
@@ -1234,6 +1267,84 @@ mod tests {
     }
 
     #[test]
+    fn an_old_prefs_file_loads_with_the_interval_default() {
+        let dir = TempDir::new("old-prefs-interval");
+        // Exactly the block the version before this change wrote: no
+        // `updateCheckMinutes`, no `lastCheckAt`.
+        let old = br#"{"schema":4,"notifyOnStart":true,"desktop":false,"dismissed":"kept","startWithSession":false}"#;
+        fs::write(dir.path().join(PREFS_FILE), old).expect("seed prefs");
+
+        let store = Store::load_at(dir.path()).expect("load");
+        assert_eq!(store.prefs.update_check_minutes, 360);
+        assert_eq!(store.prefs.last_check_at, 0);
+        assert!(!store.prefs.start_with_session, "the old keys still read");
+        assert_eq!(store.prefs.dismissed, "kept");
+    }
+
+    #[test]
+    fn the_interval_setter_normalizes_and_reports_a_change_once() {
+        let mut store = Store::fresh();
+        assert!(!store.is_dirty());
+
+        assert!(
+            store.set_pref_update_check_minutes(180),
+            "a new value writes"
+        );
+        assert_eq!(store.prefs.update_check_minutes, 180);
+        assert!(store.is_dirty());
+
+        assert!(
+            !store.set_pref_update_check_minutes(180),
+            "the same value reports no change, so nothing is saved again"
+        );
+
+        // A value the page does not offer lands on the default, and the
+        // returned flag describes what was stored, not what was passed.
+        assert!(store.set_pref_update_check_minutes(45));
+        assert_eq!(store.prefs.update_check_minutes, 360);
+    }
+
+    #[test]
+    fn the_last_check_setter_reports_a_change_once() {
+        let mut store = Store::fresh();
+        assert_eq!(store.prefs.last_check_at, 0, "never checked");
+
+        assert!(store.set_pref_last_check_at(1_700_000_000_000));
+        assert_eq!(store.prefs.last_check_at, 1_700_000_000_000);
+        assert!(!store.set_pref_last_check_at(1_700_000_000_000));
+    }
+
+    #[test]
+    fn the_interval_and_the_last_check_survive_save_and_load() {
+        let dir = TempDir::new("interval-roundtrip");
+        let mut store = Store::fresh();
+        store.set_pref_update_check_minutes(1440);
+        store.set_pref_last_check_at(1_700_000_000_000);
+
+        store.save_at(dir.path()).expect("save");
+        let loaded = Store::load_at(dir.path()).expect("load");
+        assert_eq!(loaded.prefs.update_check_minutes, 1440);
+        assert_eq!(loaded.prefs.last_check_at, 1_700_000_000_000);
+    }
+
+    #[test]
+    fn reset_restores_the_interval_defaults() {
+        let mut store = Store::fresh();
+        store.set_pref_desktop_notifications(true);
+        store.set_pref_update_check_minutes(30);
+        store.set_pref_last_check_at(1_700_000_000_000);
+
+        store.reset();
+
+        assert_eq!(store.prefs.update_check_minutes, 360);
+        assert_eq!(store.prefs.last_check_at, 0);
+        assert!(
+            store.prefs.desktop,
+            "the desktop switch is still the one value a reset keeps"
+        );
+    }
+
+    #[test]
     fn reset_clears_the_users_choices_and_keeps_the_desktop_preference() {
         let mut store = Store::fresh();
         put(&mut store, "vim", "9.1.1700_1", true, 7);
@@ -1260,6 +1371,8 @@ mod tests {
                 desktop: true,
                 dismissed: String::new(),
                 start_with_session: true,
+                update_check_minutes: 360,
+                last_check_at: 0,
                 schema: 4,
             }
         );

@@ -276,6 +276,8 @@ pub mod qobject {
 
         fn set_pref_string(self: Pin<&mut InstalledBackend>, key: &QString, value: &QString);
 
+        fn set_pref_int(self: Pin<&mut InstalledBackend>, key: &QString, value: i32);
+
         // Called by `kxbps_installed_apply_plan` on the GUI thread when a job
         // finishes; not invokable so QML cannot bypass the job.
         fn apply_plan_items(self: Pin<&mut InstalledBackend>, items_json: &QString);
@@ -765,6 +767,22 @@ impl qobject::InstalledBackend {
     ) {
         let Some(write) = crate::prefs_backend::string_write(&key.to_string(), &value.to_string())
         else {
+            return;
+        };
+        let changed = {
+            let data = Pin::get_mut(self.as_mut().rust_mut());
+            crate::prefs_backend::apply_to_store_if_changed(&write, &mut data.store)
+        };
+        if changed {
+            save_store(self.as_mut());
+        }
+    }
+
+    /// Persists one integer preference named by its QML key; same rules as
+    /// [`Self::set_pref_bool`]. A negative value, or a key that is not an
+    /// integer preference, changes nothing.
+    fn set_pref_int(mut self: Pin<&mut Self>, key: &cxx_qt_lib::QString, value: i32) {
+        let Some(write) = crate::prefs_backend::int_write(&key.to_string(), value) else {
             return;
         };
         let changed = {

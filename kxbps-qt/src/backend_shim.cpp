@@ -223,3 +223,11 @@ void kxbps_installed_set_pref_string(QObject *owner,
     }
     static_cast<InstalledBackend *>(owner)->setPrefString(key, value);
 }
+
+void kxbps_installed_set_pref_int(QObject *owner, const QString &key, int value)
+{
+    if (!owner) {
+        return;
+    }
+    static_cast<InstalledBackend *>(owner)->setPrefInt(key, value);
+}

@@ -292,13 +292,16 @@ Kirigami.ApplicationWindow {
     }
 
     // A re-check while the app sits in the tray: a long-running instance must
-    // still notice new updates. Six hours is the interval the plan asked for,
-    // and only a changed signature notifies, so a quiet timer stays quiet.
+    // still notice new updates. The interval is the preference the settings
+    // page offers, and only a changed signature notifies, so a quiet timer
+    // stays quiet. Changing the preference restarts the timer, so the new
+    // interval counts from the change rather than from the last fire.
     Timer {
-        interval: 6 * 60 * 60 * 1000
+        interval: prefsBackend.updateCheckMinutes * 60 * 1000
         running: !root.visible
         repeat: true
         onTriggered: installedBackend.reload()
+        onIntervalChanged: restart()
     }
 
     // The header follows the filter, not the sidebar entry: clicking "Orphans"

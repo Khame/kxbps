@@ -83,6 +83,60 @@ Item {
                     restoreMode: Binding.RestoreNone
                 }
             }
+
+            QQC2.ComboBox {
+                id: intervalCombo
+                Kirigami.FormData.label: i18nd("kxbps", "Check for updates:")
+                enabled: view.prefsBackend !== null
+                // The minutes the store accepts, in the order the list shows
+                // them; the keys are compared with `updateCheckMinutes`, which
+                // the store already normalized to one of these.
+                readonly property var minutes: [30, 60, 180, 360, 720, 1440]
+                // A sentence per entry, each its own `i18nd` call: gettext
+                // cannot follow a string built from a fragment, and the plural
+                // forms differ per language, so the labels are not derived from
+                // the number.
+                function labelText(index) {
+                    switch (index) {
+                    case 0:
+                        return i18nd("kxbps", "Every 30 minutes")
+                    case 1:
+                        return i18nd("kxbps", "Every hour")
+                    case 2:
+                        return i18nd("kxbps", "Every 3 hours")
+                    case 3:
+                        return i18nd("kxbps", "Every 6 hours")
+                    case 4:
+                        return i18nd("kxbps", "Every 12 hours")
+                    case 5:
+                        return i18nd("kxbps", "Every 24 hours")
+                    default:
+                        return ""
+                    }
+                }
+                model: [labelText(0), labelText(1), labelText(2), labelText(3), labelText(4), labelText(5)]
+                textRole: "modelData"
+                // Written on `activated` only: a binding that wrote back would
+                // save on every keyboard step through the list, and a click
+                // assigns `currentIndex` itself, which kills a plain binding.
+                onActivated: {
+                    if (view.prefsBackend !== null) {
+                        view.prefsBackend.updateCheckMinutes = minutes[currentIndex]
+                    }
+                }
+                Binding {
+                    target: intervalCombo
+                    property: "currentIndex"
+                    value: {
+                        if (view.prefsBackend === null) {
+                            return -1
+                        }
+                        const at = intervalCombo.minutes.indexOf(view.prefsBackend.updateCheckMinutes)
+                        return at >= 0 ? at : -1
+                    }
+                    restoreMode: Binding.RestoreNone
+                }
+            }
         }
 
         QQC2.Label {

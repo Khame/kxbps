@@ -136,3 +136,4 @@ void kxbps_installed_set_pref_bool(QObject *owner, const QString &key, bool valu
 void kxbps_installed_set_pref_string(QObject *owner,
                                        const QString &key,
                                        const QString &value);
+void kxbps_installed_set_pref_int(QObject *owner, const QString &key, int value);

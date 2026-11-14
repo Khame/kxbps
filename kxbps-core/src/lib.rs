@@ -48,8 +48,9 @@ pub use transaction::{
     XPBS_INSTALL_PATH, XPBS_REMOVE_PATH, mirror_argv, pkgvers,
 };
 pub use types::{
-    Blocked, DialogState, Inst, InstalledMap, ListFilter, PlanAction, PlanItem, PlanReason, Prefs,
-    ProbeState, QueryMode, QueueAction, QueueItem, Repos, ViewId,
+    Blocked, DEFAULT_UPDATE_CHECK_MINUTES, DialogState, Inst, InstalledMap, ListFilter, PlanAction,
+    PlanItem, PlanReason, Prefs, ProbeState, QueryMode, QueueAction, QueueItem, Repos,
+    UPDATE_INTERVALS, ViewId, normalize_interval,
 };
 pub use xbps::{
     InstallState, InstalledPackage, RepoEntry, SearchHit, SizeEntry, UpdateEntry, XbpsAction,

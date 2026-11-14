@@ -250,6 +250,17 @@ pub struct Prefs {
     /// the filesystem.
     #[serde(default = "default_start_with_session")]
     pub start_with_session: bool,
+    /// How often the app checks for updates, in minutes. Always one of
+    /// [`UPDATE_INTERVALS`]; a hand-edited file goes through
+    /// [`normalize_interval`] on the way in, so the timer can never be armed
+    /// with a value the settings page cannot show.
+    #[serde(default = "default_update_check_minutes")]
+    pub update_check_minutes: u32,
+    /// When the last update check succeeded, in epoch milliseconds; `0` means
+    /// it never ran. The notifier writes this, so the app does not have to
+    /// check again on every start.
+    #[serde(default)]
+    pub last_check_at: i64,
     /// Version of this block. `4` means the update announcement defaults to on,
     /// an older file was migrated when it was loaded, and a delivered marker
     /// written by an earlier notifier was cleared once.
@@ -260,6 +271,30 @@ pub struct Prefs {
 /// The default of [`Prefs::start_with_session`]: on.
 fn default_start_with_session() -> bool {
     true
+}
+
+/// The intervals the settings page offers, in minutes.
+pub const UPDATE_INTERVALS: [u32; 6] = [30, 60, 180, 360, 720, 1440];
+
+/// The default of [`Prefs::update_check_minutes`]: six hours.
+fn default_update_check_minutes() -> u32 {
+    DEFAULT_UPDATE_CHECK_MINUTES
+}
+
+/// Six hours, the interval the plan asked for.
+pub const DEFAULT_UPDATE_CHECK_MINUTES: u32 = 360;
+
+/// `minutes` when it is one of [`UPDATE_INTERVALS`], otherwise the default.
+///
+/// One rule, applied on load and on every write: a file edited by hand, or a
+/// value from a version that offered other intervals, cannot put the timer on
+/// something the settings page does not list.
+pub fn normalize_interval(minutes: u32) -> u32 {
+    if UPDATE_INTERVALS.contains(&minutes) {
+        minutes
+    } else {
+        DEFAULT_UPDATE_CHECK_MINUTES
+    }
 }
 
 /// Result of the last mirror latency probe.
@@ -295,12 +330,57 @@ mod tests {
     }
 
     #[test]
+    fn a_prefs_block_without_the_interval_keys_checks_every_six_hours() {
+        // Neither key existed before the interval preference, so a file from
+        // that version has to read as "every six hours" and "never checked".
+        let prefs: Prefs = serde_json::from_str(
+            r#"{"notifyOnStart":true,"desktop":true,"dismissed":"","startWithSession":true}"#,
+        )
+        .expect("the old block still reads");
+        assert_eq!(prefs.update_check_minutes, 360);
+        assert_eq!(prefs.last_check_at, 0);
+    }
+
+    #[test]
+    fn the_interval_is_one_of_the_offered_values() {
+        assert_eq!(UPDATE_INTERVALS, [30, 60, 180, 360, 720, 1440]);
+        for minutes in UPDATE_INTERVALS {
+            assert_eq!(normalize_interval(minutes), minutes, "{minutes} is offered");
+        }
+        // 0 would stop the timer, 45 and 361 are not on the list: all three
+        // fall back to the default rather than arming the timer with a value
+        // the page cannot show.
+        for minutes in [0, 45, 361, 1441, u32::MAX] {
+            assert_eq!(normalize_interval(minutes), 360, "{minutes} is not offered");
+        }
+    }
+
+    #[test]
+    fn the_interval_and_the_last_check_survive_the_round_trip() {
+        let prefs = Prefs {
+            notify_on_start: true,
+            desktop: false,
+            dismissed: String::new(),
+            start_with_session: false,
+            update_check_minutes: 180,
+            last_check_at: 1_700_000_000_000,
+            schema: 4,
+        };
+        let json = serde_json::to_string(&prefs).expect("serialise");
+        assert!(json.contains("\"updateCheckMinutes\":180"));
+        assert!(json.contains("\"lastCheckAt\":1700000000000"));
+        assert_eq!(serde_json::from_str::<Prefs>(&json).expect("decode"), prefs);
+    }
+
+    #[test]
     fn an_autostart_turned_off_survives_the_round_trip() {
         let prefs = Prefs {
             notify_on_start: true,
             desktop: false,
             dismissed: String::new(),
             start_with_session: false,
+            update_check_minutes: 360,
+            last_check_at: 0,
             schema: 4,
         };
         let json = serde_json::to_string(&prefs).expect("serialise");

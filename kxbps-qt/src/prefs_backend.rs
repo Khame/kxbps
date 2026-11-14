@@ -24,7 +24,7 @@ use std::pin::Pin;
 
 use cxx_qt::CxxQtType;
 use cxx_qt_lib::{QObjectMutPtr, QString};
-use kxbps_core::{Prefs, Store};
+use kxbps_core::{DEFAULT_UPDATE_CHECK_MINUTES, Prefs, Store};
 
 #[cxx_qt::bridge]
 pub mod qobject {
@@ -47,6 +47,9 @@ pub mod qobject {
 
         #[cxx_name = "kxbps_installed_set_pref_string"]
         fn installed_set_pref_string(owner: QObjectMutPtr, key: &QString, value: &QString);
+
+        #[cxx_name = "kxbps_installed_set_pref_int"]
+        fn installed_set_pref_int(owner: QObjectMutPtr, key: &QString, value: i32);
     }
 
     #[auto_cxx_name]
@@ -79,6 +82,16 @@ pub mod qobject {
             WRITE = set_start_with_session,
             NOTIFY
         )]
+        // How often the app checks for updates, in minutes. The store
+        // normalizes it to one of `UPDATE_INTERVALS`, so the combo box always
+        // has a matching entry to show.
+        #[qproperty(
+            i32,
+            update_check_minutes,
+            READ,
+            WRITE = set_update_check_minutes,
+            NOTIFY
+        )]
         type PrefsBackend = super::PrefsBackendRust;
 
         fn set_owner(self: Pin<&mut PrefsBackend>, value: QObjectMutPtr);
@@ -90,6 +103,8 @@ pub mod qobject {
         fn set_dismissed_version(self: Pin<&mut PrefsBackend>, value: QString);
 
         fn set_start_with_session(self: Pin<&mut PrefsBackend>, value: bool);
+
+        fn set_update_check_minutes(self: Pin<&mut PrefsBackend>, value: i32);
 
         // Writes or removes the autostart entry so the file matches the
         // preference. Called by QML on every start and after every toggle; the
@@ -121,6 +136,8 @@ pub mod keys {
     pub const DISMISSED: &str = "dismissed";
     /// Start with the session (the autostart entry).
     pub const START_WITH_SESSION: &str = "startWithSession";
+    /// How often to check for updates, in minutes.
+    pub const UPDATE_CHECK_MINUTES: &str = "updateCheckMinutes";
 }
 
 /// One of the persisted preferences, i.e. one `prefs.json` key.
@@ -130,6 +147,7 @@ pub enum Field {
     Desktop,
     Dismissed,
     StartWithSession,
+    UpdateCheckMinutes,
 }
 
 impl Field {
@@ -140,6 +158,7 @@ impl Field {
             Self::Desktop => keys::DESKTOP,
             Self::Dismissed => keys::DISMISSED,
             Self::StartWithSession => keys::START_WITH_SESSION,
+            Self::UpdateCheckMinutes => keys::UPDATE_CHECK_MINUTES,
         }
     }
 
@@ -150,6 +169,7 @@ impl Field {
             Self::Desktop => PrefWrite::Desktop(prefs.desktop),
             Self::Dismissed => PrefWrite::Dismissed(prefs.dismissed.clone()),
             Self::StartWithSession => PrefWrite::StartWithSession(prefs.start_with_session),
+            Self::UpdateCheckMinutes => PrefWrite::UpdateCheckMinutes(prefs.update_check_minutes),
         }
     }
 }
@@ -165,6 +185,9 @@ pub enum PrefWrite {
     Desktop(bool),
     Dismissed(String),
     StartWithSession(bool),
+    /// The update-check interval; already normalized by the store, so a value
+    /// off the list never reaches the file.
+    UpdateCheckMinutes(u32),
 }
 
 impl PrefWrite {
@@ -175,6 +198,7 @@ impl PrefWrite {
             Self::Desktop(_) => Field::Desktop,
             Self::Dismissed(_) => Field::Dismissed,
             Self::StartWithSession(_) => Field::StartWithSession,
+            Self::UpdateCheckMinutes(_) => Field::UpdateCheckMinutes,
         }
     }
 
@@ -195,6 +219,7 @@ impl PrefWrite {
             Self::Desktop(value) => prefs.desktop = *value,
             Self::Dismissed(value) => prefs.dismissed.clone_from(value),
             Self::StartWithSession(value) => prefs.start_with_session = *value,
+            Self::UpdateCheckMinutes(value) => prefs.update_check_minutes = *value,
         }
     }
 
@@ -205,6 +230,9 @@ impl PrefWrite {
             Self::Desktop(value) => store.set_pref_desktop_notifications(*value),
             Self::Dismissed(value) => store.set_pref_dismissed_version(value),
             Self::StartWithSession(value) => store.set_pref_start_with_session(*value),
+            Self::UpdateCheckMinutes(value) => {
+                store.set_pref_update_check_minutes(*value);
+            }
         }
     }
 
@@ -220,6 +248,13 @@ impl PrefWrite {
             }
             Self::Dismissed(value) => {
                 qobject::installed_set_pref_string(owner, &key, &QString::from(value.as_str()));
+            }
+            // The store normalizes; it answers nothing back, so a value the
+            // store refuses to keep (off the list) is corrected on the next
+            // adopt rather than guessed at here.
+            Self::UpdateCheckMinutes(value) => {
+                let value = i32::try_from(*value).unwrap_or(i32::MAX);
+                qobject::installed_set_pref_int(owner, &key, value);
             }
         }
     }
@@ -272,6 +307,20 @@ pub fn string_write(key: &str, value: &str) -> Option<PrefWrite> {
     }
 }
 
+/// Decodes an integer write, `None` for an unknown key or a value no integer
+/// preference can hold.
+///
+/// QML hands over an `int`, so a negative number is a mistake on the caller's
+/// side rather than a duration; returning `None` leaves the store alone instead
+/// of clamping it to the default, which would look like a real choice.
+pub fn int_write(key: &str, value: i32) -> Option<PrefWrite> {
+    let value = u32::try_from(value).ok()?;
+    match key {
+        keys::UPDATE_CHECK_MINUTES => Some(PrefWrite::UpdateCheckMinutes(value)),
+        _ => None,
+    }
+}
+
 /// Decodes the `Prefs` JSON the store owner hands over.
 ///
 /// `None` means the payload is not a `Prefs` object (the owner is not an
@@ -303,6 +352,11 @@ pub struct PrefsBackendRust {
     desktop_notifications: bool,
     dismissed_version: QString,
     start_with_session: bool,
+    update_check_minutes: i32,
+    /// The last check time is only carried through: this backend shows the
+    /// interval, and the notifier writes the timestamp, so the cache keeps a
+    /// copy only so its block can equal the store's.
+    last_check_at: i64,
     /// The schema version of the block this backend mirrors, so its cache
     /// block equals the store's block again after an adopt.
     schema: u32,
@@ -319,6 +373,8 @@ impl Default for PrefsBackendRust {
             desktop_notifications: true,
             dismissed_version: QString::from(""),
             start_with_session: true,
+            update_check_minutes: DEFAULT_UPDATE_CHECK_MINUTES as i32,
+            last_check_at: 0,
             schema: 4,
         }
     }
@@ -332,6 +388,9 @@ impl PrefsBackendRust {
             desktop: self.desktop_notifications,
             dismissed: self.dismissed_version.to_string(),
             start_with_session: self.start_with_session,
+            update_check_minutes: u32::try_from(self.update_check_minutes)
+                .unwrap_or(DEFAULT_UPDATE_CHECK_MINUTES),
+            last_check_at: self.last_check_at,
             schema: self.schema,
         }
     }
@@ -343,6 +402,7 @@ impl PrefsBackendRust {
             desktop: self.desktop_notifications != prefs.desktop,
             dismissed: self.dismissed_version.to_string() != prefs.dismissed,
             start_with_session: self.start_with_session != prefs.start_with_session,
+            update_check_minutes: self.update_check_minutes != prefs.update_check_minutes as i32,
         };
         self.set_from_prefs(prefs);
         changed
@@ -354,6 +414,8 @@ impl PrefsBackendRust {
         self.desktop_notifications = prefs.desktop;
         self.dismissed_version = QString::from(prefs.dismissed.as_str());
         self.start_with_session = prefs.start_with_session;
+        self.update_check_minutes = prefs.update_check_minutes as i32;
+        self.last_check_at = prefs.last_check_at;
         self.schema = prefs.schema;
     }
 }
@@ -366,6 +428,7 @@ pub struct Moved {
     desktop: bool,
     dismissed: bool,
     start_with_session: bool,
+    update_check_minutes: bool,
 }
 
 impl qobject::PrefsBackend {
@@ -411,6 +474,17 @@ impl qobject::PrefsBackend {
     /// Whether the Qt layer keeps an autostart entry for this app.
     fn set_start_with_session(self: Pin<&mut Self>, value: bool) {
         self.write(PrefWrite::StartWithSession(value));
+    }
+
+    /// How often to check for updates, in minutes.
+    ///
+    /// A negative or unknown value is dropped rather than clamped, so a bug in
+    /// QML cannot silently move the timer to the default.
+    fn set_update_check_minutes(self: Pin<&mut Self>, value: i32) {
+        let Some(write) = int_write(keys::UPDATE_CHECK_MINUTES, value) else {
+            return;
+        };
+        self.write(write);
     }
 
     /// Makes `~/.config/autostart` match the `startWithSession` preference.
@@ -475,6 +549,7 @@ impl qobject::PrefsBackend {
             Field::Desktop => self.as_mut().desktop_notifications_changed(),
             Field::Dismissed => self.as_mut().dismissed_version_changed(),
             Field::StartWithSession => self.as_mut().start_with_session_changed(),
+            Field::UpdateCheckMinutes => self.as_mut().update_check_minutes_changed(),
         }
     }
 
@@ -500,6 +575,9 @@ impl qobject::PrefsBackend {
         }
         if changed.start_with_session {
             self.as_mut().start_with_session_changed();
+        }
+        if changed.update_check_minutes {
+            self.as_mut().update_check_minutes_changed();
         }
     }
 }
@@ -561,6 +639,8 @@ mod tests {
             desktop: true,
             dismissed: "sig-42".to_string(),
             start_with_session: false,
+            update_check_minutes: 360,
+            last_check_at: 0,
             schema: 4,
         };
         let json = serde_json::to_string(&prefs).expect("serialise");
@@ -585,6 +665,8 @@ mod tests {
             desktop: false,
             dismissed: String::new(),
             start_with_session: true,
+            update_check_minutes: 360,
+            last_check_at: 0,
             schema: 4,
         };
         let write = bool_write(keys::NOTIFY_ON_START, false).expect("known key");
@@ -608,6 +690,8 @@ mod tests {
             desktop: false,
             dismissed: String::new(),
             start_with_session: true,
+            update_check_minutes: 360,
+            last_check_at: 0,
             schema: 4,
         };
         let write = string_write(keys::DISMISSED, "sig-7").expect("known key");
@@ -637,6 +721,8 @@ mod tests {
             desktop: false,
             dismissed: String::new(),
             start_with_session: true,
+            update_check_minutes: 360,
+            last_check_at: 0,
             schema: 4,
         };
         assert!(
@@ -666,8 +752,56 @@ mod tests {
             desktop,
             dismissed: dismissed.to_string(),
             start_with_session: true,
+            update_check_minutes: 360,
+            last_check_at: 0,
             schema: 4,
         }
+    }
+
+    #[test]
+    fn an_int_key_dispatches_to_its_own_field() {
+        let write = int_write(keys::UPDATE_CHECK_MINUTES, 180).expect("known key");
+        assert_eq!(write.key(), keys::UPDATE_CHECK_MINUTES);
+        assert_eq!(write.field(), Field::UpdateCheckMinutes);
+
+        let mut prefs = block(true, true, "");
+        write.apply(&mut prefs);
+        assert_eq!(prefs.update_check_minutes, 180);
+        assert!(prefs.notify_on_start, "the sibling values are untouched");
+        assert!(prefs.start_with_session);
+
+        // A negative number is not a duration: QML hands over an `int`, and
+        // the caller has to be able to leave the store alone rather than have
+        // it clamp a nonsense value to the default.
+        assert_eq!(int_write(keys::UPDATE_CHECK_MINUTES, -1), None);
+        assert_eq!(int_write(keys::UPDATE_CHECK_MINUTES, i32::MIN), None);
+
+        // The int key is not a bool or a string key, and vice versa.
+        assert_eq!(bool_write(keys::UPDATE_CHECK_MINUTES, true), None);
+        assert_eq!(string_write(keys::UPDATE_CHECK_MINUTES, "1"), None);
+        assert_eq!(int_write(keys::NOTIFY_ON_START, 1), None);
+    }
+
+    #[test]
+    fn the_interval_write_follows_the_store() {
+        let mut store = Store::fresh();
+        let cache = store.prefs.clone();
+        let write = int_write(keys::UPDATE_CHECK_MINUTES, 60).expect("known key");
+
+        // The store holds 360, the write asks for 60.
+        assert_eq!(decide(&write, &cache, &store.prefs), Decision::Apply);
+        assert!(apply_to_store_if_changed(&write, &mut store));
+        assert_eq!(store.prefs.update_check_minutes, 60);
+
+        // The same write again is a no-op while the cache shows the value.
+        assert_eq!(decide(&write, &cache, &store.prefs), Decision::Adopt);
+        assert!(!apply_to_store_if_changed(&write, &mut store));
+
+        // A cache that already shows the write, with a store that moved
+        // underneath it (reset), has to write again.
+        let stale = cache.clone();
+        store.reset();
+        assert_eq!(decide(&write, &stale, &store.prefs), Decision::Apply);
     }
 
     #[test]
