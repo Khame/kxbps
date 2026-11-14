@@ -273,6 +273,34 @@ pub fn is_already_installed(stderr: &str) -> bool {
         .any(|line| line.contains("already installed"))
 }
 
+/// The names xbps reported as already installed, in output order.
+///
+/// `xbps-install -n <names>` answers ``ERROR: Package `<name>' already
+/// installed.`` per name the machine already holds at the newest version the
+/// repositories offer. Those queue entries have nothing left to do: the
+/// transaction installs nothing for them, so they leave the queue instead of
+/// staying there as rows that look queued and change nothing.
+pub fn already_installed_names(stderr: &str) -> Vec<String> {
+    let mut names: Vec<String> = Vec::new();
+    for line in stderr.lines() {
+        let line = line.trim();
+        let Some(rest) = line
+            .strip_prefix("ERROR: Package `")
+            .or_else(|| line.strip_prefix("Package `"))
+        else {
+            continue;
+        };
+        let Some((name, _)) = rest.split_once("' already installed") else {
+            continue;
+        };
+        let name = name.trim();
+        if !name.is_empty() && !names.iter().any(|seen| seen == name) {
+            names.push(name.to_owned());
+        }
+    }
+    names
+}
+
 /// Whether stderr is xbps saying the package is not in any repository.
 ///
 /// `xbps-install -n nosuch` exits 2 with `ERROR: Package <name> not found in
@@ -490,6 +518,23 @@ ERROR: Transaction aborted due to unresolved dependencies.
         assert!(is_already_installed(stderr));
         assert!(!is_not_installed(stderr));
         assert_eq!(missing_package(stderr), None);
+    }
+
+    #[test]
+    fn the_already_installed_names_are_read_back() {
+        let stderr = "ERROR: Package `autofs' already installed.\n\
+                      ERROR: Package `libvips' already installed.\n\
+                      Package `vim' is not currently installed.";
+        assert_eq!(
+            already_installed_names(stderr),
+            ["autofs".to_owned(), "libvips".to_owned()]
+        );
+        assert!(already_installed_names("").is_empty());
+        assert!(
+            already_installed_names("ERROR: Package 'nosuchpkg' not found in repository pool.")
+                .is_empty(),
+            "a missing package is not an installed one"
+        );
     }
 
     #[test]

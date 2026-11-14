@@ -66,8 +66,29 @@ pub fn effective_updates(pending: &[UpdateEntry], installed: &InstalledMap) -> V
     pending
         .iter()
         .filter(|entry| !installed.get(&entry.name).is_some_and(|inst| inst.held))
+        // A transaction may have installed the version this entry names: the
+        // list is memory-only and is only replaced by the next read, so the
+        // installed map is what says whether the update is still owed. Without
+        // this an applied update stays on screen and can be queued again.
+        .filter(|entry| {
+            !installed
+                .get(&entry.name)
+                .is_some_and(|inst| inst.version == entry.version)
+        })
         .cloned()
         .collect()
+}
+
+/// Drops the update entries a finished plan applied.
+///
+/// [`effective_updates`] hides them from the window, but the store must not
+/// keep them either: the badge, the signature and the next plan all read the
+/// pending list, and an entry the transaction just installed is no longer
+/// pending whatever the installed map says.
+pub fn drop_applied_updates(updates: &mut Vec<UpdateEntry>, items: &[PlanItem]) {
+    let applied: std::collections::HashSet<&str> =
+        items.iter().map(|item| item.name.as_str()).collect();
+    updates.retain(|entry| !applied.contains(entry.name.as_str()));
 }
 
 /// Held packages that the reported updates want to touch, sorted by name.
@@ -330,6 +351,48 @@ mod tests {
         let effective = effective_updates(&pending, &installed);
         assert_eq!(
             effective
+                .iter()
+                .map(|entry| entry.name.as_str())
+                .collect::<Vec<_>>(),
+            ["git"]
+        );
+    }
+
+    /// A transaction installed the version the list still names: the entry is
+    /// owed no more, whatever the list says. This is the state a finished job
+    /// leaves behind before the next read replaces the list.
+    #[test]
+    fn effective_updates_drops_an_update_the_installed_set_already_has() {
+        let pending = vec![update("vim", "9.2_1"), update("git", "2.0_1")];
+        let installed = installed(&[
+            ("vim", inst("9.2_1", true, false)),
+            ("git", inst("1.9_1", true, false)),
+        ]);
+        let effective = effective_updates(&pending, &installed);
+        assert_eq!(
+            effective
+                .iter()
+                .map(|entry| entry.name.as_str())
+                .collect::<Vec<_>>(),
+            ["git"]
+        );
+    }
+
+    #[test]
+    fn a_finished_plan_drops_the_updates_it_applied() {
+        let mut pending = vec![update("vim", "9.2_1"), update("git", "2.0_1")];
+        let items = vec![PlanItem {
+            name: "vim".into(),
+            action: PlanAction::Update,
+            from: Some("9.1_1".into()),
+            to: Some("9.2_1".into()),
+            reason: PlanReason::Requested,
+            download: 0,
+            size: 0,
+        }];
+        drop_applied_updates(&mut pending, &items);
+        assert_eq!(
+            pending
                 .iter()
                 .map(|entry| entry.name.as_str())
                 .collect::<Vec<_>>(),

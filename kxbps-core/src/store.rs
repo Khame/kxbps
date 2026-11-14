@@ -465,6 +465,10 @@ impl Store {
         let applied: HashSet<&str> = plan.items.iter().map(|item| item.name.as_str()).collect();
         self.queue
             .retain(|item| !applied.contains(item.name.as_str()));
+        // The transaction installed what the list still called pending; keeping
+        // the entry would leave the update on screen and queueable again until
+        // the next read replaced the list.
+        crate::engine::drop_applied_updates(&mut self.updates, &plan.items);
         self.synced_at = Some(now);
         self.dirty = true;
     }
@@ -1404,6 +1408,34 @@ mod tests {
         );
         assert_eq!(store.synced_at, Some(5_000));
         assert!(store.is_dirty());
+    }
+
+    #[test]
+    fn apply_plan_drops_the_updates_it_applied() {
+        let mut store = Store::fresh();
+        put(&mut store, "vim", "9.1.1700_1", true, 7);
+        put(&mut store, "git", "2.50.0_1", true, 7);
+        store.replace_updates(vec![update("vim-9.2.0_1"), update("git-2.51.0_1")]);
+        let plan = Plan {
+            items: vec![PlanItem {
+                name: "vim".to_string(),
+                action: PlanAction::Update,
+                from: Some("9.1.1700_1".to_string()),
+                to: Some("9.2.0_1".to_string()),
+                reason: PlanReason::Requested,
+                download: 10,
+                size: 20,
+            }],
+            blocked: Vec::new(),
+        };
+
+        store.apply_plan(&plan, 5_000);
+
+        assert_eq!(
+            store.pending_updates(),
+            [update("git-2.51.0_1")],
+            "the applied update is no longer pending"
+        );
     }
 
     #[test]

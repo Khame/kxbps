@@ -113,6 +113,10 @@ pub struct PlanPayload {
     pub names: Vec<String>,
     pub items: Vec<PlanItem>,
     pub blocked: Vec<Blocked>,
+    /// Names the dry run called already installed. A queue entry for one of
+    /// them has nothing left to do, so the backend drops it from the queue
+    /// instead of leaving a row that changes nothing.
+    pub satisfied: Vec<String>,
 }
 
 impl PlanPayload {

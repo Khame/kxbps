@@ -20,8 +20,8 @@ pub mod update_check;
 pub mod xbps;
 
 pub use engine::{
-    Plan, PlanTotals, apply_installed, effective_updates, held_updates_in, plan_totals,
-    repos_from_installed, update_signature_of,
+    Plan, PlanTotals, apply_installed, drop_applied_updates, effective_updates, held_updates_in,
+    plan_totals, repos_from_installed, update_signature_of,
 };
 pub use format::{ByteUnit, action_key, byte_decimals, format_bytes, reason_key};
 pub use mirror_apply::{
@@ -35,8 +35,9 @@ pub use mirror_config::{
 };
 pub use mirrors::{DEFAULT_MIRROR, MIRRORS, MirrorInfo, Region};
 pub use plan::{
-    Breaker, DryRunOutcome, EXIT_NOT_INSTALLED, EXIT_UNRESOLVED, is_already_installed,
-    is_not_installed, items_from, lock_waited_on, missing_package, parse_breakers, read_dry_run,
+    Breaker, DryRunOutcome, EXIT_NOT_INSTALLED, EXIT_UNRESOLVED, already_installed_names,
+    is_already_installed, is_not_installed, items_from, lock_waited_on, missing_package,
+    parse_breakers, read_dry_run,
 };
 pub use probe::{PROBE_TIMEOUT, PROBE_TIMEOUT_MS, ProbeError, check_probe_url, measure};
 pub use request::{

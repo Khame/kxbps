@@ -112,6 +112,8 @@ pub struct DryOutcome {
     pub blocked: Vec<kxbps_core::Blocked>,
     /// `true` when the run printed no rows and exited 0.
     pub empty: bool,
+    /// Names xbps called already installed: the queue entry has nothing to do.
+    pub satisfied: Vec<String>,
 }
 
 impl DryOutcome {
@@ -178,6 +180,11 @@ pub fn dry_run(
                 empty: entries.is_empty(),
                 items: kxbps_core::items_from(mode, installed, &request.names, &entries),
                 blocked: Vec::new(),
+                satisfied: if mode.removes() {
+                    Vec::new()
+                } else {
+                    kxbps_core::already_installed_names(&output.stderr)
+                },
             })
         }
         kxbps_core::EXIT_UNRESOLVED if mode.removes() => {
@@ -197,6 +204,7 @@ pub fn dry_run(
                 items: Vec::new(),
                 blocked,
                 empty: false,
+                satisfied: Vec::new(),
             })
         }
         kxbps_core::EXIT_NOT_INSTALLED => {
@@ -221,6 +229,7 @@ pub fn dry_run(
             if is_already_installed(&output.stderr) {
                 return Ok(DryOutcome {
                     empty: true,
+                    satisfied: kxbps_core::already_installed_names(&output.stderr),
                     ..DryOutcome::default()
                 });
             }
@@ -266,10 +275,12 @@ pub fn queue_payload(
     }
     let (install, remove) = queue_requests(queue);
     let mut items = Vec::new();
+    let mut satisfied = Vec::new();
     if !install.names.is_empty() {
         let install = precheck(&install);
         match dry_run(&install, installed, invoke) {
             Ok(outcome) => {
+                satisfied = outcome.satisfied;
                 if !outcome.empty {
                     items.extend(outcome.items);
                 }
@@ -292,9 +303,11 @@ pub fn queue_payload(
         }
     }
     if items.is_empty() {
-        return PlanPayload::notice(plan_keys::NOTICE_EMPTY_QUEUE);
+        let mut payload = PlanPayload::notice(plan_keys::NOTICE_EMPTY_QUEUE);
+        payload.satisfied = satisfied;
+        return payload;
     }
-    PlanPayload::from_plan(
+    let mut payload = PlanPayload::from_plan(
         Plan {
             items,
             blocked: Vec::new(),
@@ -302,7 +315,9 @@ pub fn queue_payload(
         plan_keys::PLAN_QUEUE,
         Vec::new(),
         Vec::new(),
-    )
+    );
+    payload.satisfied = satisfied;
+    payload
 }
 
 /// Plan payload for the system upgrade: `xbps-install -n -Su`.

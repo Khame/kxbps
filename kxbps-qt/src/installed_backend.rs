@@ -23,8 +23,9 @@ use cxx_qt::casting::Upcast;
 use cxx_qt_lib::{QObjectMutPtr, QString, QStringList};
 use kxbps_core::{
     AUTO_GAP_MS, CheckOutcome, CheckStatus, InstalledMap, Plan, PlanItem, QueueAction, QueueItem,
-    Store, StoreError, UpdatesOrigin, check_status, effective_updates, held_updates_in,
-    installs_as_updates, is_due, is_offline, local_replaces, not_installed, update_signature_of,
+    Store, StoreError, UpdatesOrigin, check_status, drop_applied_updates, effective_updates,
+    held_updates_in, installs_as_updates, is_due, is_offline, local_replaces, not_installed,
+    update_signature_of,
 };
 
 use crate::job_backend::JobPayload;
@@ -842,6 +843,24 @@ impl qobject::InstalledBackend {
         if was_loading {
             self.as_mut().plan_loading_changed();
         }
+        // A name the dry run called already installed has nothing left to do;
+        // it leaves the queue here instead of staying as a row that looks
+        // queued and changes nothing. Only the queue moves, so the store-only
+        // refresh is enough.
+        if !payload.satisfied.is_empty() {
+            let dropped = {
+                let data = Pin::get_mut(self.as_mut().rust_mut());
+                let before = data.store.queue.len();
+                data.store
+                    .queue
+                    .retain(|item| !payload.satisfied.contains(&item.name));
+                before != data.store.queue.len()
+            };
+            if dropped {
+                save_store(self.as_mut());
+                refresh_store(self.as_mut());
+            }
+        }
         let json = serde_json::to_string(&payload).unwrap_or_else(|_| String::from("{}"));
         self.as_mut()
             .plan_ready(QString::from(json.as_str()), meta.request);
@@ -1311,11 +1330,22 @@ impl qobject::InstalledBackend {
             let data = Pin::get_mut(self.as_mut().rust_mut());
             data.store.apply_plan(
                 &Plan {
-                    items,
+                    items: items.clone(),
                     blocked: Vec::new(),
                 },
                 now,
             );
+            // The check that produced the list predates the transaction: it
+            // described packages that are installed now. A local read taken
+            // after it is newer information, so it must be allowed to replace
+            // the list instead of being dropped as older than the check.
+            data.updates_origin = UpdatesOrigin::Local;
+            // The read is asynchronous; until it lands the snapshot is what
+            // the window shows, so the applied entries leave it now rather
+            // than surviving as rows that offer the same update again.
+            if let Some(snapshot) = data.snapshot.as_mut() {
+                drop_applied_updates(&mut snapshot.updates, &items);
+            }
             // `runJob` clears the dismissed-update preference once nothing is
             // left to announce, so a later batch of updates is not swallowed.
             // The list is the one the last read reported, minus the packages
@@ -2089,6 +2119,28 @@ mod tests {
         let payload = queue_payload(&installed, &queue("ark", QueueAction::Install), &*invoke);
         assert_eq!(payload.notice_key, "emptyQueue");
         assert!(payload.items.is_empty());
+    }
+
+    /// xbps names the queued packages it will not touch because the machine
+    /// already has them. The payload carries those names so the backend can
+    /// drop them from the queue; otherwise the row stays queued for ever and
+    /// Apply keeps saying there is nothing to do.
+    #[test]
+    fn a_queue_of_installed_packages_names_what_xbps_left_alone() {
+        let installed = installed_set();
+        let (invoke, _) = one_answer(
+            &serde_json::json!({
+                "exitCode": 0,
+                "stdout": "",
+                "stderr": "ERROR: Package `ark' already installed.\n\
+                           ERROR: Package `vim' already installed.",
+                "timedOut": false,
+            })
+            .to_string(),
+        );
+        let payload = queue_payload(&installed, &queue("ark", QueueAction::Update), &*invoke);
+        assert_eq!(payload.notice_key, "emptyQueue");
+        assert_eq!(payload.satisfied, ["ark", "vim"]);
     }
 
     /// The queue's Apply runs the dry run without a dialog, so a payload with
