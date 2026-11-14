@@ -171,6 +171,9 @@ interface. `man kxbps` and `kxbps --help` cover the command line.
 [docs/xbps-integration.md](docs/xbps-integration.md) lists which xbps command
 feeds which screen and what is parsed from its output.
 
+`scripts/release-notes.py` prints the body of a GitHub release from
+`CHANGELOG.md`, so the release page and the tree carry one text.
+
 ## License
 
 Copyright © 2026 Łukasz "Khame" Linhard.
