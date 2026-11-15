@@ -684,15 +684,21 @@ impl qobject::MirrorModel {
 
     /// Flips the latency order and resets when the visible list moved.
     fn set_sort_descending(mut self: Pin<&mut Self>, value: bool) {
-        let (changed, rows) = {
+        let (moved, changed, rows) = {
             let data = Pin::get_mut(self.as_mut().rust_mut());
-            let changed = data.set_sort_descending(value);
-            (changed, data.visible_count())
+            // Compare the stored value before and after: the write function
+            // assigns the field itself, so testing `self.sort_descending` here
+            // would always find it already equal and never notify. Without the
+            // signal the heading's arrow and its accessible name kept saying
+            // "ascending" while the list was sorted the other way.
+            let before = data.sort_descending;
+            let moved = data.set_sort_descending(value);
+            (moved, data.sort_descending != before, data.visible_count())
         };
-        if self.sort_descending != value {
+        if changed {
             self.as_mut().sort_descending_changed();
         }
-        if changed {
+        if moved {
             reset_visible(base(self.as_mut()), true, rows);
         }
     }
