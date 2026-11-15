@@ -25,12 +25,16 @@ Item {
 
     property var mirrorBackend
 
-    readonly property real regionWidth: Kirigami.Units.gridUnit * 6
+    // Column widths, shared by the heading and every row: one number per
+    // column, or the heading drifts off the values it names.
+    readonly property real addressWidth: Kirigami.Units.gridUnit * 13
+    readonly property real regionWidth: Kirigami.Units.gridUnit * 4
+    readonly property real tierWidth: Kirigami.Units.gridUnit * 4
     // The heading is a word, the values are numbers: at five grid units
     // the Polish "Opóźnienie" was cut in half and the column drifted
     // from the rows, which use this same width.
     readonly property real latencyWidth: Kirigami.Units.gridUnit * 7
-    readonly property real stateWidth: Kirigami.Units.gridUnit * 16
+    readonly property real stateWidth: Kirigami.Units.gridUnit * 13
     readonly property real countWidth: Kirigami.Units.gridUnit * 6
     readonly property real signatureWidth: Kirigami.Units.gridUnit * 8
     readonly property real fileWidth: Kirigami.Units.gridUnit * 18
@@ -200,14 +204,26 @@ Item {
 
                     RowLayout {
                         anchors.fill: parent
-                        anchors.leftMargin: Kirigami.Units.largeSpacing
+                        // The same gutter the rows use, or the headings sit one
+                        // step to the left of the columns they name.
+                        anchors.leftMargin: Kirigami.Units.gridUnit * 2
                         anchors.rightMargin: Kirigami.Units.largeSpacing
-                                                     + view.mirrorScrollBarSpace
+                                             + view.mirrorScrollBarSpace
                         spacing: Kirigami.Units.largeSpacing
 
                         QQC2.Label {
                             Layout.fillWidth: true
                             text: i18nd("kxbps", "Server")
+                            font.bold: true
+                            color: Kirigami.Theme.disabledTextColor
+                            elide: Text.ElideRight
+                        }
+
+                        QQC2.Label {
+                            Layout.preferredWidth: view.addressWidth
+                            Layout.minimumWidth: view.addressWidth
+                            Layout.maximumWidth: view.addressWidth
+                            text: i18nd("kxbps", "Address")
                             font.bold: true
                             color: Kirigami.Theme.disabledTextColor
                             elide: Text.ElideRight
@@ -222,26 +238,15 @@ Item {
                             color: Kirigami.Theme.disabledTextColor
                         }
 
-                        // The sort is the model's, not a QML reorder: a row
-                        // keeps its mirror when the order changes, so a
-                        // result that arrives mid-sort still lands on the
-                        // right row.
-                        QQC2.ToolButton {
-                            Layout.preferredWidth: view.latencyWidth
-                            Layout.minimumWidth: view.latencyWidth
-                            Layout.maximumWidth: view.latencyWidth
-                            padding: 0
-                            display: QQC2.AbstractButton.TextOnly
-                            text: i18nd("kxbps", "Latency") + " "
-                                  + (view.mirrorBackend.model.sortDescending ? "\u25BC" : "\u25B2")
+                        QQC2.Label {
+                            Layout.preferredWidth: view.tierWidth
+                            Layout.minimumWidth: view.tierWidth
+                            Layout.maximumWidth: view.tierWidth
+                            // Not translated: "Tier" is the word `xmirror`
+                            // prints, a Void term like the region codes.
+                            text: "Tier"
                             font.bold: true
-                            checkable: false
-                            Accessible.name: view.mirrorBackend.model.sortDescending
-                                             ? i18nd("kxbps", "Latency, sorted slowest first")
-                                             : i18nd("kxbps", "Latency, sorted fastest first")
-                            Accessible.role: Accessible.Button
-                            onClicked: view.mirrorBackend.model.sortDescending =
-                                           !view.mirrorBackend.model.sortDescending
+                            color: Kirigami.Theme.disabledTextColor
                         }
 
                         QQC2.Label {
@@ -251,6 +256,44 @@ Item {
                             text: i18nd("kxbps", "State")
                             font.bold: true
                             color: Kirigami.Theme.disabledTextColor
+                        }
+
+                        // The sort is the model's, not a QML reorder: a row
+                        // keeps its mirror when the order changes, so a result
+                        // that arrives mid-sort still lands on the right row.
+                        // Last column: the number is what the sweep produces,
+                        // and the row's own facts come first.
+                        //
+                        // A label with a mouse area, like the package table's
+                        // sortable heading. Not a button: the style paints a tool
+                        // button's text inside its own background, where no
+                        // palette role reaches it (the heading came out bright
+                        // while the others are muted), draws a frame around a
+                        // word that is a heading, and its box is a pixel taller
+                        // than a label, which lifted this heading off the line
+                        // the others sit on.
+                        QQC2.Label {
+                            Layout.preferredWidth: view.latencyWidth
+                            Layout.minimumWidth: view.latencyWidth
+                            Layout.maximumWidth: view.latencyWidth
+                            // "Ping", not "Latency": the column is the round
+                            // trip the probe measures, and `ping` is the command
+                            // that measures it. A command name, so not translated.
+                            text: "Ping "
+                                  + (view.mirrorBackend.model.sortDescending ? "\u25BC" : "\u25B2")
+                            font.bold: true
+                            color: Kirigami.Theme.disabledTextColor
+                            elide: Text.ElideRight
+                            Accessible.role: Accessible.Button
+                            Accessible.name: view.mirrorBackend.model.sortDescending
+                                             ? i18nd("kxbps", "Latency, sorted slowest first")
+                                             : i18nd("kxbps", "Latency, sorted fastest first")
+
+                            MouseArea {
+                                anchors.fill: parent
+                                onClicked: view.mirrorBackend.model.sortDescending =
+                                               !view.mirrorBackend.model.sortDescending
+                            }
                         }
                     }
                 }
@@ -270,6 +313,7 @@ Item {
                     delegate: MirrorDelegate {
                         width: mirrorList.width - view.mirrorScrollBarSpace
                         mirrorBackend: view.mirrorBackend
+                        columns: view
                     }
                 }
 

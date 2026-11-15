@@ -361,13 +361,8 @@ Kirigami.ApplicationWindow {
     }
 
     function headerSubtitle(count) {
-        if (section === Sections.mirrors) {
-            if (mirrorBackend.probing) {
-                return i18nd("kxbps", "%1 of %2 mirrors probed",
-                             mirrorBackend.finishedCount, mirrorBackend.model.count)
-            }
-            return i18ndp("kxbps", "%1 mirror", "%1 mirrors", mirrorBackend.model.count)
-        }
+        // The mirror page has no subtitle: its count is in the table footer,
+        // and "%1 mirrors" here only repeated the page name in the same line.
         if (section === Sections.settings) {
             return i18nd("kxbps", "Notifications and startup")
         }
@@ -1013,7 +1008,6 @@ Kirigami.ApplicationWindow {
                             icon.name: Icons.refresh
                             text: i18nd("kxbps", "Refresh")
                             Accessible.name: i18nd("kxbps", "Refresh")
-                            font: Kirigami.Theme.smallFont
                             enabled: !installedBackend.loading
                             onClicked: root.refreshAll()
                         }
@@ -1049,7 +1043,6 @@ Kirigami.ApplicationWindow {
                                                      : QQC2.AbstractButton.TextBesideIcon
                                 Accessible.name: i18nd("kxbps", "Mark all upgrades")
                                 icon.name: "checkmark"
-                                font: Kirigami.Theme.smallFont
                                 enabled: installedBackend.updatesCount > 0
                                 onClicked: installedBackend.queueAllUpdates()
                             }
@@ -1060,7 +1053,6 @@ Kirigami.ApplicationWindow {
                                                      : QQC2.AbstractButton.TextBesideIcon
                                 Accessible.name: i18nd("kxbps", "Unmark all")
                                 icon.name: Icons.clear
-                                font: Kirigami.Theme.smallFont
                                 enabled: installedBackend.queueCount > 0
                                 onClicked: installedBackend.clearQueue()
                             }
@@ -1095,18 +1087,51 @@ Kirigami.ApplicationWindow {
                             Layout.alignment: Qt.AlignVCenter
                             spacing: Kirigami.Units.smallSpacing
 
-                            // The region filter is the page's, but the window
-                            // has one toolbar and every page action lives on it.
-                            QQC2.ComboBox {
-                                Layout.preferredWidth: Kirigami.Units.gridUnit * 9
-                                // The same height as the buttons beside it, so
-                                // the toolbar is one row on every page.
-                                implicitHeight: Kirigami.Units.gridUnit * 1.6
-                                font: Kirigami.Theme.smallFont
-                                model: mirrorsView.filterEntries()
-                                currentIndex: mirrorsView.filterIndex
+                            // The region filter, as a menu button rather than a
+                            // combo box: the native combo paints its value with
+                            // the style's own margin, so the text sits on the
+                            // border and no QML padding moves it. A button also
+                            // matches the rest of the toolbar.
+                            DenseButton {
+                                id: regionFilter
+                                text: {
+                                    const entries = mirrorsView.filterEntries()
+                                    const index = mirrorsView.filterIndex
+                                    return index >= 0 && index < entries.length
+                                           ? entries[index] + " \u25BE"
+                                           : "\u25BE"
+                                }
+                                // A filter is not one of the actions: the gap
+                                // says so, and the buttons keep their own
+                                // tighter spacing.
+                                Layout.rightMargin: Kirigami.Units.largeSpacing
+                                // Baselines, not boxes: a label with a descender
+                                // ("Europa" has a "p", "Sprawdź" has none) is
+                                // centred a pixel lower, which reads as a button
+                                // out of line.
+                                Layout.alignment: Qt.AlignBaseline
                                 Accessible.name: i18nd("kxbps", "Mirror filter")
-                                onActivated: mirrorsView.applyFilter(currentIndex)
+                                onClicked: regionMenu.open()
+
+                                QQC2.Menu {
+                                    id: regionMenu
+                                    y: regionFilter.height
+                                    width: Math.max(regionFilter.width,
+                                                    Kirigami.Units.gridUnit * 9)
+
+                                    Repeater {
+                                        model: mirrorsView.filterEntries()
+
+                                        QQC2.MenuItem {
+                                            required property string modelData
+                                            required property int index
+                                            text: modelData
+                                            checkable: true
+                                            checked: index === mirrorsView.filterIndex
+                                            onTriggered: mirrorsView.applyFilter(index)
+                                        }
+                                    }
+                                }
                             }
 
                             // "Check", not "Check all": the batch covers the rows
@@ -1114,6 +1139,7 @@ Kirigami.ApplicationWindow {
                             // more than that was a lie.
                             DenseButton {
                                 text: i18nd("kxbps", "Check")
+                                Layout.alignment: Qt.AlignBaseline
                                 Accessible.name: i18nd("kxbps", "Check the listed mirrors")
                                 icon.name: "network-connect"
                                 enabled: !mirrorBackend.probing
@@ -1125,6 +1151,7 @@ Kirigami.ApplicationWindow {
                             // opens a confirmation; the job dialog carries progress.
                             DenseButton {
                                 text: i18nd("kxbps", "Apply to system")
+                                Layout.alignment: Qt.AlignBaseline
                                 icon.name: Icons.apply
                                 // The other accent action: it writes /etc/xbps.d.
                                 flat: false

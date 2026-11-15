@@ -170,10 +170,11 @@ pub mod role {
     pub const LATENCY_MS: i32 = USER_ROLE + 4;
     pub const STATE: i32 = USER_ROLE + 5;
     pub const ERROR_KEY: i32 = USER_ROLE + 6;
+    pub const TIER: i32 = USER_ROLE + 7;
 }
 
 /// Role ids and the names QML sees, in declaration order.
-pub const ROLES: [(i32, &str); 7] = [
+pub const ROLES: [(i32, &str); 8] = [
     (role::NAME, "name"),
     (role::URL, "url"),
     (role::REGION, "region"),
@@ -181,6 +182,7 @@ pub const ROLES: [(i32, &str); 7] = [
     (role::LATENCY_MS, "latencyMs"),
     (role::STATE, "state"),
     (role::ERROR_KEY, "errorKey"),
+    (role::TIER, "tier"),
 ];
 
 /// The four states a row can be in, as QML sees them.
@@ -567,6 +569,7 @@ impl qobject::MirrorModel {
             role::LATENCY_MS => integer(latency_of(&row.state)),
             role::STATE => text(state_name(&row.state)),
             role::ERROR_KEY => text(error_name(&row.state)),
+            role::TIER => integer(u32::from(row.info.tier)),
             _ => cxx_qt_lib::QVariant::default(),
         }
     }
@@ -828,12 +831,14 @@ mod tests {
                 url: DEFAULT_MIRROR,
                 region: Region::World,
                 country: "",
+                tier: 1,
             },
             MirrorInfo {
                 name: "Denmark",
                 url: "http://ftp.dk.xemacs.org/voidlinux/",
                 region: Region::Eu,
                 country: "Denmark",
+                tier: 2,
             },
         ]
     }
@@ -892,6 +897,7 @@ mod tests {
                 (260, "latencyMs"),
                 (261, "state"),
                 (262, "errorKey"),
+                (263, "tier"),
             ]
         );
     }
@@ -1071,18 +1077,21 @@ mod tests {
                 url: "https://alpha.example/voidlinux/",
                 region: Region::Eu,
                 country: "Alpha",
+                tier: 2,
             },
             MirrorInfo {
                 name: "Bravo",
                 url: "https://bravo.example/voidlinux/",
                 region: Region::Eu,
                 country: "Bravo",
+                tier: 2,
             },
             MirrorInfo {
                 name: "Charlie",
                 url: "https://charlie.example/voidlinux/",
                 region: Region::Eu,
                 country: "Charlie",
+                tier: 2,
             },
         ]
     }
@@ -1129,18 +1138,21 @@ mod tests {
                 url: "https://zulu.example/voidlinux/",
                 region: Region::Eu,
                 country: "Zulu",
+                tier: 2,
             },
             MirrorInfo {
                 name: "Alpha",
                 url: "https://alpha-2.example/voidlinux/",
                 region: Region::Eu,
                 country: "Alpha",
+                tier: 2,
             },
             MirrorInfo {
                 name: "Alpha",
                 url: "https://alpha-1.example/voidlinux/",
                 region: Region::Eu,
                 country: "Alpha",
+                tier: 2,
             },
         ];
         let mut model = MirrorModelRust::with_mirrors(&mirrors);

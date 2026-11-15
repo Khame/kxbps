@@ -5,7 +5,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: kxbps 0.10.1\n"
 "Report-Msgid-Bugs-To: \n"
-"POT-Creation-Date: 2026-11-15 12:31+0000\n"
+"POT-Creation-Date: 2026-11-15 13:45+0000\n"
 "PO-Revision-Date: 2026-11-15 00:07+0000\n"
 "Last-Translator: KXbps translation contributors <khame.dev@protonmail.com>\n"
 "Language-Team: Polish\n"
@@ -127,7 +127,7 @@ msgstr "%1 może być ponownie aktualizowany."
 msgid "%1 could not be started: %2"
 msgstr "Nie udało się uruchomić %1: %2"
 
-#: kxbps-qt/qml/Main.qml:751
+#: kxbps-qt/qml/Main.qml:746
 msgid "%1 day ago"
 msgid_plural "%1 days ago"
 msgstr[0] "%1 dzień temu"
@@ -160,7 +160,7 @@ msgstr "%1 zgłosił błąd, kod wyjścia %2."
 msgid "%1 failed with exit code %2: %3"
 msgstr "%1 zgłosił błąd, kod wyjścia %2: %3"
 
-#: kxbps-qt/qml/Main.qml:748
+#: kxbps-qt/qml/Main.qml:743
 msgid "%1 hour ago"
 msgid_plural "%1 hours ago"
 msgstr[0] "%1 godzinę temu"
@@ -182,27 +182,27 @@ msgstr "%1 jest już zainstalowany; nic do kolejki"
 msgid "%1 is now held at its current version."
 msgstr "%1 jest teraz zablokowany na obecnej wersji."
 
-#: kxbps-qt/qml/Main.qml:744
+#: kxbps-qt/qml/Main.qml:739
 msgid "%1 minute ago"
 msgid_plural "%1 minutes ago"
 msgstr[0] "%1 minutę temu"
 msgstr[1] "%1 minuty temu"
 msgstr[2] "%1 minut temu"
 
-#: kxbps-qt/qml/Main.qml:369 kxbps-qt/qml/views/MirrorsView.qml:351
+#: kxbps-qt/qml/views/MirrorsView.qml:398
 msgid "%1 mirror"
 msgid_plural "%1 mirrors"
 msgstr[0] "%1 serwer lustrzany"
 msgstr[1] "%1 serwery lustrzane"
 msgstr[2] "%1 serwerów lustrzanych"
 
-#: kxbps-qt/qml/components/MirrorDelegate.qml:75
+#: kxbps-qt/qml/components/MirrorDelegate.qml:103
 msgid "%1 ms"
 msgstr "%1 ms"
 
 #. The batch covers the visible rows, so the total is the list's
 #. count, not the snapshot size.
-#: kxbps-qt/qml/Main.qml:366 kxbps-qt/qml/views/MirrorsView.qml:348
+#: kxbps-qt/qml/views/MirrorsView.qml:395
 msgid "%1 of %2 mirrors probed"
 msgstr "Sprawdzono %1 z %2 serwerów lustrzanych"
 
@@ -287,7 +287,7 @@ msgstr[0] "%1 aktualizacja"
 msgstr[1] "%1 aktualizacje"
 msgstr[2] "%1 aktualizacji"
 
-#: kxbps-qt/qml/Main.qml:769
+#: kxbps-qt/qml/Main.qml:764
 msgid "%1 update available"
 msgid_plural "%1 updates available"
 msgstr[0] "%1 dostępna aktualizacja"
@@ -298,7 +298,7 @@ msgstr[2] "%1 dostępnych aktualizacji"
 msgid "%1 → %2"
 msgstr "%1 → %2"
 
-#: kxbps-qt/qml/components/MirrorDelegate.qml:51
+#: kxbps-qt/qml/components/MirrorDelegate.qml:79
 msgid "%1, %2"
 msgstr "%1, %2"
 
@@ -335,6 +335,10 @@ msgstr "Dodaj repozytorium"
 msgid "Adding and removing repositories needs %1, which packaging/install.sh installs."
 msgstr "Dodawanie i usuwanie repozytoriów wymaga %1, który instaluje packaging/install.sh."
 
+#: kxbps-qt/qml/views/MirrorsView.qml:226
+msgid "Address"
+msgstr "Adres"
+
 #: kxbps-qt/qml/views/SettingsView.qml:38
 msgid "Announce available updates on startup"
 msgstr "Powiadamiaj o dostępnych aktualizacjach przy uruchomieniu"
@@ -343,11 +347,11 @@ msgstr "Powiadamiaj o dostępnych aktualizacjach przy uruchomieniu"
 msgid "Another transaction is running"
 msgstr "Inna transakcja jest w toku"
 
-#: kxbps-qt/qml/Main.qml:1074 kxbps-qt/qml/components/PlanDialog.qml:265
+#: kxbps-qt/qml/Main.qml:1066 kxbps-qt/qml/components/PlanDialog.qml:265
 msgid "Apply"
 msgstr "Zastosuj"
 
-#: kxbps-qt/qml/Main.qml:1073
+#: kxbps-qt/qml/Main.qml:1065
 msgid "Apply (%1)"
 msgid_plural "Apply (%1)"
 msgstr[0] "Zastosuj (%1)"
@@ -358,15 +362,15 @@ msgstr[2] "Zastosuj (%1)"
 msgid "Apply queued changes"
 msgstr "Zastosuj zmiany z kolejki"
 
-#: kxbps-qt/qml/Main.qml:1127
+#: kxbps-qt/qml/Main.qml:1153
 msgid "Apply to system"
 msgstr "Zastosuj w systemie"
 
-#: kxbps-qt/qml/Main.qml:390
+#: kxbps-qt/qml/Main.qml:385
 msgid "Apply to system needs the installed helper: run packaging/install.sh."
 msgstr "Zastosowanie w systemie wymaga zainstalowanego programu pomocniczego: uruchom packaging/install.sh."
 
-#: kxbps-qt/qml/views/MirrorsView.qml:58
+#: kxbps-qt/qml/views/MirrorsView.qml:62
 msgid "Asia"
 msgstr "Azja"
 
@@ -382,7 +386,7 @@ msgstr "Uwierzytelnianie zostało anulowane"
 msgid "Authorisation"
 msgstr "Autoryzacja"
 
-#: kxbps-qt/qml/Main.qml:350 kxbps-qt/qml/Main.qml:701
+#: kxbps-qt/qml/Main.qml:350 kxbps-qt/qml/Main.qml:696
 #: kxbps-qt/qml/views/PackagesView.qml:763
 msgid "Available"
 msgstr "Dostępne"
@@ -409,7 +413,7 @@ msgstr "Anulowano."
 msgid "Cannot remove"
 msgstr "Nie można usunąć"
 
-#: kxbps-qt/qml/Main.qml:1116
+#: kxbps-qt/qml/Main.qml:1141
 msgid "Check"
 msgstr "Sprawdź"
 
@@ -422,11 +426,11 @@ msgstr "Sprawdź aktualizacje"
 msgid "Check for updates:"
 msgstr "Sprawdzanie aktualizacji:"
 
-#: kxbps-qt/qml/Main.qml:1117
+#: kxbps-qt/qml/Main.qml:1143
 msgid "Check the listed mirrors"
 msgstr "Sprawdź serwery z listy"
 
-#: kxbps-qt/qml/Main.qml:785 kxbps-qt/qml/views/PackagesView.qml:950
+#: kxbps-qt/qml/Main.qml:780 kxbps-qt/qml/views/PackagesView.qml:950
 msgid "Checking for updates…"
 msgstr "Sprawdzanie aktualizacji…"
 
@@ -448,7 +452,7 @@ msgstr "Kopiuj do schowka"
 msgid "Copyright"
 msgstr "Prawa autorskie"
 
-#: kxbps-qt/qml/Main.qml:773
+#: kxbps-qt/qml/Main.qml:768
 msgid "Could not read %1 of %2 repositories (%3). Last successful check: %4."
 msgstr "Nie udało się odczytać %1 z %2 repozytoriów (%3). Ostatnie udane sprawdzenie: %4."
 
@@ -464,11 +468,11 @@ msgstr "Nie udało się odczytać zainstalowanych pakietów: %1"
 msgid "Could not read the package: %1"
 msgstr "Nie udało się odczytać pakietu: %1"
 
-#: kxbps-qt/qml/views/MirrorsView.qml:362
+#: kxbps-qt/qml/views/MirrorsView.qml:409
 msgid "Could not read the xbps configuration."
 msgstr "Nie udało się odczytać konfiguracji xbps."
 
-#: kxbps-qt/qml/views/MirrorsView.qml:361
+#: kxbps-qt/qml/views/MirrorsView.qml:408
 msgid "Could not read the xbps configuration: %1."
 msgstr "Nie udało się odczytać konfiguracji xbps: %1."
 
@@ -486,7 +490,7 @@ msgstr "Nie udało się wykonać zapytania: %1"
 msgid "Could not save the system state."
 msgstr "Nie udało się zapisać stanu systemu."
 
-#: kxbps-qt/qml/views/MirrorsView.qml:366
+#: kxbps-qt/qml/views/MirrorsView.qml:413
 msgid "Could not write %1."
 msgstr "Nie udało się zapisać %1."
 
@@ -498,7 +502,7 @@ msgstr "Nie udało się zapisać %1: %2"
 msgid "Could not write the repository configuration."
 msgstr "Nie udało się zapisać konfiguracji repozytoriów."
 
-#: kxbps-qt/qml/views/MirrorsView.qml:367
+#: kxbps-qt/qml/views/MirrorsView.qml:414
 msgid "Could not write the xbps configuration."
 msgstr "Nie udało się zapisać konfiguracji xbps."
 
@@ -555,7 +559,7 @@ msgstr "Pobieranie %1…"
 msgid "Downloading packages…"
 msgstr "Pobieranie pakietów…"
 
-#: kxbps-qt/qml/views/MirrorsView.qml:54
+#: kxbps-qt/qml/views/MirrorsView.qml:58
 msgid "Europe"
 msgstr "Europa"
 
@@ -587,7 +591,7 @@ msgstr "Co godzinę"
 msgid "Everything is up to date."
 msgstr "Wszystko jest aktualne."
 
-#: kxbps-qt/qml/Main.qml:354 kxbps-qt/qml/Main.qml:703
+#: kxbps-qt/qml/Main.qml:354 kxbps-qt/qml/Main.qml:698
 #: kxbps-qt/qml/components/DetailsPane.qml:260
 msgid "Explicit"
 msgstr "Ręczne"
@@ -596,8 +600,8 @@ msgstr "Ręczne"
 msgid "Explicit: packages installed on purpose, not as a dependency."
 msgstr "Ręczne: pakiety zainstalowane świadomie, nie jako zależność."
 
-#: kxbps-qt/qml/components/MirrorDelegate.qml:95
-#: kxbps-qt/qml/views/MirrorsView.qml:85
+#: kxbps-qt/qml/components/MirrorDelegate.qml:123
+#: kxbps-qt/qml/views/MirrorsView.qml:89
 msgid "Failed"
 msgstr "Niepowodzenie"
 
@@ -613,7 +617,7 @@ msgstr "Pliki pakietu"
 msgid "Files owned by %1"
 msgstr "Pliki należące do %1"
 
-#: kxbps-qt/qml/Main.qml:844
+#: kxbps-qt/qml/Main.qml:839
 msgid "Filter"
 msgstr "Filtr"
 
@@ -639,7 +643,7 @@ msgstr "Zablokowana"
 msgid "Held packages skipped: %1"
 msgstr "Pominięte zablokowane pakiety: %1"
 
-#: kxbps-qt/qml/Main.qml:342 kxbps-qt/qml/Main.qml:922
+#: kxbps-qt/qml/Main.qml:342 kxbps-qt/qml/Main.qml:917
 msgid "Help"
 msgstr "Pomoc"
 
@@ -663,8 +667,8 @@ msgstr "Jeśli okno hasła zostanie zamknięte lub odrzucone, pasek stanu to zg�
 msgid "If xbps refuses the plan, the reason appears and nothing runs. The status strip keeps the result until the queue changes."
 msgstr "Jeśli xbps odrzuci plan, pojawia się powód i nic się nie uruchamia. Pasek stanu zachowuje wynik do zmiany kolejki."
 
-#: kxbps-qt/qml/components/MirrorDelegate.qml:63
-#: kxbps-qt/qml/components/MirrorDelegate.qml:173
+#: kxbps-qt/qml/components/MirrorDelegate.qml:91
+#: kxbps-qt/qml/components/MirrorDelegate.qml:246
 msgid "In use"
 msgstr "W użyciu"
 
@@ -680,7 +684,7 @@ msgstr "Instalacja pakietów"
 msgid "Installation"
 msgstr "Instalacja"
 
-#: kxbps-qt/qml/Main.qml:346 kxbps-qt/qml/Main.qml:699
+#: kxbps-qt/qml/Main.qml:346 kxbps-qt/qml/Main.qml:694
 #: kxbps-qt/qml/components/PackageDelegate.qml:241
 #: kxbps-qt/qml/views/PackagesView.qml:751
 msgid "Installed"
@@ -718,15 +722,11 @@ msgstr "KXbps to natywny menedżer pakietów KDE dla Void Linux. Czyta i zmienia
 msgid "KXbps is a window onto xbps, the Void Linux package manager. Every package, version, size and error comes from an xbps command."
 msgstr "KXbps to okno na xbps, menedżera pakietów Void Linux. Każdy pakiet, wersja, rozmiar i błąd pochodzą z polecenia xbps."
 
-#: kxbps-qt/qml/views/MirrorsView.qml:235
-msgid "Latency"
-msgstr "Opóźnienie"
-
-#: kxbps-qt/qml/views/MirrorsView.qml:241
+#: kxbps-qt/qml/views/MirrorsView.qml:296
 msgid "Latency, sorted fastest first"
 msgstr "Opóźnienie, od najszybszego"
 
-#: kxbps-qt/qml/views/MirrorsView.qml:240
+#: kxbps-qt/qml/views/MirrorsView.qml:295
 msgid "Latency, sorted slowest first"
 msgstr "Opóźnienie, od najwolniejszego"
 
@@ -754,11 +754,11 @@ msgstr "Zaznacz %1 do instalacji"
 msgid "Mark %1 for the update"
 msgstr "Zaznacz %1 do aktualizacji"
 
-#: kxbps-qt/qml/Main.qml:1047 kxbps-qt/qml/Main.qml:1050
+#: kxbps-qt/qml/Main.qml:1041 kxbps-qt/qml/Main.qml:1044
 msgid "Mark all upgrades"
 msgstr "Zaznacz wszystkie aktualizacje"
 
-#: kxbps-qt/qml/Main.qml:702
+#: kxbps-qt/qml/Main.qml:697
 msgid "Marked"
 msgstr "Zaznaczone"
 
@@ -770,7 +770,7 @@ msgstr "Zaznaczone: pakiety w kolejce."
 msgid "Mirror applied."
 msgstr "Zastosowano lustro."
 
-#: kxbps-qt/qml/Main.qml:1108
+#: kxbps-qt/qml/Main.qml:1113
 msgid "Mirror filter"
 msgstr "Filtr luster"
 
@@ -778,7 +778,7 @@ msgstr "Filtr luster"
 msgid "Mirror set, but the package index could not be refreshed: %1"
 msgstr "Lustro ustawione, ale nie udało się odświeżyć indeksu pakietów: %1"
 
-#: kxbps-qt/qml/Main.qml:333 kxbps-qt/qml/Main.qml:906
+#: kxbps-qt/qml/Main.qml:333 kxbps-qt/qml/Main.qml:901
 msgid "Mirrors"
 msgstr "Serwery lustrzane"
 
@@ -795,15 +795,15 @@ msgstr "Wymagana przez: %1"
 msgid "No dependencies"
 msgstr "Brak zależności"
 
-#: kxbps-qt/qml/views/MirrorsView.qml:284
+#: kxbps-qt/qml/views/MirrorsView.qml:331
 msgid "No mirror matches this filter."
 msgstr "Żaden serwer lustrzany nie pasuje do filtra."
 
-#: kxbps-qt/qml/views/MirrorsView.qml:283
+#: kxbps-qt/qml/views/MirrorsView.qml:330
 msgid "No mirrors."
 msgstr "Brak serwerów lustrzanych."
 
-#: kxbps-qt/qml/Main.qml:771
+#: kxbps-qt/qml/Main.qml:766
 msgid "No network connection. The update list could not be refreshed; it is from the last successful check (%1)."
 msgstr "Brak połączenia z siecią. Nie udało się odświeżyć listy aktualizacji; pochodzi ona z ostatniego udanego sprawdzenia (%1)."
 
@@ -839,7 +839,7 @@ msgstr "Żadna ścieżka nie pasuje do filtra."
 msgid "No repository is configured."
 msgstr "Brak skonfigurowanych repozytoriów."
 
-#: kxbps-qt/qml/components/MirrorDelegate.qml:93
+#: kxbps-qt/qml/components/MirrorDelegate.qml:121
 msgid "No response"
 msgstr "Brak odpowiedzi"
 
@@ -847,11 +847,11 @@ msgstr "Brak odpowiedzi"
 msgid "No transaction has run in this session yet."
 msgstr "W tej sesji nie uruchamiano jeszcze żadnej transakcji."
 
-#: kxbps-qt/qml/views/MirrorsView.qml:56
+#: kxbps-qt/qml/views/MirrorsView.qml:60
 msgid "North America"
 msgstr "Ameryka Północna"
 
-#: kxbps-qt/qml/Main.qml:740
+#: kxbps-qt/qml/Main.qml:735
 msgid "Not checked yet"
 msgstr "Jeszcze nie sprawdzano"
 
@@ -869,7 +869,7 @@ msgstr "Niezainstalowana"
 msgid "Not installed: %1"
 msgstr "Niezainstalowane: %1"
 
-#: kxbps-qt/qml/components/MirrorDelegate.qml:81
+#: kxbps-qt/qml/components/MirrorDelegate.qml:109
 msgid "Not probed"
 msgstr "Niesprawdzony"
 
@@ -889,7 +889,7 @@ msgstr "Nie ma czego instalować."
 msgid "Nothing to remove."
 msgstr "Nie ma czego usuwać."
 
-#: kxbps-qt/qml/Main.qml:372
+#: kxbps-qt/qml/Main.qml:367
 msgid "Notifications and startup"
 msgstr "Powiadomienia i uruchamianie"
 
@@ -901,15 +901,15 @@ msgstr "Powiadomienia są opcjonalne. Ustawienia mogą je wyłączyć; wtedy o a
 msgid "Notifications:"
 msgstr "Powiadomienia:"
 
-#: kxbps-qt/qml/components/MirrorDelegate.qml:85
+#: kxbps-qt/qml/components/MirrorDelegate.qml:113
 msgid "OK"
 msgstr "OK"
 
-#: kxbps-qt/qml/views/MirrorsView.qml:60
+#: kxbps-qt/qml/views/MirrorsView.qml:64
 msgid "Oceania"
 msgstr "Oceania"
 
-#: kxbps-qt/qml/Main.qml:705
+#: kxbps-qt/qml/Main.qml:700
 msgid "On hold"
 msgstr "Zablokowane"
 
@@ -926,7 +926,7 @@ msgstr "Otwórz KXbps"
 msgid "Orphan"
 msgstr "Osierocona"
 
-#: kxbps-qt/qml/Main.qml:356 kxbps-qt/qml/Main.qml:704
+#: kxbps-qt/qml/Main.qml:356 kxbps-qt/qml/Main.qml:699
 msgid "Orphans"
 msgstr "Osierocone"
 
@@ -947,7 +947,7 @@ msgstr "Pliki pakietu"
 msgid "Packages"
 msgstr "Pakiety"
 
-#: kxbps-qt/qml/components/MirrorDelegate.qml:89
+#: kxbps-qt/qml/components/MirrorDelegate.qml:117
 msgid "Plain HTTP is not probed"
 msgstr "Zwykły HTTP nie jest sprawdzany"
 
@@ -955,7 +955,7 @@ msgstr "Zwykły HTTP nie jest sprawdzany"
 msgid "Platform: %1"
 msgstr "Platforma: %1"
 
-#: kxbps-qt/qml/components/MirrorDelegate.qml:83
+#: kxbps-qt/qml/components/MirrorDelegate.qml:111
 msgid "Probing"
 msgstr "Sprawdzanie"
 
@@ -999,11 +999,11 @@ msgstr "Wczytywanie listy pakietów…"
 msgid "Ready"
 msgstr "Gotowe"
 
-#: kxbps-qt/qml/Main.qml:1014 kxbps-qt/qml/Main.qml:1015
+#: kxbps-qt/qml/Main.qml:1009 kxbps-qt/qml/Main.qml:1010
 msgid "Refresh"
 msgstr "Odśwież"
 
-#: kxbps-qt/qml/views/MirrorsView.qml:220
+#: kxbps-qt/qml/views/MirrorsView.qml:236
 msgid "Region"
 msgstr "Region"
 
@@ -1056,7 +1056,7 @@ msgstr "Usuwanie %1…"
 msgid "Report a bug"
 msgstr "Zgłoś błąd"
 
-#: kxbps-qt/qml/Main.qml:339 kxbps-qt/qml/Main.qml:914
+#: kxbps-qt/qml/Main.qml:339 kxbps-qt/qml/Main.qml:909
 msgid "Repositories"
 msgstr "Repozytoria"
 
@@ -1096,7 +1096,7 @@ msgstr "Przejrzyj zablokowane pakiety"
 msgid "Running xbps…"
 msgstr "xbps pracuje…"
 
-#: kxbps-qt/qml/Main.qml:1029
+#: kxbps-qt/qml/Main.qml:1023
 msgid "Search packages…"
 msgstr "Szukaj pakietów…"
 
@@ -1108,16 +1108,16 @@ msgstr "Szukanie w repozytoriach…"
 msgid "Select a package to see its details."
 msgstr "Wybierz pakiet, aby zobaczyć jego szczegóły."
 
-#: kxbps-qt/qml/components/MirrorDelegate.qml:60
-#: kxbps-qt/qml/components/MirrorDelegate.qml:166
+#: kxbps-qt/qml/components/MirrorDelegate.qml:88
+#: kxbps-qt/qml/components/MirrorDelegate.qml:239
 msgid "Selected"
 msgstr "Wybrany"
 
-#: kxbps-qt/qml/views/MirrorsView.qml:210
+#: kxbps-qt/qml/views/MirrorsView.qml:216
 msgid "Server"
 msgstr "Serwer"
 
-#: kxbps-qt/qml/Main.qml:336 kxbps-qt/qml/Main.qml:937
+#: kxbps-qt/qml/Main.qml:336 kxbps-qt/qml/Main.qml:932
 #: kxbps-qt/qml/views/HelpView.qml:76
 msgid "Settings"
 msgstr "Ustawienia"
@@ -1145,7 +1145,7 @@ msgstr "Podpisane"
 msgid "Size"
 msgstr "Rozmiar"
 
-#: kxbps-qt/qml/views/MirrorsView.qml:62
+#: kxbps-qt/qml/views/MirrorsView.qml:66
 msgid "South America"
 msgstr "Ameryka Południowa"
 
@@ -1162,7 +1162,7 @@ msgid "Startup:"
 msgstr "Uruchamianie:"
 
 #: kxbps-qt/qml/components/DetailsPane.qml:255
-#: kxbps-qt/qml/views/MirrorsView.qml:251
+#: kxbps-qt/qml/views/MirrorsView.qml:256
 msgid "State"
 msgstr "Stan"
 
@@ -1170,7 +1170,7 @@ msgstr "Stan"
 msgid "Synchronising the repository index…"
 msgstr "Synchronizowanie indeksu repozytoriów…"
 
-#: kxbps-qt/qml/Main.qml:767
+#: kxbps-qt/qml/Main.qml:762
 msgid "System is up to date"
 msgstr "System jest aktualny"
 
@@ -1190,11 +1190,11 @@ msgstr "Framework, na którym zbudowano KXbps."
 msgid "The data directory could not be located: neither XDG_DATA_HOME nor HOME is set."
 msgstr "Nie można ustalić katalogu danych: ani XDG_DATA_HOME, ani HOME nie jest ustawione."
 
-#: kxbps-qt/qml/Main.qml:801
+#: kxbps-qt/qml/Main.qml:796
 msgid "The dry run returned nothing that could be applied."
 msgstr "Próba na sucho nie zwróciła nic do wykonania."
 
-#: kxbps-qt/qml/views/MirrorsView.qml:369
+#: kxbps-qt/qml/views/MirrorsView.qml:416
 msgid "The helper refused the URL."
 msgstr "Program pomocniczy odrzucił adres URL."
 
@@ -1214,7 +1214,7 @@ msgstr "Panel dziennika na dole okna pokazuje surowe wyjście każdego polecenia
 msgid "The manual page, man kxbps, covers the command line."
 msgstr "Strona podręcznika, man kxbps, opisuje wiersz poleceń."
 
-#: kxbps-qt/qml/Main.qml:392
+#: kxbps-qt/qml/Main.qml:387
 msgid "The mirror helper at %1 is not executable."
 msgstr "Program pomocniczy pod adresem %1 nie jest wykonywalny."
 
@@ -1234,7 +1234,7 @@ msgstr "Nowy adres repozytorium nie działa: %1"
 msgid "The package owns no files."
 msgstr "Pakiet nie posiada żadnych plików."
 
-#: kxbps-qt/qml/Main.qml:394 kxbps-qt/qml/views/RepositoriesView.qml:66
+#: kxbps-qt/qml/Main.qml:389 kxbps-qt/qml/views/RepositoriesView.qml:66
 msgid "The polkit policy is missing, so the system cannot ask for a password: run packaging/install.sh."
 msgstr "Brak polityki polkit, więc system nie może zapytać o hasło: uruchom packaging/install.sh."
 
@@ -1254,7 +1254,7 @@ msgstr "Kolejka nie zmienia systemu."
 msgid "The queue, the preferences and the chosen mirror are kept in ~/.local/share/kxbps/."
 msgstr "Kolejka, preferencje i wybrane lustro są trzymane w ~/.local/share/kxbps/."
 
-#: kxbps-qt/qml/Main.qml:775
+#: kxbps-qt/qml/Main.qml:770
 msgid "The repositories could not be read. The list below is unchanged. Last successful check: %1."
 msgstr "Nie udało się odczytać repozytoriów. Poniższa lista pozostaje bez zmian. Ostatnie udane sprawdzenie: %1."
 
@@ -1278,7 +1278,7 @@ msgstr "System, na którym działa KXbps."
 msgid "The system is up to date."
 msgstr "System jest aktualny."
 
-#: kxbps-qt/qml/views/MirrorsView.qml:364
+#: kxbps-qt/qml/views/MirrorsView.qml:411
 msgid "The xbps configuration could not be parsed."
 msgstr "Nie udało się przetworzyć konfiguracji xbps."
 
@@ -1286,7 +1286,7 @@ msgstr "Nie udało się przetworzyć konfiguracji xbps."
 msgid "The xbps log"
 msgstr "Dziennik xbps"
 
-#: kxbps-qt/qml/components/MirrorDelegate.qml:91
+#: kxbps-qt/qml/components/MirrorDelegate.qml:119
 msgid "Timed out"
 msgstr "Przekroczono czas"
 
@@ -1302,7 +1302,7 @@ msgstr "Do usunięcia"
 msgid "To update"
 msgstr "Do aktualizacji"
 
-#: kxbps-qt/qml/Main.qml:896
+#: kxbps-qt/qml/Main.qml:891
 msgid "Tools"
 msgstr "Narzędzia"
 
@@ -1322,7 +1322,7 @@ msgstr "Odblokuj"
 msgid "Unmark %1"
 msgstr "Odznacz %1"
 
-#: kxbps-qt/qml/Main.qml:1058 kxbps-qt/qml/Main.qml:1061
+#: kxbps-qt/qml/Main.qml:1051 kxbps-qt/qml/Main.qml:1054
 msgid "Unmark all"
 msgstr "Odznacz wszystko"
 
@@ -1347,7 +1347,7 @@ msgstr "Aktualizacje"
 msgid "Updates available"
 msgstr "Dostępne aktualizacje"
 
-#: kxbps-qt/qml/Main.qml:700
+#: kxbps-qt/qml/Main.qml:695
 msgid "Upgradable"
 msgstr "Do aktualizacji"
 
@@ -1392,7 +1392,7 @@ msgstr "Gdy czekają aktualizacje, ikona w zasobniku pokazuje strzałkę, a przy
 msgid "Where the state lives"
 msgstr "Gdzie leży stan"
 
-#: kxbps-qt/qml/views/MirrorsView.qml:64 kxbps-qt/qml/views/MirrorsView.qml:84
+#: kxbps-qt/qml/views/MirrorsView.qml:68 kxbps-qt/qml/views/MirrorsView.qml:88
 msgid "Worldwide"
 msgstr "Cały świat"
 
@@ -1435,6 +1435,9 @@ msgstr "xbps zgłosił błąd, kod wyjścia %1"
 #: kxbps-qt/qml/views/HelpView.qml:86
 msgid "xbps reads its configuration from /etc/xbps.d."
 msgstr "xbps czyta konfigurację z /etc/xbps.d."
+
+#~ msgid "Latency"
+#~ msgstr "Opóźnienie"
 
 #~ msgid "Probe all"
 #~ msgstr "Sprawdź wszystkie"
