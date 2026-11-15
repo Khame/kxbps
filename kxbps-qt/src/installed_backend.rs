@@ -2059,7 +2059,7 @@ mod tests {
         UpdateEntry {
             name: name.to_owned(),
             version: version.to_owned(),
-            pkgver: format!("{name}-{version}"),
+            pkgver: kxbps_core::xbps::pkgver(name, version),
             action: XbpsAction::Update,
             arch: "x86_64".to_owned(),
             repository: "https://repo.example/current".to_owned(),

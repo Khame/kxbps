@@ -19,3 +19,12 @@ var repositories = "repositories"
 var help = "help"
 var settings = "settings"
 var coffee = "coffee"
+
+// Theme glyphs, drawn by the icon theme and set through `icon.name`. They live
+// here so a toolbar and a row cannot spell the same glyph differently, and the
+// comment above `KxbpsIcon` is what tells the two groups apart: a name from the
+// first half becomes a `qrc:` path, a name from this half is looked up in the
+// theme.
+var refresh = "view-refresh"
+var apply = "dialog-ok-apply"
+var clear = "edit-clear"

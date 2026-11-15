@@ -15,7 +15,11 @@ use crate::xbps_runner::{READ_TIMEOUT_MS, run};
 use crate::xbps_snapshot::{Invoke, SharedInvoke};
 
 /// The two directories xbps reads its repository files from, in its own order.
-pub const CONFIG_DIRS: &[&str] = &["/etc/xbps.d", "/usr/share/xbps.d"];
+/// The paths come from the core, which writes into the first one.
+pub const CONFIG_DIRS: &[&str] = &[
+    kxbps_core::repository_edit::CONFIG_DIR,
+    kxbps_core::repository_edit::SYSTEM_CONFIG_DIR,
+];
 
 /// The `systemRepos` wire value: a JSON array of `{url, count, signed, file}`.
 ///

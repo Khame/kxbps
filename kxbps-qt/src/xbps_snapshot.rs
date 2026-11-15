@@ -284,7 +284,7 @@ pub(crate) fn run_parsed<T>(
 /// The two streams are appended rather than interleaved: the shim collects
 /// them separately, and inventing an order would misreport what xbps did.
 pub fn command_lines(argv: &[String], output: &XbpsOutput) -> Vec<String> {
-    let mut lines = vec![format!("$ {}", argv.join(" "))];
+    let mut lines = vec![kxbps_core::format::logged_command(argv)];
     lines.extend(output.stdout.lines().map(str::to_owned));
     lines.extend(output.stderr.lines().map(str::to_owned));
     lines
@@ -318,7 +318,7 @@ pub fn read_remote_updates_logged(invoke: &Invoke, total: usize) -> RemoteUpdate
                 result: Err(SnapshotError::Reply {
                     reason: err.to_string(),
                 }),
-                lines: vec![format!("$ {}", argv.join(" "))],
+                lines: vec![kxbps_core::format::logged_command(&argv)],
             };
         }
     };

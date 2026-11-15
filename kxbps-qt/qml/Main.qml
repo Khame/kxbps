@@ -5,6 +5,7 @@ import QtQuick.Window
 import org.kde.kirigami as Kirigami
 import org.kde.ki18n 1.0
 import "icons/IconNames.js" as Icons
+import "Sections.js" as Sections
 import org.kde.kxbps
 import "components"
 import "views"
@@ -35,7 +36,7 @@ Kirigami.ApplicationWindow {
     // Which sidebar entry is active. The package sections share one view and
     // differ only by the model's filter; Mirrors, Repositories, Settings and
     // Help are pages of their own.
-    property string section: "packages"
+    property string section: Sections.packages
 
     // The current or last finished job. It is kept until the next transaction
     // starts, so the status strip and the log drawer stay readable afterwards.
@@ -244,7 +245,7 @@ Kirigami.ApplicationWindow {
         const sectionAt = Qt.application.arguments.indexOf("--section")
         if (sectionAt >= 0 && sectionAt + 1 < Qt.application.arguments.length) {
             const name = Qt.application.arguments[sectionAt + 1]
-            if (["packages", "mirrors", "settings", "repositories", "help"].indexOf(name) >= 0) {
+            if ([Sections.packages, Sections.mirrors, Sections.settings, Sections.repositories, Sections.help].indexOf(name) >= 0) {
                 root.section = name
             }
         }
@@ -288,7 +289,7 @@ Kirigami.ApplicationWindow {
     // `Available` has no list of its own — no xbps command lists what a
     // repository holds — so it puts the cursor in the search field instead.
     function selectFilter(token) {
-        section = "packages"
+        section = Sections.packages
         packagesView.clearSearch()
         installedBackend.packages.filter = token
         if (token === "all") {
@@ -328,16 +329,16 @@ Kirigami.ApplicationWindow {
     // The header follows the filter, not the sidebar entry: clicking "Orphans"
     // must not keep saying "Installed".
     function headerTitle() {
-        if (section === "mirrors") {
+        if (section === Sections.mirrors) {
             return i18nd("kxbps", "Mirrors")
         }
-        if (section === "settings") {
+        if (section === Sections.settings) {
             return i18nd("kxbps", "Settings")
         }
-        if (section === "repositories") {
+        if (section === Sections.repositories) {
             return i18nd("kxbps", "Repositories")
         }
-        if (section === "help") {
+        if (section === Sections.help) {
             return i18nd("kxbps", "Help")
         }
         switch (installedBackend.packages.filter) {
@@ -360,14 +361,14 @@ Kirigami.ApplicationWindow {
     }
 
     function headerSubtitle(count) {
-        if (section === "mirrors") {
+        if (section === Sections.mirrors) {
             if (mirrorBackend.probing) {
                 return i18nd("kxbps", "%1 of %2 mirrors probed",
                              mirrorBackend.finishedCount, mirrorBackend.model.count)
             }
             return i18ndp("kxbps", "%1 mirror", "%1 mirrors", mirrorBackend.model.count)
         }
-        if (section === "settings") {
+        if (section === Sections.settings) {
             return i18nd("kxbps", "Notifications and startup")
         }
         return ""
@@ -861,7 +862,7 @@ Kirigami.ApplicationWindow {
                                        : (modelData.token === "queued" && installedBackend.queueCount > 0
                                           ? String(installedBackend.queueCount) : "")
                             badgeAlert: modelData.alert === true
-                            highlighted: root.section === "packages"
+                            highlighted: root.section === Sections.packages
                                          && installedBackend.packages.filter === modelData.token
                             onClicked: {
                                 root.selectFilter(modelData.token)
@@ -904,24 +905,24 @@ Kirigami.ApplicationWindow {
                         Layout.fillWidth: true
                         label: i18nd("kxbps", "Mirrors")
                         iconName: Icons.mirrors
-                        highlighted: root.section === "mirrors"
-                        onClicked: root.section = "mirrors"
+                        highlighted: root.section === Sections.mirrors
+                        onClicked: root.section = Sections.mirrors
                     }
 
                     NavItem {
                         Layout.fillWidth: true
                         label: i18nd("kxbps", "Repositories")
                         iconName: Icons.repositories
-                        highlighted: root.section === "repositories"
-                        onClicked: root.section = "repositories"
+                        highlighted: root.section === Sections.repositories
+                        onClicked: root.section = Sections.repositories
                     }
 
                     NavItem {
                         Layout.fillWidth: true
                         label: i18nd("kxbps", "Help")
                         iconName: Icons.help
-                        highlighted: root.section === "help"
-                        onClicked: root.section = "help"
+                        highlighted: root.section === Sections.help
+                        onClicked: root.section = Sections.help
                     }
 
                     Kirigami.Separator {
@@ -935,8 +936,8 @@ Kirigami.ApplicationWindow {
                         Layout.fillWidth: true
                         label: i18nd("kxbps", "Settings")
                         iconName: Icons.settings
-                        highlighted: root.section === "settings"
-                        onClicked: root.section = "settings"
+                        highlighted: root.section === Sections.settings
+                        onClicked: root.section = Sections.settings
                     }
 
                     // The architecture is not exposed by any backend, so the
@@ -981,7 +982,7 @@ Kirigami.ApplicationWindow {
                 // said nothing.
                 Rectangle {
                     Layout.fillWidth: true
-                    visible: root.section === "packages" || root.section === "mirrors"
+                    visible: root.section === Sections.packages || root.section === Sections.mirrors
                     implicitHeight: toolbarLayout.implicitHeight
                                     + Kirigami.Units.smallSpacing * 2
                     color: Kirigami.Theme.backgroundColor
@@ -1009,7 +1010,7 @@ Kirigami.ApplicationWindow {
                         // the shared component is what keeps them at one height
                         // and one font step.
                         DenseButton {
-                            icon.name: "view-refresh"
+                            icon.name: Icons.refresh
                             text: i18nd("kxbps", "Refresh")
                             Accessible.name: i18nd("kxbps", "Refresh")
                             font: Kirigami.Theme.smallFont
@@ -1024,7 +1025,7 @@ Kirigami.ApplicationWindow {
                             // The repository query belongs to the package page;
                             // a pattern typed elsewhere would also change what
                             // that page shows when it comes back.
-                            visible: root.section === "packages"
+                            visible: root.section === Sections.packages
                             placeholderText: i18nd("kxbps", "Search packages…")
                             text: packagesView.searchText
                             onTextChanged: packagesView.searchText = text
@@ -1035,7 +1036,7 @@ Kirigami.ApplicationWindow {
                         // so a change to the row never lands inside a set of
                         // buttons that belong together.
                         RowLayout {
-                            visible: root.section === "packages"
+                            visible: root.section === Sections.packages
                             Layout.alignment: Qt.AlignVCenter
                             spacing: Kirigami.Units.smallSpacing
 
@@ -1058,7 +1059,7 @@ Kirigami.ApplicationWindow {
                                 display: root.narrow ? QQC2.AbstractButton.IconOnly
                                                      : QQC2.AbstractButton.TextBesideIcon
                                 Accessible.name: i18nd("kxbps", "Unmark all")
-                                icon.name: "edit-clear"
+                                icon.name: Icons.clear
                                 font: Kirigami.Theme.smallFont
                                 enabled: installedBackend.queueCount > 0
                                 onClicked: installedBackend.clearQueue()
@@ -1071,7 +1072,7 @@ Kirigami.ApplicationWindow {
                                 text: installedBackend.queueCount > 0
                                       ? i18ndp("kxbps", "Apply (%1)", "Apply (%1)", installedBackend.queueCount)
                                       : i18nd("kxbps", "Apply")
-                                icon.name: "dialog-ok-apply"
+                                icon.name: Icons.apply
                                 // The frame is what separates the accent action
                                 // from the flat controls around it.
                                 flat: false
@@ -1086,11 +1087,11 @@ Kirigami.ApplicationWindow {
                         // page's actions sit at the right edge.
                         Item {
                             Layout.fillWidth: true
-                            visible: root.section === "mirrors"
+                            visible: root.section === Sections.mirrors
                         }
 
                         RowLayout {
-                            visible: root.section === "mirrors"
+                            visible: root.section === Sections.mirrors
                             Layout.alignment: Qt.AlignVCenter
                             spacing: Kirigami.Units.smallSpacing
 
@@ -1110,7 +1111,7 @@ Kirigami.ApplicationWindow {
                             // opens a confirmation; the job dialog carries progress.
                             DenseButton {
                                 text: i18nd("kxbps", "Apply to system")
-                                icon.name: "dialog-ok-apply"
+                                icon.name: Icons.apply
                                 // The other accent action: it writes /etc/xbps.d.
                                 flat: false
                                 enabled: mirrorBackend.pending
@@ -1144,7 +1145,7 @@ Kirigami.ApplicationWindow {
                     Layout.fillWidth: true
                     Layout.leftMargin: Kirigami.Units.largeSpacing
                     Layout.rightMargin: Kirigami.Units.largeSpacing
-                    visible: root.section === "mirrors" && mirrorBackend.helperErrorKey.length > 0
+                    visible: root.section === Sections.mirrors && mirrorBackend.helperErrorKey.length > 0
                     text: visible ? root.mirrorHelperText(mirrorBackend.helperErrorKey) : ""
                     font: Kirigami.Theme.smallFont
                     color: Kirigami.Theme.negativeTextColor
@@ -1156,13 +1157,13 @@ Kirigami.ApplicationWindow {
                     Layout.fillHeight: true
                     currentIndex: {
                         switch (root.section) {
-                        case "mirrors":
+                        case Sections.mirrors:
                             return 1
-                        case "settings":
+                        case Sections.settings:
                             return 2
-                        case "repositories":
+                        case Sections.repositories:
                             return 3
-                        case "help":
+                        case Sections.help:
                             return 4
                         }
                         return 0
@@ -1240,7 +1241,7 @@ Kirigami.ApplicationWindow {
     }
 
     onSectionChanged: {
-        if (section === "repositories") {
+        if (section === Sections.repositories) {
             mirrorBackend.refreshSystem()
         }
     }

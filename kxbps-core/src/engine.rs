@@ -209,7 +209,7 @@ mod tests {
         UpdateEntry {
             name: name.to_string(),
             version: version.to_string(),
-            pkgver: format!("{name}-{version}"),
+            pkgver: crate::xbps::pkgver(name, version),
             action: crate::xbps::XbpsAction::Update,
             arch: "x86_64".to_string(),
             repository: "https://repo.example/current".to_string(),

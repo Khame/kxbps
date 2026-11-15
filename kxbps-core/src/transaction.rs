@@ -119,7 +119,7 @@ impl Transaction {
 
     /// The same list, signed with the stable string `kxbps --action` needs.
     pub fn command_line(self, pkgvers: &[String]) -> String {
-        self.argv(pkgvers).join(" ")
+        crate::format::command_line(&self.argv(pkgvers))
     }
 }
 
@@ -198,7 +198,7 @@ impl Privileged {
 
     /// The same argv, signed with the stable string the job log shows.
     pub fn command_line(&self) -> String {
-        self.argv().join(" ")
+        crate::format::command_line(&self.argv())
     }
 }
 
@@ -299,7 +299,7 @@ fn pkgvers_of(items: &[&PlanItem]) -> Vec<String> {
             if version.is_empty() {
                 item.name.clone()
             } else {
-                format!("{}-{version}", item.name)
+                crate::xbps::pkgver(&item.name, version)
             }
         })
         .collect()

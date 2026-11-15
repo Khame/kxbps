@@ -17,6 +17,7 @@ import QtQuick.Controls as QQC2
 import QtQuick.Layouts
 import org.kde.kirigami as Kirigami
 import org.kde.ki18n 1.0
+import "../Wire.js" as Wire
 import "../components"
 
 Item {
@@ -43,23 +44,8 @@ Item {
     // before it, so the state badge is never cut by the bar.
     readonly property real mirrorScrollBarSpace: mirrorBar.visible ? mirrorBar.width : 0
 
-    function parseRepos(json) {
-        try {
-            const parsed = JSON.parse(json)
-            return Array.isArray(parsed) ? parsed : []
-        } catch (error) {
-            return []
-        }
-    }
-
     // The region codes the model knows, as the JSON array it publishes.
-    readonly property var regionCodes: {
-        try {
-            return JSON.parse(view.mirrorBackend.model.regionCodes)
-        } catch (error) {
-            return []
-        }
-    }
+    readonly property var regionCodes: Wire.array(view.mirrorBackend.model.regionCodes)
 
     // Region codes are data; the words are UI copy.
     function regionLabel(code) {
@@ -152,9 +138,9 @@ Item {
         })
     }
 
-    onMirrorBackendChanged: repos = parseRepos(mirrorBackend ? mirrorBackend.systemRepos : "[]")
+    onMirrorBackendChanged: repos = Wire.array(mirrorBackend ? mirrorBackend.systemRepos : "[]")
     Component.onCompleted: {
-        repos = parseRepos(mirrorBackend ? mirrorBackend.systemRepos : "[]")
+        repos = Wire.array(mirrorBackend ? mirrorBackend.systemRepos : "[]")
         // Europe first: the list is 34 rows long and the nearest mirrors are
         // the ones a user picks. "Worldwide" in the combo clears it again.
         if (mirrorBackend && mirrorBackend.model.regionFilter.length === 0) {
@@ -165,14 +151,14 @@ Item {
     Connections {
         target: view.mirrorBackend
         function onSystemReposChanged() {
-            view.repos = view.parseRepos(view.mirrorBackend.systemRepos)
+            view.repos = Wire.array(view.mirrorBackend.systemRepos)
         }
         // The first frame can bind before the backend's own read has answered;
         // asking here keeps the tab from sitting on "No repositories." when a
         // value is already in hand.
         function onSystemLoadingChanged() {
             if (!view.mirrorBackend.systemLoading) {
-                view.repos = view.parseRepos(view.mirrorBackend.systemRepos)
+                view.repos = Wire.array(view.mirrorBackend.systemRepos)
             }
         }
     }

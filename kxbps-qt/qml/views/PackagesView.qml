@@ -15,6 +15,7 @@ import QtQuick.Controls as QQC2
 import QtQuick.Layouts
 import org.kde.kirigami as Kirigami
 import org.kde.ki18n 1.0
+import "../icons/IconNames.js" as Icons
 // `Window` is where the narrow drawer attaches its parent; the attached
 // property is not exported by the plain QtQuick import set.
 import QtQuick.Window
@@ -944,7 +945,7 @@ Item {
 
             DenseButton {
                 enabled: !view.installedBackend.checking
-                icon.name: "view-refresh"
+                icon.name: Icons.refresh
                 text: view.installedBackend.checking
                       ? i18nd("kxbps", "Checking for updates…")
                       : i18nd("kxbps", "Check for updates")

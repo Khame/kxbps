@@ -745,9 +745,8 @@ impl qobject::MirrorBackend {
         // The command the helper will run, in the drawer, before it starts: the
         // apply is the one action that changes the system, and its argv is the
         // honest record of what was asked.
-        self.log_line(&format!(
-            "$ {}",
-            kxbps_core::mirror_argv(&selected).join(" ")
+        self.log_line(&kxbps_core::format::logged_command(
+            &kxbps_core::mirror_argv(&selected),
         ));
         let job = qobject::start_mirror_job(owner, &QString::from(payload.as_str()));
         let moved = {
@@ -928,10 +927,14 @@ impl qobject::MirrorBackend {
         let Some(mirror) = usize::try_from(row).ok().and_then(|row| MIRRORS.get(row)) else {
             return;
         };
+        // The probe is one request, so its line is the command the log shows
+        // plus what came back.
+        let request =
+            kxbps_core::format::logged_command(&[String::from("HEAD"), String::from(mirror.url)]);
         let line = if error_key.is_empty() {
-            format!("$ HEAD {} -> {}, {} ms", mirror.url, state_key, latency_ms)
+            format!("{request} -> {}, {} ms", state_key, latency_ms)
         } else {
-            format!("$ HEAD {} -> {}, {}", mirror.url, state_key, error_key)
+            format!("{request} -> {}, {}", state_key, error_key)
         };
         self.log_line(&line);
     }
@@ -1019,10 +1022,12 @@ fn probe_url(handle: usize, url: &str) -> Option<ProbeOutcome> {
 /// helper path. The check lives here, not in QML, because a missing helper is a
 /// fact about the system and the button has to say why it is disabled before
 /// `pkexec` fails with a code nobody can act on.
-pub const HELPER_PATH: &str = "/usr/libexec/kxbps-mirror-apply";
+/// The core owns the path, because it builds the argv polkit runs; this name
+/// is the Qt side's alias for the same string.
+pub use kxbps_core::transaction::MIRROR_APPLY_PATH as HELPER_PATH;
 
 /// The repository helper polkit runs for the Repositories page.
-pub const REPO_HELPER_PATH: &str = "/usr/libexec/kxbps-repo-apply";
+pub use kxbps_core::transaction::REPO_APPLY_PATH as REPO_HELPER_PATH;
 pub const POLICY_PATH: &str = "/usr/share/polkit-1/actions/io.github.khame.kxbps.policy";
 
 /// What the privileged half of "Apply to system" is missing.

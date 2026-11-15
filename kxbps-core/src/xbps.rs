@@ -208,6 +208,20 @@ pub fn split_pkgver(pkgver: &str) -> Option<(&str, &str)> {
     Some((name, version))
 }
 
+/// Joins a name and a version into the `pkgver` xbps uses everywhere.
+///
+/// The inverse of [`split_pkgver`], and the one place that spells the
+/// separator: a name and a version shown apart in the UI are joined the same
+/// way the package manager joins them.
+///
+/// ```
+/// use kxbps_core::xbps::pkgver;
+/// assert_eq!(pkgver("lib32-glibc", "2.41_1"), "lib32-glibc-2.41_1");
+/// ```
+pub fn pkgver(name: &str, version: &str) -> String {
+    format!("{name}-{version}")
+}
+
 /// Parses `xbps-query -l`: `ii <pkgver> <description>`, one package per line.
 pub fn parse_installed(input: &str) -> Result<Vec<InstalledPackage>, XbpsError> {
     let mut packages = Vec::new();

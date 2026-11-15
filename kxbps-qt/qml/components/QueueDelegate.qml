@@ -9,6 +9,7 @@ import QtQuick.Controls as QQC2
 import QtQuick.Layouts
 import org.kde.kirigami as Kirigami
 import org.kde.ki18n 1.0
+import "../icons/IconNames.js" as Icons
 
 QQC2.ItemDelegate {
     id: row
@@ -108,7 +109,7 @@ QQC2.ItemDelegate {
         }
 
         QQC2.ToolButton {
-            icon.name: "edit-clear"
+            icon.name: Icons.clear
             text: i18nd("kxbps", "Remove from the queue")
             display: QQC2.AbstractButton.IconOnly
             Accessible.name: i18nd("kxbps", "Remove %1 from the queue", row.packageName)

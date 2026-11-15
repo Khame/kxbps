@@ -1437,7 +1437,7 @@ impl qobject::JobBackend {
 pub fn command_text(commands: &[Vec<String>]) -> String {
     commands
         .iter()
-        .map(|argv| argv.join(" "))
+        .map(|argv| kxbps_core::format::command_line(argv))
         .collect::<Vec<_>>()
         .join(" ; ")
 }

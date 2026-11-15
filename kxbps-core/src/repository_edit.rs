@@ -20,6 +20,10 @@ use std::path::{Path, PathBuf};
 /// Where xbps reads extra repository definitions.
 pub const CONFIG_DIR: &str = "/etc/xbps.d";
 
+/// Where the distribution keeps its own repository definitions; xbps reads
+/// these after [`CONFIG_DIR`].
+pub const SYSTEM_CONFIG_DIR: &str = "/usr/share/xbps.d";
+
 /// Prefix of every file this helper owns. Removal refuses anything else.
 pub const FILE_PREFIX: &str = "20-kxbps-";
 

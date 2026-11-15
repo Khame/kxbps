@@ -10,6 +10,7 @@ import QtQuick.Controls as QQC2
 import QtQuick.Layouts
 import org.kde.kirigami as Kirigami
 import org.kde.ki18n 1.0
+import "../Wire.js" as Wire
 import "../components"
 
 Item {
@@ -21,19 +22,10 @@ Item {
     // releases the previous one when it hands over the next.
     signal jobStarted(var startedJob)
 
-    readonly property var repos: parseRepos(mirrorBackend ? mirrorBackend.systemRepos : "[]")
+    readonly property var repos: Wire.array(mirrorBackend ? mirrorBackend.systemRepos : "[]")
     readonly property bool busy: mirrorBackend !== null && mirrorBackend.applyBusy
     readonly property bool ready: mirrorBackend !== null && mirrorBackend.repoHelperReady
     property string newUrl: ""
-
-    function parseRepos(json) {
-        try {
-            const parsed = JSON.parse(json)
-            return Array.isArray(parsed) ? parsed : []
-        } catch (error) {
-            return []
-        }
-    }
 
     // A file this tool wrote, named by the helper's own prefix.
     function isManaged(repo) {

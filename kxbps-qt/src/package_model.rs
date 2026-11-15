@@ -2526,7 +2526,7 @@ mod tests {
             installed,
             name: name.to_owned(),
             version: version.to_owned(),
-            pkgver: format!("{name}-{version}"),
+            pkgver: kxbps_core::xbps::pkgver(name, version),
             description: format!("{name} description"),
         }
     }

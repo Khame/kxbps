@@ -52,7 +52,7 @@ mod tests {
             installed: tag_installed,
             name: name.to_owned(),
             version: version.to_owned(),
-            pkgver: format!("{name}-{version}"),
+            pkgver: crate::xbps::pkgver(name, version),
             description: format!("{name} description"),
         }
     }

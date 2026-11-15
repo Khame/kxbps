@@ -400,7 +400,10 @@ pub fn last_line(text: &str) -> String {
 }
 
 /// Where the helper's binary lives; polkit authorizes this exact path.
-pub const HELPER_PATH: &str = "/usr/libexec/kxbps-mirror-apply";
+///
+/// [`crate::transaction`] owns the string because it builds the argv; this
+/// alias keeps the helper binary's own name for it.
+pub use crate::transaction::MIRROR_APPLY_PATH as HELPER_PATH;
 
 /// The config path a test or the helper writes, for callers that only have the
 /// file name; kept here so the binary stays a thin `main`.

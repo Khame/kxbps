@@ -79,6 +79,20 @@ fn round_to(value: f64, decimals: u8) -> f64 {
     (value * factor).round() / factor
 }
 
+/// One argv, as a dialog or a log line shows it: the words joined by spaces.
+///
+/// The command is never quoted or escaped: xbps receives an argv, not a shell
+/// string, so the display form is the argv itself. One definition means a log
+/// line and a job caption can never disagree about what was run.
+pub fn command_line(argv: &[String]) -> String {
+    argv.join(" ")
+}
+
+/// [`command_line`] with the prompt every log line starts with.
+pub fn logged_command(argv: &[String]) -> String {
+    format!("$ {}", command_line(argv))
+}
+
 /// Translation key for a planned action: `install`, `remove`, `update`,
 /// `reinstall`.
 pub fn action_key(action: PlanAction) -> &'static str {
