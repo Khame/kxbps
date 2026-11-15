@@ -47,6 +47,14 @@ The file is `kxbps-<version>.tar.gz`, with one top-level directory,
 `Cargo.lock`, `.cargo/config.toml`, `.gitattributes`, `man/`, `po/`,
 `packaging/` (without `void/`), `scripts/`, the docs and the license.
 
+The archive is reproducible. `git archive` writes a pax global header carrying
+the commit id and stamps every member with the commit time, so the same tree
+produced a different digest after every commit and the checksum in the template
+went stale in the commit that wrote it. The script drops that header, pins the
+timestamps to zero and gzips with a fixed mtime. Two runs on the same tree print
+the same digest, and a commit that touches only `packaging/void/` or this note
+leaves it alone.
+
 Nothing from the working tree can leak in, because it is not tracked:
 `target/` and `screenshots/` are ignored. Check anyway before uploading:
 
@@ -144,6 +152,11 @@ metadata stale in every place you would check later.
 - A tarball in `hostdir/sources` that does not match the release asset makes a
   clean build fail somewhere else. The checksum in the template is the only
   thing tying the two together, so regenerate both in the same step.
+- `git archive` is not reproducible: the commit id travels in a pax global
+  header and the commit time sits in every member header. Dropping
+  `pax_global_header` by name is not enough — `tarfile` reads the global records
+  and hands them to each member, and its writer puts a shared record back into a
+  global header. The record has to be removed from the members.
 - The window renders SVG through Qt's icon-engine plugin. The shlib scan cannot
   see it; `qt6-svg` has to be in `depends` by hand.
 - `xbps-query --repository=… -p pkgver` answers from a cached index unless `-M`
