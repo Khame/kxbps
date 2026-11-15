@@ -5,6 +5,21 @@ the project uses semantic versioning.
 
 ## [Unreleased]
 
+### Added
+
+- The Updates page has the real sync: `xbps-install -S` through polkit, which
+  writes the repository indexes to disk and asks for the password. The toolbar
+  Refresh is not shown on that page, because it only re-reads what is already
+  there.
+
+### Fixed
+
+- The Available list read the repository index from disk, which nothing in the
+  window moved: a package added to a repository stayed invisible until an
+  install or a terminal `xbps-install -S`. The listing is now refreshed against
+  the repositories on the same clock as the update check, and the footer says
+  so while it runs.
+
 ## [0.11.0] - 2026-11-15
 
 ### Added

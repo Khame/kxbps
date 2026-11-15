@@ -21,6 +21,7 @@ None of these needs root, and none of them changes a file.
 | `xbps-query -H` | "held" flag | one `name-version_revision` per line |
 | `xbps-query -O` | orphans | one `name-version_revision` per line |
 | `xbps-query -Rs <pattern>` | search, all repositories | `[*]`/`[-]`, `name-version_revision`, description |
+| `xbps-query -M -Rs <pattern>` | the same search, fresh indexes | same shape |
 | `xbps-query -s <pattern>` | search, installed only | same shape |
 | `xbps-query -L` | Repositories tab | count, URL, `(RSA signed)` / `(RSA maybe-signed)` / no note |
 | `xbps-query -p <props> <pkg>` | details pane | one raw value per line, by name |
@@ -37,6 +38,29 @@ would show a state xbps did not report. A line the parser does not understand
 becomes an error with its number and text, never a skipped row. KXbps reads the
 size fields and downloads nothing itself; the packages are fetched by
 `xbps-install` during a transaction.
+
+## The index on disk and the index in memory
+
+`xbps-query -Rs` answers from the repository index cached in `/var/db/xbps`,
+which only moves when something syncs it. A package added to a repository is
+therefore invisible to that read until an install (which runs `-S` first) or a
+terminal `xbps-install -S`.
+
+Two reads close that gap without root and without writing:
+
+| Command | Where | What it changes |
+| --- | --- | --- |
+| `xbps-install -M -un` | the update check | nothing; indexes fetched into memory |
+| `xbps-query -M -Rs <pattern>` | the Available listing | nothing; same, for the package list |
+
+Both run on the same clock (`AUTO_GAP_MS`, five minutes, plus the interval in
+Settings), and neither is doubled while one is in flight. The listing keeps the
+disk answer on screen until the fresh one lands, and a failed download leaves
+the clock alone so the next visit tries again.
+
+The one action that writes the disk index is the button on the Updates page:
+`pkexec /usr/bin/xbps-install -S` under the install action's authorization. After
+it, `xbps-query -Rs` in a terminal sees the same packages the window does.
 
 ## Commands the plan and the transaction run
 

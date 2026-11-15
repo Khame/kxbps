@@ -191,6 +191,16 @@ pub mod qobject {
         #[qinvokable]
         fn toggle_hold(self: &InstalledBackend, name: &QString) -> QObjectMutPtr;
 
+        /// Fetches the repository indexes and writes them to disk through
+        /// `pkexec xbps-install -S`, and returns the job so the window shows the
+        /// password prompt and the log.
+        ///
+        /// The reads fetch indexes into memory and write nothing, so a package
+        /// added to a repository stays invisible to `xbps-query -Rs` until
+        /// something syncs. This is that something.
+        #[qinvokable]
+        fn sync_indexes(self: &InstalledBackend) -> QObjectMutPtr;
+
         // Planning asks xbps what it would do, which is a process, so every
         // `open*` starts a worker thread and answers through `plan_ready`
         // instead of returning the object. The returned number is the request
@@ -338,6 +348,10 @@ pub mod qobject {
         // Called by `kxbps_installed_hold_landed` when a hold job finishes; not
         // invokable for the same reason.
         fn hold_landed(self: Pin<&mut InstalledBackend>);
+
+        // Called by `kxbps_installed_sync_landed` when the index sync finishes;
+        // not invokable, so only a finished job can trigger the re-read.
+        fn sync_landed(self: Pin<&mut InstalledBackend>);
 
         // The mirror backend's apply job reports through this owner, because the
         // job is only created with the owner it was handed. `watch` records the
@@ -749,6 +763,24 @@ impl qobject::InstalledBackend {
     /// state xbps now has rather than the one the click assumed.
     fn hold_landed(mut self: Pin<&mut Self>) {
         self.as_mut().reload();
+    }
+
+    /// Fetches the repository indexes and writes them to disk, through polkit.
+    ///
+    /// The reads fetch indexes into memory and write nothing, so a package
+    /// added to a repository stays invisible to `xbps-query -Rs` until
+    /// something syncs. This is that something, and it is the only action in
+    /// the window that needs a password for a read.
+    fn sync_indexes(&self) -> QObjectMutPtr {
+        let json = crate::job_backend::sync_payload_json();
+        qobject::start_job(self.parent_ptr(), &QString::from(json.as_str()))
+    }
+
+    /// Called by `kxbps_installed_sync_landed` on the GUI thread when the sync
+    /// finishes: the disk index moved, so the update list is recomputed against
+    /// what xbps just wrote.
+    fn sync_landed(mut self: Pin<&mut Self>) {
+        self.as_mut().check_updates(true);
     }
 
     /// Plans the transaction queue on a worker thread.

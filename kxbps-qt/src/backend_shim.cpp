@@ -198,6 +198,11 @@ void kxbps_installed_hold_landed(QObject *owner)
     static_cast<InstalledBackend *>(owner)->holdLanded();
 }
 
+void kxbps_installed_sync_landed(QObject *owner)
+{
+    static_cast<InstalledBackend *>(owner)->syncLanded();
+}
+
 bool kxbps_job_begin(QObject *job)
 {
     return static_cast<JobBackend *>(job)->beginTransaction();

@@ -426,6 +426,9 @@ Item {
     // A hold change runs through pkexec like any other privileged action,
     // so the window shows the prompt, the log and the result.
     signal holdStarted(var started)
+    // The index sync is a privileged job like a hold: the view hands it up, and
+    // the window keeps it for the bar and the drawer.
+    signal syncStarted(var started)
 
     // Enter in the toolbar's field applies the pattern at once.
     function submitSearch() {
@@ -525,6 +528,11 @@ Item {
                           view.installedBackend.queueModel.count)
         }
         const count = view.packages.count
+        // A fresh listing is in flight: the rows on screen are the disk answer,
+        // and the count would describe a list that is about to change.
+        if (view.catalogBackend.listSearchChecking && view.packages.search.length === 0) {
+            return i18nd("kxbps", "Synchronising repository indexes…")
+        }
         // A read in flight: the rows on screen are the previous answer, so a
         // number would describe a list that is about to change.
         if (view.packages.searchLoading) {
@@ -951,7 +959,14 @@ Item {
                       : i18nd("kxbps", "Check for updates")
                 font: Kirigami.Theme.smallFont
                 Accessible.name: i18nd("kxbps", "Check for updates")
-                onClicked: view.installedBackend.checkUpdates(true)
+                onClicked: {
+                    // The real sync: `xbps-install -S` under polkit writes the
+                    // index to disk, so a package added to a repository becomes
+                    // visible everywhere, not only in this window. It asks for
+                    // the password the first time; the update list follows when
+                    // the job lands.
+                    view.syncStarted(view.installedBackend.syncIndexes())
+                }
             }
         }
 

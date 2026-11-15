@@ -217,6 +217,11 @@ pub mod qobject {
         /// filters re-read what xbps now holds.
         #[cxx_name = "kxbps_installed_hold_landed"]
         fn installed_hold_landed(owner: QObjectMutPtr);
+
+        /// Tells the store owner that the index sync ended, so the update list
+        /// is recomputed against the indexes xbps just wrote.
+        #[cxx_name = "kxbps_installed_sync_landed"]
+        fn installed_sync_landed(owner: QObjectMutPtr);
     }
 
     #[auto_cxx_name]
@@ -366,6 +371,10 @@ pub struct JobPayload {
     /// One hold change for `xbps-pkgdb`; `None` for the other jobs.
     #[serde(default)]
     pub hold: Option<HoldRequest>,
+    /// `true` for `xbps-install -S`: fetch the repository indexes and write
+    /// them to disk. The only job with no subject and no arguments.
+    #[serde(default)]
+    pub sync: bool,
 }
 
 /// One hold change: the package and the state it should end in.
@@ -407,6 +416,9 @@ impl JobPayload {
         if let Some(hold) = self.hold.as_ref().filter(|hold| !hold.name.is_empty()) {
             return vec![kxbps_core::transaction::hold_argv(&hold.name, hold.held)];
         }
+        if self.sync {
+            return vec![kxbps_core::transaction::sync_argv()];
+        }
         match &self.mirror {
             Some(base) if !base.is_empty() => vec![mirror_argv(base)],
             _ => Vec::new(),
@@ -416,6 +428,11 @@ impl JobPayload {
     /// Whether this payload pins or releases one package.
     pub fn is_hold(&self) -> bool {
         self.hold.as_ref().is_some_and(|hold| !hold.name.is_empty())
+    }
+
+    /// Whether this payload only fetches the repository indexes.
+    pub fn is_sync(&self) -> bool {
+        self.sync
     }
 
     /// Whether this payload is a mirror apply, i.e. not a package transaction.
@@ -439,6 +456,7 @@ pub fn mirror_payload_json(base: &str) -> String {
         mirror: Some(base.to_owned()),
         repo: None,
         hold: None,
+        sync: false,
     })
     .unwrap_or_else(|_| String::from("{}"))
 }
@@ -453,6 +471,7 @@ pub fn repo_payload_json(verb: &str, value: &str) -> String {
             value: value.to_owned(),
         }),
         hold: None,
+        sync: false,
     })
     .unwrap_or_else(|_| String::from("{}"))
 }
@@ -467,6 +486,19 @@ pub fn hold_payload_json(name: &str, held: bool) -> String {
             name: name.to_owned(),
             held,
         }),
+        sync: false,
+    })
+    .unwrap_or_else(|_| String::from("{}"))
+}
+
+/// The payload JSON of one index sync, as `kxbps_start_job` takes it.
+pub fn sync_payload_json() -> String {
+    serde_json::to_string(&JobPayload {
+        items: Vec::new(),
+        mirror: None,
+        repo: None,
+        hold: None,
+        sync: true,
     })
     .unwrap_or_else(|_| String::from("{}"))
 }
@@ -528,6 +560,7 @@ fn success_line(kind: JobKind, subject: &str, item_count: usize) -> String {
             )
         }
         JobKind::Plan => format!("{item_count} packages processed."),
+        JobKind::Sync => String::from("repository indexes synced."),
     }
 }
 
@@ -543,6 +576,10 @@ pub enum JobKind {
     RepoApply { remove: bool },
     /// `pkexec /usr/bin/xbps-pkgdb -m hold|unhold <name>`.
     HoldApply { held: bool },
+    /// `pkexec /usr/bin/xbps-install -S`: fetch the repository indexes and
+    /// write them to disk, which is what makes a package added to a repository
+    /// visible to every later read, inside the window and out.
+    Sync,
 }
 
 impl JobKind {
@@ -562,6 +599,8 @@ impl JobKind {
                     .as_ref()
                     .is_some_and(|repo| repo.verb == "remove"),
             }
+        } else if payload.sync {
+            Self::Sync
         } else if payload.is_mirror() {
             Self::MirrorApply
         } else {
@@ -580,6 +619,7 @@ impl JobKind {
             Self::MirrorApply => mirror_verdict(code, detail, url),
             Self::RepoApply { remove } => repo_verdict(code, url, remove),
             Self::HoldApply { held } => hold_verdict(code, url, held),
+            Self::Sync => Verdict::of(End::of(code)),
         }
     }
 }
@@ -1372,6 +1412,14 @@ impl qobject::JobBackend {
                 }
                 // The repositories page owns its own result.
                 JobKind::RepoApply { .. } => {}
+                // A sync moves the index on disk, not the installed set: the
+                // update list is recomputed against what xbps just wrote, and
+                // the catalog drops its cache on the job-finished path in QML.
+                JobKind::Sync => {
+                    if !owner.as_ptr().is_null() {
+                        qobject::installed_sync_landed(owner);
+                    }
+                }
                 JobKind::Plan => {
                     let items = QString::from(self.items_json.as_str());
                     qobject::installed_apply_plan(owner, &items);
@@ -1510,6 +1558,7 @@ mod tests {
             mirror: None,
             repo: None,
             hold: None,
+            sync: false,
         })
         .commands()
         .to_vec()
@@ -1575,6 +1624,7 @@ mod tests {
             mirror: Some(String::from("https://repo-default.voidlinux.org/")),
             repo: None,
             hold: None,
+            sync: false,
         };
         let job = JobBackendRust::new(&payload);
         assert_eq!(job.kind(), JobKind::MirrorApply);
@@ -1613,12 +1663,34 @@ mod tests {
     }
 
     #[test]
+    fn a_sync_payload_is_one_index_fetch_and_nothing_else() {
+        let payload: JobPayload =
+            serde_json::from_str(&sync_payload_json()).expect("the payload decodes");
+        assert!(payload.is_sync());
+        assert_eq!(
+            payload.commands(),
+            vec![vec![
+                String::from("pkexec"),
+                String::from("/usr/bin/xbps-install"),
+                String::from("-S"),
+            ]],
+            "one command, no packages and no -y"
+        );
+        assert_eq!(JobKind::of(&payload), JobKind::Sync);
+        assert_eq!(
+            success_line(JobKind::Sync, "", 0),
+            "repository indexes synced."
+        );
+    }
+
+    #[test]
     fn neither_items_nor_a_mirror_means_no_command() {
         let payload = JobPayload {
             items: Vec::new(),
             mirror: Some(String::new()),
             repo: None,
             hold: None,
+            sync: false,
         };
         assert!(JobBackendRust::new(&payload).commands().is_empty());
         assert_eq!(
@@ -1631,6 +1703,7 @@ mod tests {
             mirror: Some(String::from("https://a/")),
             repo: None,
             hold: None,
+            sync: false,
         };
         let job = JobBackendRust::new(&both);
         assert_eq!(job.kind(), JobKind::Plan, "a plan wins over a stray mirror");
@@ -1648,6 +1721,7 @@ mod tests {
                 mirror: Some(String::from(base)),
                 repo: None,
                 hold: None,
+                sync: false,
             };
             let job = JobBackendRust::new(&payload);
             assert_eq!(job.commands()[0].len(), 3, "{base}");

@@ -60,7 +60,9 @@ Item {
             heading: i18nd("kxbps", "Updates"),
             paragraphs: [
                 i18nd("kxbps", "KXbps checks for updates on the interval set in Settings. The check also runs when the window opens after a pause."),
+                i18nd("kxbps", "The check fetches the repository indexes into memory, so it needs no password and writes nothing. The Available list is refreshed the same way on the same clock, which is how a package added to a repository shows up without a sync."),
                 i18nd("kxbps", "When updates wait, the tray icon shows an arrow and the open window's dock button carries their number."),
+                i18nd("kxbps", "The button on this page is the real sync: it runs xbps-install -S through polkit, writes the indexes to disk and asks for the password. Every later read then sees the new packages, in this window and in a terminal."),
                 i18nd("kxbps", "Notifications are optional. Settings can turn them off, and then only the tray icon reports.")
             ]
         },
@@ -68,6 +70,7 @@ Item {
             heading: i18nd("kxbps", "Authorisation"),
             paragraphs: [
                 i18nd("kxbps", "Reading package lists needs no root."),
+                i18nd("kxbps", "Syncing the repository indexes writes the index files, so it asks for the password as well."),
                 i18nd("kxbps", "Installing, removing, changing the mirror and adding a repository need authorisation through polkit. The password prompt belongs to the system."),
                 i18nd("kxbps", "If the prompt is dismissed or refused, the status strip says so and nothing changes.")
             ]

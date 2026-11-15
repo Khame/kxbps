@@ -234,6 +234,11 @@ Kirigami.ApplicationWindow {
         // the gap when it is due. It runs after the read so the table appears
         // immediately and the check never delays the first frame.
         installedBackend.checkUpdates(false)
+        // The listing on the Available page is read from the index on disk,
+        // which only moves when something syncs it. This asks the repositories
+        // for their indexes in memory, so a package added since the last sync
+        // shows up; it writes nothing and needs no root.
+        catalogBackend.refreshListSearch("", false)
         // `--filter <token>` opens on a given page, which is what a launcher
         // entry or the tray's "show updates" needs without a second window.
         const at = Qt.application.arguments.indexOf("--filter")
@@ -312,6 +317,7 @@ Kirigami.ApplicationWindow {
             // one keeps the remote list (the backend decides).
             installedBackend.reload()
             installedBackend.checkUpdates(false)
+            catalogBackend.refreshListSearch("", false)
         }
         onIntervalChanged: restart()
     }
@@ -323,6 +329,7 @@ Kirigami.ApplicationWindow {
         if (root.visible) {
             installedBackend.reload()
             installedBackend.checkUpdates(false)
+            catalogBackend.refreshListSearch("", false)
         }
     }
 
@@ -1009,6 +1016,12 @@ Kirigami.ApplicationWindow {
                             text: i18nd("kxbps", "Refresh")
                             Accessible.name: i18nd("kxbps", "Refresh")
                             enabled: !installedBackend.loading
+                            // The updates page has the button that syncs the
+                            // indexes and asks for the password; a second
+                            // control that only re-reads the disk would be the
+                            // weaker of the two.
+                            visible: !(installedBackend.packages
+                                      && installedBackend.packages.filter === "updates")
                             onClicked: root.refreshAll()
                         }
 
@@ -1218,6 +1231,7 @@ Kirigami.ApplicationWindow {
                         job: root.job
                         onSearchFieldRequested: toolbarSearch.forceActiveFocus()
                         onHoldStarted: (started) => root.startJob(started)
+                        onSyncStarted: (started) => root.startJob(started)
                     }
 
                     MirrorsView {

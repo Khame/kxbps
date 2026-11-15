@@ -26,8 +26,9 @@ use kxbps_core::{
 use crate::xbps_runner::{
     READ_TIMEOUT_MS, REMOTE_TIMEOUT_MS, XPBS_QUERY, XbpsOutput, depends_argv, held_argv,
     installed_argv, installed_search_argv, installed_sizes_argv, manual_argv, orphans_argv,
-    property_argv, property_repo_argv, repo_filename_sizes_argv, repo_installed_sizes_argv,
-    required_by_argv, run, search_argv, updates_argv, updates_remote_argv,
+    property_argv, property_repo_argv, remote_search_argv, repo_filename_sizes_argv,
+    repo_installed_sizes_argv, required_by_argv, run, search_argv, updates_argv,
+    updates_remote_argv,
 };
 
 /// The injectable process transport: the encoded argv and the timeout go in,
@@ -462,6 +463,10 @@ fn sorted_names(mut names: Vec<String>) -> Vec<String> {
 pub enum SearchSource {
     /// `xbps-query -Rs <pattern>`: the repository pool.
     Repository,
+    /// `xbps-query -M -Rs <pattern>`: the repository pool against freshly
+    /// fetched indexes. The listing asks for it when it is due, so a package
+    /// added since the last sync is visible without root and without a write.
+    RepositoryRemote,
     /// `xbps-query -s <pattern>`: the installed packages only.
     Installed,
 }
@@ -470,6 +475,7 @@ impl SearchSource {
     fn argv(self, pattern: &str) -> Vec<String> {
         match self {
             Self::Repository => search_argv(pattern),
+            Self::RepositoryRemote => remote_search_argv(pattern),
             Self::Installed => installed_search_argv(pattern),
         }
     }
@@ -1372,6 +1378,21 @@ mod tests {
         .expect("an installed search answer lands");
         assert_eq!(hits.len(), 1);
         assert!(hits[0].installed);
+    }
+
+    #[test]
+    fn the_fresh_repository_source_asks_for_the_indexes_in_memory() {
+        let hits = read_search(
+            &transport_by_mode(vec![(
+                "-M -Rs",
+                ok_reply("[*] kxbps-0.11.0_2 Native KDE Plasma front end\n"),
+            )]),
+            SearchSource::RepositoryRemote,
+            "kxbps",
+        )
+        .expect("a fresh listing lands");
+        assert_eq!(hits.len(), 1);
+        assert_eq!(hits[0].name, "kxbps");
     }
 
     #[test]

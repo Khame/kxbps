@@ -143,6 +143,9 @@ pub enum Privileged {
     /// `pkexec /usr/bin/xbps-pkgdb -m hold|unhold <name>`: one package pinned
     /// to its current version, or released again.
     Hold { name: String, held: bool },
+    /// `pkexec /usr/bin/xbps-install -S`: fetch the repository indexes and
+    /// write them to disk. The only privileged run with no arguments.
+    Sync,
 }
 
 impl Privileged {
@@ -175,13 +178,18 @@ impl Privileged {
                 String::from(if *held { "hold" } else { "unhold" }),
                 name.clone(),
             ],
+            Self::Sync => vec![
+                String::from(PKEXEC),
+                String::from(XPBS_INSTALL_PATH),
+                String::from("-S"),
+            ],
         }
     }
 
     /// The base URL of a mirror action; `None` for a package transaction.
     pub fn mirror_base(&self) -> Option<&str> {
         match self {
-            Self::Package(_) | Self::Repo { .. } | Self::Hold { .. } => None,
+            Self::Package(_) | Self::Repo { .. } | Self::Hold { .. } | Self::Sync => None,
             Self::Mirror(base) => Some(base),
         }
     }
@@ -193,6 +201,9 @@ impl Privileged {
             Self::Mirror(_) => MIRROR_ACTION_ID,
             Self::Repo { .. } => REPO_ACTION_ID,
             Self::Hold { .. } => HOLD_ACTION_ID,
+            // The index sync writes `/var/db/xbps` with the tool the install
+            // action already authorizes, so it needs no action of its own.
+            Self::Sync => "io.github.khame.kxbps.install",
         }
     }
 
@@ -230,6 +241,17 @@ pub fn hold_argv(name: &str, held: bool) -> Vec<String> {
         held,
     }
     .argv()
+}
+
+/// The argv of an index sync: `pkexec /usr/bin/xbps-install -S`.
+///
+/// The read paths fetch indexes into memory (`-M`) and write nothing, so a
+/// package added to a repository stays invisible to `xbps-query -Rs` until
+/// something syncs the disk copy. This is that something; it needs the install
+/// action's authorization because it writes `/var/db/xbps`, and it takes no
+/// `-y` because there is nothing to confirm.
+pub fn sync_argv() -> Vec<String> {
+    Privileged::Sync.argv()
 }
 
 /// The commands a plan runs, in order: `pkexec xbps-install` first, then
@@ -710,6 +732,23 @@ mod tests {
             hold_argv("vim", false),
             v(&["pkexec", "/usr/bin/xbps-pkgdb", "-m", "unhold", "vim"])
         );
+    }
+
+    #[test]
+    fn a_sync_is_one_install_command_with_no_packages_and_no_yes() {
+        assert_eq!(
+            sync_argv(),
+            v(&["pkexec", "/usr/bin/xbps-install", "-S"]),
+            "no -y: there is nothing to confirm, the indexes are the whole job"
+        );
+    }
+
+    #[test]
+    fn the_sync_rides_on_the_install_action() {
+        let sync = Privileged::Sync;
+        assert_eq!(sync.action_id(), "io.github.khame.kxbps.install");
+        assert_eq!(sync.mirror_base(), None);
+        assert_eq!(sync.command_line(), "pkexec /usr/bin/xbps-install -S");
     }
 
     #[test]

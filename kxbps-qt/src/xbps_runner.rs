@@ -109,6 +109,17 @@ pub fn search_argv(pattern: &str) -> Vec<String> {
     argv(XPBS_QUERY, &["-Rs", pattern])
 }
 
+/// `xbps-query -M -Rs <pattern>`: the same search against freshly fetched
+/// indexes.
+///
+/// `-M` makes xbps download the repository indexes into memory and write
+/// nothing, so a package added to a repository since the last sync appears
+/// without root and without touching `/var/db/xbps`. It costs the network, so
+/// the list asks for it on a clock, not on every read.
+pub fn remote_search_argv(pattern: &str) -> Vec<String> {
+    argv(XPBS_QUERY, &["-M", "-Rs", pattern])
+}
+
 /// `xbps-query -s <pattern>`: search the installed packages only.
 pub fn installed_search_argv(pattern: &str) -> Vec<String> {
     argv(XPBS_QUERY, &["-s", pattern])
@@ -236,6 +247,11 @@ mod tests {
         );
         assert_eq!(repos_argv(), ["xbps-query", "-L"]);
         assert_eq!(search_argv("vim"), ["xbps-query", "-Rs", "vim"]);
+        assert_eq!(
+            remote_search_argv("vim"),
+            ["xbps-query", "-M", "-Rs", "vim"],
+            "the fresh listing fetches the indexes into memory"
+        );
         assert_eq!(files_argv("neovim", false), ["xbps-query", "-f", "neovim"]);
         assert_eq!(
             files_argv("gimp-3.2.8_2", true),

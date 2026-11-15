@@ -23,6 +23,7 @@ use std::sync::atomic::{AtomicU64, Ordering};
 use cxx_qt::CxxQtType;
 use cxx_qt::Threading;
 use cxx_qt_lib::{QMap, QMapPair_QString_QVariant, QString, QStringList, QVariant};
+use kxbps_core::update_check::{AUTO_GAP_MS, is_due};
 use kxbps_core::{InstalledMap, QueueAction, QueueItem, UpdateEntry, split_pkgver};
 
 use crate::package_model::InstalledState;
@@ -117,6 +118,10 @@ pub mod qobject {
         #[qproperty(bool, files_loading, READ, NOTIFY)]
         #[qproperty(QString, files_error, READ, NOTIFY)]
         #[qproperty(QStringList, files_error_args, READ, NOTIFY)]
+        /// Whether the fresh repository listing is being fetched right now.
+        /// The Available page says so instead of looking stale for the length
+        /// of a download.
+        #[qproperty(bool, list_search_checking, READ, NOTIFY)]
         type QueryBackend = super::QueryBackendRust;
 
         #[qinvokable]
@@ -154,6 +159,18 @@ pub mod qobject {
         /// repeated Enter costs nothing.
         #[qinvokable]
         fn list_search_is_current(self: &QueryBackend, pattern: &QString) -> bool;
+
+        /// Reads the repository hits against freshly fetched indexes, on a
+        /// worker thread, and answers through `listSearchDone`.
+        ///
+        /// `xbps-query -M -Rs` downloads the indexes into memory and writes
+        /// nothing, so a package added to a repository since the last sync
+        /// appears without root and without touching `/var/db/xbps`. The read
+        /// costs the network, so it runs on a clock: `force` is the manual
+        /// button, and without it the backend keeps the gap in `AUTO_GAP_MS`.
+        /// A read already in flight is not doubled.
+        #[qinvokable]
+        fn refresh_list_search(self: Pin<&mut QueryBackend>, pattern: &QString, force: bool);
 
         /// Drops the cached repository listing.
         ///
@@ -225,6 +242,11 @@ pub struct QueryBackendRust {
     files_error_args: QStringList,
     /// The newest file read owns the window.
     files_generation: Arc<AtomicU64>,
+    /// Whether the fresh repository listing is in flight.
+    list_search_checking: bool,
+    /// When the listing last came from freshly fetched indexes; `0` means never
+    /// in this session, which is what makes the first Available visit read.
+    list_search_at: i64,
     /// The repository answers the list already shows, so a request that is not
     /// re-read is still answered from here instead of hanging the page.
     ///
@@ -255,6 +277,8 @@ impl Default for QueryBackendRust {
             files_loading: false,
             files_error: QString::from(""),
             files_error_args: QStringList::default(),
+            list_search_checking: false,
+            list_search_at: 0,
             answers: ListAnswers::default(),
         }
     }
@@ -383,7 +407,7 @@ impl qobject::QueryBackend {
                 invoke,
                 ..QueryBackendRust::default()
             };
-            let json = reader.search_answer_json(&pattern);
+            let json = reader.search_answer_json(&pattern, SearchSource::Repository);
             thread
                 .queue(move |backend| backend.deliver_list_search(generation, &pattern, json))
                 .ok();
@@ -415,6 +439,82 @@ impl qobject::QueryBackend {
     fn invalidate_list_search(mut self: Pin<&mut Self>) {
         let data = Pin::get_mut(self.as_mut().rust_mut());
         data.forget_listing();
+        // A transaction syncs the indexes before it installs, so the next fresh
+        // read is worth the network again: the clock starts over.
+        data.list_search_at = 0;
+    }
+
+    /// Reads the repository hits against freshly fetched indexes.
+    ///
+    /// `xbps-query -M -Rs` downloads the indexes into memory and writes
+    /// nothing, so a package added to a repository since the last sync appears
+    /// without root and without touching `/var/db/xbps`. The read costs the
+    /// network, so it runs on a clock: `force` is the manual button, and
+    /// without it a listing younger than `AUTO_GAP_MS` is left alone. One read
+    /// at a time; a second request while one is in flight is dropped rather
+    /// than doubled.
+    ///
+    /// The answer replaces the cached listing, so the page does not fall back
+    /// to the disk read on the next visit. A failed download leaves the clock
+    /// alone, which lets the next visit try again.
+    fn refresh_list_search(mut self: Pin<&mut Self>, pattern: &cxx_qt_lib::QString, force: bool) {
+        let pattern = pattern.to_string().trim().to_owned();
+        let now = now_ms();
+        let generation = {
+            let data = Pin::get_mut(self.as_mut().rust_mut());
+            if data.list_search_checking {
+                return;
+            }
+            if !force && !is_due(data.list_search_at, now, AUTO_GAP_MS) {
+                return;
+            }
+            data.list_search_checking = true;
+            data.begin_search_read()
+        };
+        self.as_mut().list_search_checking_changed();
+        let thread = self.qt_thread();
+        let invoke = self.invoke.clone();
+        std::thread::spawn(move || {
+            // A detached copy of the read state: the worker only needs the
+            // transport, and it must not hold the object the GUI thread owns.
+            let reader = QueryBackendRust {
+                invoke,
+                ..QueryBackendRust::default()
+            };
+            let (json, answered) = reader.search_answer(&pattern, SearchSource::RepositoryRemote);
+            thread
+                .queue(move |backend| {
+                    backend.deliver_fresh_list_search(generation, &pattern, json, now, answered)
+                })
+                .ok();
+        });
+    }
+
+    /// Applies a landed fresh listing unless a newer read started since.
+    fn deliver_fresh_list_search(
+        mut self: Pin<&mut Self>,
+        generation: u64,
+        pattern: &str,
+        json: QString,
+        now: i64,
+        answered: bool,
+    ) {
+        let landed = {
+            let data = Pin::get_mut(self.as_mut().rust_mut());
+            data.list_search_checking = false;
+            let current = data.search_read_is_current(generation);
+            if current {
+                data.remember_search_answer(pattern, &json);
+                if answered {
+                    data.list_search_at = now;
+                }
+            }
+            current
+        };
+        self.as_mut().list_search_checking_changed();
+        if landed {
+            self.as_mut().list_search_done(generation, json);
+        }
     }
 
     fn set_state(
@@ -591,14 +691,20 @@ impl QueryBackendRust {
     /// hits as JSON: `{"hits": [...], "errorKey": "…", "errorArgs": [...]}`.
     ///
     /// This is the read behind the list's search field, not the Query view's:
-    /// it always asks the repositories (`xbps-query -Rs`), ranks the hits with
-    /// the core's exact-name-first rule, and reports a failure as a key rather
-    /// than rows. The caller runs it on a worker thread; nothing here touches
-    /// a `QObject`.
-    fn search_answer_json(&self, pattern: &str) -> QString {
+    /// it always asks the repositories, ranks the hits with the core's
+    /// exact-name-first rule, and reports a failure as a key rather than rows.
+    /// The caller runs it on a worker thread; nothing here touches a `QObject`.
+    fn search_answer_json(&self, pattern: &str, source: SearchSource) -> QString {
+        self.search_answer(pattern, source).0
+    }
+
+    /// [`Self::search_answer_json`], plus whether the read itself succeeded.
+    ///
+    /// The fresh listing needs the flag: a failed download must not stamp the
+    /// clock, or the page would sit on the old index for the whole gap.
+    fn search_answer(&self, pattern: &str, source: SearchSource) -> (QString, bool) {
         let pattern = pattern.trim();
-        let (error, mut hits) = match read_search(&*self.invoke, SearchSource::Repository, pattern)
-        {
+        let (error, mut hits) = match read_search(&*self.invoke, source, pattern) {
             Ok(hits) => (None, hits),
             Err(err) => (Some(err), Vec::new()),
         };
@@ -608,13 +714,17 @@ impl QueryBackendRust {
             Some(err) => (err.key(), err.args()),
             None => ("", Vec::new()),
         };
-        QString::from(
-            serde_json::json!({
-                "hits": hits,
-                "errorKey": error_key,
-                "errorArgs": error_args,
-            })
-            .to_string(),
+        let answered = error.is_none();
+        (
+            QString::from(
+                serde_json::json!({
+                    "hits": hits,
+                    "errorKey": error_key,
+                    "errorArgs": error_args,
+                })
+                .to_string(),
+            ),
+            answered,
         )
     }
 
@@ -817,6 +927,14 @@ fn hits_json(hits: &[kxbps_core::SearchHit]) -> Vec<serde_json::Value> {
     hits.iter()
         .filter_map(|hit| serde_json::to_value(hit).ok())
         .collect()
+}
+
+/// Milliseconds since the epoch, the clock [`is_due`] compares against.
+fn now_ms() -> i64 {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|elapsed| i64::try_from(elapsed.as_millis()).unwrap_or(i64::MAX))
+        .unwrap_or(0)
 }
 
 #[cfg(test)]
@@ -1308,7 +1426,7 @@ mod tests {
                 "",
             ),
         )]));
-        let json = backend.search_answer_json("vim");
+        let json = backend.search_answer_json("vim", SearchSource::Repository);
         assert_eq!(reply_names(&json), ["vim", "vimb", "apvlv"]);
         assert_eq!(reply_error(&json), "", "a good read names no error");
     }
@@ -1316,7 +1434,7 @@ mod tests {
     #[test]
     fn a_read_search_now_carries_the_error_key_instead_of_rows() {
         let backend = with_invoke(fake(vec![("-Rs", reply(2, "", "broken index"))]));
-        let json = backend.search_answer_json("vim");
+        let json = backend.search_answer_json("vim", SearchSource::Repository);
         assert_eq!(reply_error(&json), "errorXbpsExit");
         assert!(
             reply_names(&json).is_empty(),
