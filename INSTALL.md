@@ -44,9 +44,12 @@ It installs these files, plus one catalog per language under
 | `/usr/libexec/kxbps-mirror-apply` | the mirror helper polkit runs |
 | `/usr/libexec/kxbps-repo-apply` | the repository helper polkit runs |
 | `/usr/share/applications/io.github.khame.kxbps.desktop` | launcher entry |
-| `/usr/share/icons/hicolor/scalable/apps/io.github.khame.kxbps.svg` | icon |
+| `/usr/share/icons/hicolor/scalable/apps/kxbps.svg` | the window's icon |
+| `/usr/share/icons/hicolor/scalable/apps/kxbps-updates.svg` | the icon with the update arrow |
+| `/usr/share/icons/hicolor/scalable/status/kxbps-tray*.svg` | the tray icons: `kxbps-tray`, `kxbps-tray-updates` and their `-symbolic` forms |
 | `/usr/share/metainfo/io.github.khame.kxbps.metainfo.xml` | AppStream data |
 | `/usr/share/polkit-1/actions/io.github.khame.kxbps.policy` | the four actions |
+| `/usr/share/man/man1/kxbps.1` | the manual page |
 | `/usr/share/locale/<lang>/LC_MESSAGES/kxbps.mo` | translations: `de`, `es`, `fr`, `it`, `nl`, `pl`, `pt_BR` |
 
 `PREFIX` and `DESTDIR` move `bin/` and `share/`. The two helpers always land in
@@ -82,9 +85,15 @@ sudo rm -f /usr/bin/kxbps \
     /usr/libexec/kxbps-mirror-apply \
     /usr/libexec/kxbps-repo-apply \
     /usr/share/applications/io.github.khame.kxbps.desktop \
-    /usr/share/icons/hicolor/scalable/apps/io.github.khame.kxbps.svg \
+    /usr/share/icons/hicolor/scalable/apps/kxbps.svg \
+    /usr/share/icons/hicolor/scalable/apps/kxbps-updates.svg \
+    /usr/share/icons/hicolor/scalable/status/kxbps-tray.svg \
+    /usr/share/icons/hicolor/scalable/status/kxbps-tray-updates.svg \
+    /usr/share/icons/hicolor/scalable/status/kxbps-tray-symbolic.svg \
+    /usr/share/icons/hicolor/scalable/status/kxbps-tray-updates-symbolic.svg \
     /usr/share/metainfo/io.github.khame.kxbps.metainfo.xml \
     /usr/share/polkit-1/actions/io.github.khame.kxbps.policy \
+    /usr/share/man/man1/kxbps.1 \
     /usr/share/locale/pl/LC_MESSAGES/kxbps.mo
 ```
 

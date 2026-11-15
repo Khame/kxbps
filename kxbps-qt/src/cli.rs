@@ -51,7 +51,7 @@ pub fn usage() -> String {
         "  --tray           start hidden in the tray",
         "  --filter TOKEN   open the package table on one filter:",
         "                   installed, updates, all, queued, explicit, orphans, held",
-        "  --section NAME   open one page: packages, query, mirrors, repositories,",
+        "  --section NAME   open one page: packages, mirrors, repositories,",
         "                   settings, help",
         "  --help, -h       print this text and exit",
         "  --version, -V    print the version and exit",
@@ -102,14 +102,7 @@ mod tests {
         for flag in ["--tray", "--filter", "--section", "--help", "--version"] {
             assert!(text.contains(flag), "usage does not mention {flag}");
         }
-        for section in [
-            "packages",
-            "query",
-            "mirrors",
-            "repositories",
-            "settings",
-            "help",
-        ] {
+        for section in ["packages", "mirrors", "repositories", "settings", "help"] {
             assert!(
                 text.contains(section),
                 "usage does not mention the {section} page"

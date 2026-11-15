@@ -22,14 +22,16 @@ The sidebar filters the package table:
 | Orphans | `xbps-query -O` |
 | On hold | `xbps-query -H` |
 
-The tools below the filters open their own pages: Query (a search that does not
-touch the queue), Mirrors (the mirror list and the system mirror), Repositories
-(the files under `/etc/xbps.d`), Help and Settings.
+The tools below the filters open their own pages: Mirrors (the mirror list and
+the system mirror), Repositories (the files under `/etc/xbps.d`), Help and
+Settings.
 
-A row adds a package to the queue or takes it out. The bar at the bottom of the window
-carries the queue size, the Apply button and the state of the last job. The `Log`
-button opens the raw output of every command that ran; before the first
-transaction the drawer says there is nothing to show yet.
+A row adds a package to the queue or takes it out. The bar at the bottom of the
+window carries the queue size, the Apply button and the state of the last job.
+The `Log` button opens the raw output of the running or last transaction and of
+the update checks and mirror probes of this session, and the drawer's header
+copies those lines to the clipboard. Before any of them has run the drawer says
+there is nothing to show yet.
 
 ## Update checks
 
@@ -97,8 +99,8 @@ repository.
 kxbps
 ```
 
-`kxbps --section mirrors` opens one page directly (`packages`, `query`,
-`mirrors`, `repositories`, `settings`, `help`), and `kxbps --filter queued`
+`kxbps --section mirrors` opens one page directly (`packages`, `mirrors`,
+`repositories`, `settings`, `help`), and `kxbps --filter queued`
 opens the package table on one filter (`installed`, `updates`, `all`, `queued`,
 `explicit`, `orphans`, `held`).
 
