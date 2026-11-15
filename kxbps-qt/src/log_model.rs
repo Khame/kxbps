@@ -80,6 +80,11 @@ pub mod qobject {
         fn parent(self: &LogModel, index: &QModelIndex) -> QModelIndex;
 
         fn append(self: Pin<&mut LogModel>, line: &QString);
+
+        /// Every line, newline-separated, for the clipboard. The log is read
+        /// as text by people, and a list of rows cannot be selected.
+        #[qinvokable]
+        fn joined_text(self: &LogModel) -> QString;
     }
 
     impl cxx_qt::Constructor<()> for LogModel {}
@@ -129,6 +134,11 @@ impl LogModelRust {
         self.lines.push(line.to_string());
         self.count = i32::try_from(self.lines.len()).unwrap_or(i32::MAX);
         self.lines.len() - 1
+    }
+
+    /// Every line, newline-separated: what "copy" hands to the clipboard.
+    fn joined(&self) -> String {
+        self.lines.join("\n")
     }
 
     fn line_at(&self, row: i32) -> Option<&str> {
@@ -182,6 +192,10 @@ impl qobject::LogModel {
         cxx_qt_lib::QModelIndex::default()
     }
 
+    fn joined_text(&self) -> cxx_qt_lib::QString {
+        cxx_qt_lib::QString::from(&self.joined())
+    }
+
     fn append(mut self: Pin<&mut Self>, line: &cxx_qt_lib::QString) {
         let text = line.to_string();
         let row = {
@@ -218,6 +232,19 @@ mod tests {
             Some("vim-9.1.1700_1: installed successfully.")
         );
         assert_eq!(model.line_at(2), None);
+    }
+
+    #[test]
+    fn joined_text_is_every_line_newline_separated() {
+        let mut model = LogModelRust::default();
+        assert_eq!(model.joined(), "", "an empty log copies as nothing");
+        model.push("$ xbps-install -Su");
+        assert_eq!(model.joined(), "$ xbps-install -Su");
+        model.push("2 packages will be installed.");
+        assert_eq!(
+            model.joined(),
+            "$ xbps-install -Su\n2 packages will be installed."
+        );
     }
 
     #[test]

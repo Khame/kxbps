@@ -73,6 +73,14 @@ Item {
         }
     }
 
+    // What "copy" hands over: the lines the list is showing, as text. The model
+    // has no change signal for its content, so the text is read at the click
+    // rather than bound once when the drawer opens.
+    function copyText() {
+        const model = drawer.hasJob ? drawer.job.lines : drawer.checkLines
+        return model === null || model === undefined ? "" : model.joinedText()
+    }
+
     QQC2.ItemDelegate {
         id: header
         anchors.left: parent.left
@@ -123,6 +131,21 @@ Item {
                 text: drawer.stateWord
                 font: Kirigami.Theme.smallFont
                 color: Kirigami.Theme.disabledTextColor
+            }
+
+            DenseButton {
+                text: i18nd("kxbps", "Copy to clipboard")
+                icon.name: "edit-copy-symbolic"
+                visible: drawer.hasLines
+                // The drawer opens with no transaction behind it; the button
+                // must not take the focus from the window when it appears.
+                focusPolicy: Qt.TabFocus
+                activeFocusOnTab: true
+                onClicked: {
+                    logClipboard.text = drawer.copyText()
+                    logClipboard.selectAll()
+                    logClipboard.copy()
+                }
             }
 
             QQC2.Label {
@@ -232,5 +255,13 @@ Item {
                 elide: Text.ElideRight
             }
         }
+    }
+
+    // QML has no clipboard API. A hidden TextEdit is what the About dialog uses
+    // for the same job: `copy()` puts the selection on the system clipboard.
+    TextEdit {
+        id: logClipboard
+        visible: false
+        readOnly: true
     }
 }
