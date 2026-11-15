@@ -172,41 +172,6 @@ Item {
         ColumnLayout {
             spacing: 0
 
-            RowLayout {
-                Layout.fillWidth: true
-                Layout.leftMargin: Kirigami.Units.largeSpacing
-                Layout.rightMargin: Kirigami.Units.largeSpacing
-                Layout.topMargin: Kirigami.Units.largeSpacing
-                Layout.bottomMargin: Kirigami.Units.smallSpacing
-                spacing: Kirigami.Units.largeSpacing
-
-                QQC2.Label {
-                    Layout.fillWidth: true
-                    visible: view.mirrorBackend.probing
-                    // The batch covers the visible rows, so the total is the
-                    // list's count, not the snapshot size.
-                    text: i18nd("kxbps", "%1 of %2 mirrors probed",
-                                view.mirrorBackend.finishedCount, mirrorList.count)
-                    color: Kirigami.Theme.disabledTextColor
-                }
-
-                QQC2.Label {
-                    text: i18nd("kxbps", "Show")
-                    color: Kirigami.Theme.disabledTextColor
-                }
-
-                QQC2.ComboBox {
-                    id: filterCombo
-                    model: view.filterEntries()
-                    // The model is the truth; the combo only writes it and reads
-                    // the refusal back, so a value the model clamps moves the
-                    // combo with it.
-                    currentIndex: view.filterIndex
-                    Accessible.name: i18nd("kxbps", "Mirror filter")
-                    onActivated: view.applyFilter(currentIndex)
-                }
-            }
-
             Item {
                 Layout.fillWidth: true
                 Layout.fillHeight: true
@@ -321,6 +286,26 @@ Item {
                 }
             }
 
+            // The table's footer: what the list shows, right under it. The
+            // window bar carries the tool's state, so numbers live next to the
+            // table that produced them — the same place the package table puts
+            // them.
+            Kirigami.Separator {
+                Layout.fillWidth: true
+            }
+
+            QQC2.Label {
+                Layout.fillWidth: true
+                Layout.leftMargin: Kirigami.Units.largeSpacing
+                Layout.rightMargin: Kirigami.Units.largeSpacing
+                Layout.topMargin: Kirigami.Units.smallSpacing
+                Layout.bottomMargin: Kirigami.Units.smallSpacing
+                text: view.footerText()
+                font: Kirigami.Theme.smallFont
+                color: Kirigami.Theme.disabledTextColor
+                elide: Text.ElideRight
+            }
+
             // A refused selection: the URL is not one the list offers or the
             // helper would take. The backend names the key; it stays untranslated
             // nowhere, so it is mapped here like every other key.
@@ -352,6 +337,18 @@ Item {
             }
         }
 
+    }
+
+    // The table's own footer: the count of what the list shows, or the sweep's
+    // progress while it runs. Same wording shape as the package table's.
+    function footerText() {
+        if (view.mirrorBackend.probing) {
+            // The batch covers the visible rows, so the total is the list's
+            // count, not the snapshot size.
+            return i18nd("kxbps", "%1 of %2 mirrors probed",
+                         view.mirrorBackend.finishedCount, mirrorList.count)
+        }
+        return i18ndp("kxbps", "%1 mirror", "%1 mirrors", mirrorList.count)
     }
 
     // The backend reports failures as a translation key plus its arguments, so

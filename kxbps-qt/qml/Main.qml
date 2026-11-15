@@ -1095,6 +1095,20 @@ Kirigami.ApplicationWindow {
                             Layout.alignment: Qt.AlignVCenter
                             spacing: Kirigami.Units.smallSpacing
 
+                            // The region filter is the page's, but the window
+                            // has one toolbar and every page action lives on it.
+                            QQC2.ComboBox {
+                                Layout.preferredWidth: Kirigami.Units.gridUnit * 9
+                                // The same height as the buttons beside it, so
+                                // the toolbar is one row on every page.
+                                implicitHeight: Kirigami.Units.gridUnit * 1.6
+                                font: Kirigami.Theme.smallFont
+                                model: mirrorsView.filterEntries()
+                                currentIndex: mirrorsView.filterIndex
+                                Accessible.name: i18nd("kxbps", "Mirror filter")
+                                onActivated: mirrorsView.applyFilter(currentIndex)
+                            }
+
                             // "Check", not "Check all": the batch covers the rows
                             // the filter leaves visible, and a label promising
                             // more than that was a lie.
@@ -1180,6 +1194,7 @@ Kirigami.ApplicationWindow {
                     }
 
                     MirrorsView {
+                        id: mirrorsView
                         mirrorBackend: mirrorBackend
                     }
 
