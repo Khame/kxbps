@@ -61,6 +61,14 @@ pub mod qobject {
         #[cxx_name = "kxbps_mirror_model_set_all_running"]
         fn mirror_model_set_all_running(model: QObjectMutPtr);
 
+        /// Marks only the visible rows as running; see the shim header.
+        #[cxx_name = "kxbps_mirror_model_set_visible_running"]
+        fn mirror_model_set_visible_running(model: QObjectMutPtr);
+
+        /// The visible source rows as a JSON array.
+        #[cxx_name = "kxbps_mirror_model_visible_rows"]
+        fn mirror_model_visible_rows(model: QObjectMutPtr) -> QString;
+
         #[cxx_name = "kxbps_mirror_model_finish_running"]
         fn mirror_model_finish_running(model: QObjectMutPtr);
 
@@ -96,6 +104,12 @@ pub mod qobject {
 
         #[cxx_name = "kxbps_installed_set_mirror"]
         fn installed_set_mirror(owner: QObjectMutPtr, url: &QString);
+
+        // The drawer's model lives in the store owner; a probe line goes there
+        // instead of stderr, so the log the user opens shows every request the
+        // batch made.
+        #[cxx_name = "kxbps_installed_check_log_append"]
+        fn installed_check_log_append(owner: QObjectMutPtr, line: &QString);
 
         // The one entry point a mirror job is created through; `parent` owns it
         // until QML releases it. A distinct shim name, not `kxbps_start_job`:
@@ -324,6 +338,10 @@ pub struct MirrorBackendRust {
     current_mirror: QString,
     probing: bool,
     finished_count: i32,
+    /// How many results the running batch expects. The batch covers the rows
+    /// the filter leaves visible, so this is not the list's length: a sweep of
+    /// 12 European mirrors ends after 12 answers, not after 34.
+    batch_total: i32,
     /// Bumped by every `probe_all`. A result from an older batch is dropped, so
     /// a second click cannot interleave two batches into one row set.
     batch: Arc<AtomicU64>,
@@ -376,6 +394,7 @@ impl Default for MirrorBackendRust {
             current_mirror: QString::from(""),
             probing: false,
             finished_count: 0,
+            batch_total: 0,
             batch: Arc::new(AtomicU64::new(0)),
             cancel: Arc::new(AtomicBool::new(false)),
             system: SystemState::default(),
@@ -450,15 +469,29 @@ impl qobject::MirrorBackend {
         if model.as_ptr().is_null() {
             return;
         }
+        // The batch covers what the filter leaves on screen: "check" on a list
+        // filtered to Europe must not spend a timeout on Asia. The rows are read
+        // before anything is marked, because a batch with nothing to do must not
+        // leave the list on "probing" forever.
+        let visible: Vec<usize> =
+            serde_json::from_str(&qobject::mirror_model_visible_rows(model).to_string())
+                .unwrap_or_default();
+        let targets = row_targets(&visible);
+        if targets.is_empty() {
+            self.log_line("no visible mirrors to check");
+            return;
+        }
+
         let batch = self.batch.fetch_add(1, Ordering::SeqCst) + 1;
         // A batch started after a re-attach must be allowed to run.
         self.cancel.store(false, Ordering::Relaxed);
 
-        qobject::mirror_model_set_all_running(model);
+        qobject::mirror_model_set_visible_running(model);
         {
             let data = Pin::get_mut(self.as_mut().rust_mut());
             data.probing = true;
             data.finished_count = 0;
+            data.batch_total = batch_total(&targets);
         }
         self.as_mut().probing_changed();
         self.as_mut().finished_count_changed();
@@ -466,7 +499,6 @@ impl qobject::MirrorBackend {
         let thread = self.qt_thread();
         let generation = self.batch.clone();
         let cancel = self.cancel.clone();
-        let targets = row_targets();
 
         std::thread::spawn(move || {
             // One manager for the batch, created and destroyed on this thread.
@@ -710,6 +742,13 @@ impl qobject::MirrorBackend {
             return unsafe { QObjectMutPtr::from_raw(std::ptr::null_mut()) };
         }
         let payload = crate::job_backend::mirror_payload_json(&selected);
+        // The command the helper will run, in the drawer, before it starts: the
+        // apply is the one action that changes the system, and its argv is the
+        // honest record of what was asked.
+        self.log_line(&format!(
+            "$ {}",
+            kxbps_core::mirror_argv(&selected).join(" ")
+        ));
         let job = qobject::start_mirror_job(owner, &QString::from(payload.as_str()));
         let moved = {
             let data = Pin::get_mut(self.as_mut().rust_mut());
@@ -809,12 +848,20 @@ impl qobject::MirrorBackend {
             return;
         }
         self.write_row(row, state_key, latency_ms, error_key);
+        self.log_probe_result(
+            row,
+            &state_key.to_string(),
+            latency_ms,
+            &error_key.to_string(),
+        );
 
-        let total = i32::try_from(MIRRORS.len()).unwrap_or(i32::MAX);
         let done = {
             let data = Pin::get_mut(self.as_mut().rust_mut());
             data.finished_count = data.finished_count.saturating_add(1);
-            let done = data.finished_count >= total;
+            // The batch's own size, not the list's: a filtered sweep would never
+            // reach 34 answers and would leave `probing` set, which is what kept
+            // Apply disabled for the rest of the session.
+            let done = batch_complete(data.finished_count, data.batch_total);
             if done {
                 data.probing = false;
             }
@@ -863,6 +910,32 @@ impl qobject::MirrorBackend {
         self.as_mut().probe_finished();
     }
 
+    /// Appends one raw line to the drawer's log, through the store owner.
+    ///
+    /// The mirror backend does not own a log: the drawer shows one model, and
+    /// that model belongs to the installed backend. A backend without an owner
+    /// has nowhere to write, and a dropped line beats a crash.
+    fn log_line(&self, line: &str) {
+        let owner = self.owner;
+        if owner.as_ptr().is_null() {
+            return;
+        }
+        qobject::installed_check_log_append(owner, &QString::from(line));
+    }
+
+    /// One request and its answer, in the shape the drawer shows commands.
+    fn log_probe_result(&self, row: i32, state_key: &str, latency_ms: u32, error_key: &str) {
+        let Some(mirror) = usize::try_from(row).ok().and_then(|row| MIRRORS.get(row)) else {
+            return;
+        };
+        let line = if error_key.is_empty() {
+            format!("$ HEAD {} -> {}, {} ms", mirror.url, state_key, latency_ms)
+        } else {
+            format!("$ HEAD {} -> {}, {}", mirror.url, state_key, error_key)
+        };
+        self.log_line(&line);
+    }
+
     /// Writes one row into the model, if the model exists.
     fn write_row(
         &self,
@@ -898,12 +971,26 @@ pub fn is_selectable_mirror(url: &str) -> bool {
     MIRRORS.iter().any(|mirror| mirror.url == url) || check_base_url(url).is_ok()
 }
 
-/// Every row with the URL it probes; row `i` is `MIRRORS[i]` by construction.
-fn row_targets() -> Vec<(i32, &'static str)> {
-    MIRRORS
+/// How many results a batch over `targets` expects.
+///
+/// The batch's own size, never the list's: a sweep filtered to Europe must
+/// finish after its European rows, or `probing` stays set and the Apply button
+/// stays disabled for the rest of the session.
+fn batch_total(targets: &[(i32, &'static str)]) -> i32 {
+    i32::try_from(targets.len()).unwrap_or(i32::MAX)
+}
+
+/// Whether a batch that expects `total` results has seen them all.
+fn batch_complete(finished: i32, total: i32) -> bool {
+    finished >= total
+}
+
+/// The rows named by `visible`, with the URL each probes; row `i` is
+/// `MIRRORS[i]` by construction.
+fn row_targets(visible: &[usize]) -> Vec<(i32, &'static str)> {
+    visible
         .iter()
-        .enumerate()
-        .filter_map(|(row, mirror)| Some((i32::try_from(row).ok()?, mirror.url)))
+        .filter_map(|row| Some((i32::try_from(*row).ok()?, MIRRORS.get(*row)?.url)))
         .collect()
 }
 
@@ -1104,8 +1191,9 @@ mod tests {
     }
 
     #[test]
-    fn the_batch_covers_every_row_of_the_model() {
-        let targets = row_targets();
+    fn the_batch_covers_every_visible_row() {
+        let all: Vec<usize> = (0..MIRRORS.len()).collect();
+        let targets = row_targets(&all);
         assert_eq!(targets.len(), 34);
         for (row, url) in &targets {
             assert_eq!(MIRRORS[usize::try_from(*row).unwrap()].url, *url);
@@ -1122,6 +1210,43 @@ mod tests {
                 "http://ftp.debian.ru/mirrors/voidlinux/"
             ],
             "the two plain-HTTP entries stay in the list and are never requested"
+        );
+    }
+
+    #[test]
+    fn a_filtered_batch_finishes_after_its_own_rows() {
+        let all: Vec<usize> = (0..MIRRORS.len()).collect();
+        assert_eq!(batch_total(&row_targets(&all)), 34);
+
+        let europe = row_targets(&[2, 5, 7]);
+        let total = batch_total(&europe);
+        assert_eq!(total, 3);
+        assert!(
+            !batch_complete(2, total),
+            "two of three answers is not done"
+        );
+        assert!(
+            batch_complete(3, total),
+            "the batch ends on its own count, not on the list's 34 rows"
+        );
+    }
+
+    #[test]
+    fn a_filtered_batch_probes_only_the_rows_it_was_given() {
+        let targets = row_targets(&[2, 5]);
+        assert_eq!(targets.len(), 2);
+        assert_eq!(targets[0].0, 2);
+        assert_eq!(targets[1].0, 5);
+        assert_eq!(targets[0].1, MIRRORS[2].url);
+        assert_eq!(targets[1].1, MIRRORS[5].url);
+
+        assert!(
+            row_targets(&[]).is_empty(),
+            "nothing visible, nothing probed"
+        );
+        assert!(
+            row_targets(&[999]).is_empty(),
+            "a row outside the list is dropped"
         );
     }
 

@@ -123,6 +123,13 @@ pub mod qobject {
         // invokable, because only a probe batch may move a row's state.
         fn set_all_running(self: Pin<&mut MirrorModel>);
 
+        /// Puts only the rows the filter leaves visible into `running`.
+        fn set_visible_running(self: Pin<&mut MirrorModel>);
+
+        /// The source rows the filter leaves visible, as a JSON array.
+        #[qinvokable]
+        fn visible_rows_json(self: &MirrorModel) -> QString;
+
         fn finish_running(self: Pin<&mut MirrorModel>);
 
         fn set_result(
@@ -463,6 +470,22 @@ impl MirrorModelRust {
         AssignOutcome::RowChanged
     }
 
+    /// Puts the visible rows into `running`; `false` when they all already were.
+    ///
+    /// A probe batch covers what the user can see: a row hidden by the region
+    /// or state filter would otherwise sit on "probing" with nothing to finish
+    /// it.
+    pub fn mark_visible_running(&mut self) -> bool {
+        let mut changed = false;
+        for source in self.display.clone() {
+            if self.rows[source].state != ProbeState::Running {
+                self.rows[source].state = ProbeState::Running;
+                changed = true;
+            }
+        }
+        changed
+    }
+
     /// Puts every row into `running`; `false` when they all already were.
     pub fn mark_all_running(&mut self) -> bool {
         let mut changed = false;
@@ -581,6 +604,24 @@ impl qobject::MirrorModel {
     /// `running` is neither `ok` nor `fail`, so the visible set is unchanged
     /// only when the filter is `all` — otherwise the list legitimately shrinks
     /// and the caller gets a reset.
+    fn visible_rows_json(&self) -> cxx_qt_lib::QString {
+        cxx_qt_lib::QString::from(
+            serde_json::to_string(&self.visible_rows()).unwrap_or_else(|_| String::from("[]")),
+        )
+    }
+
+    fn set_visible_running(mut self: Pin<&mut Self>) {
+        let (changed, reset, rows) = {
+            let data = Pin::get_mut(self.as_mut().rust_mut());
+            let changed = data.mark_visible_running();
+            let reset = changed && data.recompute_display();
+            (changed, reset, data.visible_count())
+        };
+        if changed {
+            reset_visible(base(self.as_mut()), reset, rows);
+        }
+    }
+
     fn set_all_running(mut self: Pin<&mut Self>) {
         let (changed, reset, rows) = {
             let data = Pin::get_mut(self.as_mut().rust_mut());

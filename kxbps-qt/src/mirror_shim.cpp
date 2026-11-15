@@ -60,6 +60,16 @@ void kxbps_mirror_model_set_all_running(QObject *model)
     static_cast<MirrorModel *>(model)->setAllRunning();
 }
 
+void kxbps_mirror_model_set_visible_running(QObject *model)
+{
+    static_cast<MirrorModel *>(model)->setVisibleRunning();
+}
+
+QString kxbps_mirror_model_visible_rows(QObject *model)
+{
+    return static_cast<MirrorModel *>(model)->visibleRowsJson();
+}
+
 void kxbps_mirror_model_finish_running(QObject *model)
 {
     static_cast<MirrorModel *>(model)->finishRunning();

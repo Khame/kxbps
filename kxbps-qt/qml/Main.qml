@@ -595,6 +595,18 @@ Kirigami.ApplicationWindow {
         onBlockedRequested: (blockedPlan) => blockedDialog.showPlan(blockedPlan)
     }
 
+    // A probe writes its requests into the log, so the drawer opens when one
+    // starts: the same gesture as a transaction, because it is the same kind of
+    // news. Collapsing it is one click away.
+    Connections {
+        target: mirrorBackend
+        function onProbingChanged() {
+            if (mirrorBackend.probing) {
+                logDrawer.expand()
+            }
+        }
+    }
+
     // Closing the dialog abandons the request it was waiting for; without this
     // a dry run that answers after Cancel would find its id still pending and
     // reopen the dialog. The backend's generation guard stays as the second
@@ -983,7 +995,7 @@ Kirigami.ApplicationWindow {
                     RowLayout {
                         id: toolbarLayout
                         anchors.fill: parent
-                        anchors.leftMargin: Kirigami.Units.smallSpacing
+                        anchors.leftMargin: Kirigami.Units.largeSpacing
                         anchors.rightMargin: Kirigami.Units.largeSpacing
                         anchors.topMargin: Kirigami.Units.smallSpacing
                         anchors.bottomMargin: Kirigami.Units.smallSpacing
@@ -1019,71 +1031,95 @@ Kirigami.ApplicationWindow {
                             onAccepted: packagesView.submitSearch()
                         }
 
-                        // The two bulk gestures. Below 60 gu they keep their
-                        // icons and drop the words, so the toolbar stays one row
-                        // without losing an action.
-                        DenseButton {
+                        // The package page's actions. One group with one spacing,
+                        // so a change to the row never lands inside a set of
+                        // buttons that belong together.
+                        RowLayout {
                             visible: root.section === "packages"
-                            text: i18nd("kxbps", "Mark all upgrades")
-                            display: root.narrow ? QQC2.AbstractButton.IconOnly
-                                                 : QQC2.AbstractButton.TextBesideIcon
-                            Accessible.name: i18nd("kxbps", "Mark all upgrades")
-                            icon.name: "checkmark"
-                            font: Kirigami.Theme.smallFont
-                            enabled: installedBackend.updatesCount > 0
-                            onClicked: installedBackend.queueAllUpdates()
+                            Layout.alignment: Qt.AlignVCenter
+                            spacing: Kirigami.Units.smallSpacing
+
+                            // The two bulk gestures. Below 60 gu they keep their
+                            // icons and drop the words, so the toolbar stays one
+                            // row without losing an action.
+                            DenseButton {
+                                text: i18nd("kxbps", "Mark all upgrades")
+                                display: root.narrow ? QQC2.AbstractButton.IconOnly
+                                                     : QQC2.AbstractButton.TextBesideIcon
+                                Accessible.name: i18nd("kxbps", "Mark all upgrades")
+                                icon.name: "checkmark"
+                                font: Kirigami.Theme.smallFont
+                                enabled: installedBackend.updatesCount > 0
+                                onClicked: installedBackend.queueAllUpdates()
+                            }
+
+                            DenseButton {
+                                text: i18nd("kxbps", "Unmark all")
+                                display: root.narrow ? QQC2.AbstractButton.IconOnly
+                                                     : QQC2.AbstractButton.TextBesideIcon
+                                Accessible.name: i18nd("kxbps", "Unmark all")
+                                icon.name: "edit-clear"
+                                font: Kirigami.Theme.smallFont
+                                enabled: installedBackend.queueCount > 0
+                                onClicked: installedBackend.clearQueue()
+                            }
+
+                            // The one accent action of the window: it opens the
+                            // dry run, which is the only step that can change
+                            // the system.
+                            DenseButton {
+                                text: installedBackend.queueCount > 0
+                                      ? i18ndp("kxbps", "Apply (%1)", "Apply (%1)", installedBackend.queueCount)
+                                      : i18nd("kxbps", "Apply")
+                                icon.name: "dialog-ok-apply"
+                                // The frame is what separates the accent action
+                                // from the flat controls around it.
+                                flat: false
+                                highlighted: installedBackend.queueCount > 0
+                                enabled: installedBackend.queueCount > 0
+                                onClicked: root.reviewQueue()
+                            }
                         }
 
-                        DenseButton {
-                            visible: root.section === "packages"
-                            text: i18nd("kxbps", "Unmark all")
-                            display: root.narrow ? QQC2.AbstractButton.IconOnly
-                                                 : QQC2.AbstractButton.TextBesideIcon
-                            Accessible.name: i18nd("kxbps", "Unmark all")
-                            icon.name: "edit-clear"
-                            font: Kirigami.Theme.smallFont
-                            enabled: installedBackend.queueCount > 0
-                            onClicked: installedBackend.clearQueue()
-                        }
-
-                        // The one accent action of the window: it opens the dry
-                        // run, which is the only step that can change the system.
-                        DenseButton {
-                            visible: root.section === "packages"
-                            text: installedBackend.queueCount > 0
-                                  ? i18ndp("kxbps", "Apply (%1)", "Apply (%1)", installedBackend.queueCount)
-                                  : i18nd("kxbps", "Apply")
-                            icon.name: "dialog-ok-apply"
-                            // The frame is what separates the accent action
-                            // from the flat controls around it.
-                            flat: false
-                            highlighted: installedBackend.queueCount > 0
-                            enabled: installedBackend.queueCount > 0
-                            onClicked: root.reviewQueue()
-                        }
-
-                        DenseButton {
+                        // The mirrors page has no search field, so the row needs
+                        // an explicit stretch: Refresh stays on the left and the
+                        // page's actions sit at the right edge.
+                        Item {
+                            Layout.fillWidth: true
                             visible: root.section === "mirrors"
-                            text: i18nd("kxbps", "Probe all")
-                            icon.name: "network-connect"
-                            enabled: !mirrorBackend.probing
-                            onClicked: mirrorBackend.probeAll()
                         }
 
-                        // Writing `/etc/xbps.d` needs root, so the button only
-                        // opens a confirmation; the job dialog carries progress.
-                        DenseButton {
+                        RowLayout {
                             visible: root.section === "mirrors"
-                            text: i18nd("kxbps", "Apply to system")
-                            icon.name: "dialog-ok-apply"
-                            // The other accent action: it writes /etc/xbps.d.
-                            flat: false
-                            enabled: mirrorBackend.pending
-                                     && !mirrorBackend.probing
-                                     && !mirrorBackend.systemLoading
-                                     && !mirrorBackend.applyBusy
-                                     && mirrorBackend.helperReady
-                            onClicked: root.applySystemMirror()
+                            Layout.alignment: Qt.AlignVCenter
+                            spacing: Kirigami.Units.smallSpacing
+
+                            // "Check", not "Check all": the batch covers the rows
+                            // the filter leaves visible, and a label promising
+                            // more than that was a lie.
+                            DenseButton {
+                                text: i18nd("kxbps", "Check")
+                                Accessible.name: i18nd("kxbps", "Check the listed mirrors")
+                                icon.name: "network-connect"
+                                enabled: !mirrorBackend.probing
+                                         && mirrorBackend.model.count > 0
+                                onClicked: mirrorBackend.probeAll()
+                            }
+
+                            // Writing `/etc/xbps.d` needs root, so the button only
+                            // opens a confirmation; the job dialog carries progress.
+                            DenseButton {
+                                text: i18nd("kxbps", "Apply to system")
+                                icon.name: "dialog-ok-apply"
+                                // The other accent action: it writes /etc/xbps.d.
+                                flat: false
+                                enabled: mirrorBackend.pending
+                                         && !mirrorBackend.probing
+                                         && !mirrorBackend.systemLoading
+                                         && !mirrorBackend.applyBusy
+                                         && mirrorBackend.helperReady
+                                onClicked: root.applySystemMirror()
+                            }
                         }
                     }
                 }

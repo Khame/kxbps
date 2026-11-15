@@ -26,6 +26,14 @@ QObject *kxbps_create_mirror_model(QObject *parent);
 // scroll position when a batch starts.
 void kxbps_mirror_model_set_all_running(QObject *model);
 
+// The same, for the rows the filter leaves visible: a hidden row must not be
+// left on "probing" by a batch that will never reach it.
+void kxbps_mirror_model_set_visible_running(QObject *model);
+
+// The source rows the filter leaves visible, as a JSON array. The probe batch
+// reads this so "check all" covers the list the user is looking at.
+QString kxbps_mirror_model_visible_rows(QObject *model);
+
 // Returns the rows a cancelled batch left `running` to `idle`, so a stopped
 // sweep does not leave spinners behind.
 void kxbps_mirror_model_finish_running(QObject *model);

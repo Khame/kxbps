@@ -34,13 +34,6 @@ Item {
     readonly property real signatureWidth: Kirigami.Units.gridUnit * 8
     readonly property real fileWidth: Kirigami.Units.gridUnit * 18
 
-    // Filter indices, the same three values `mirror_model.rs` documents: `0`
-    // all, `1` answered (`ok`), `2` failed. The labels use the row's own words
-    // so the filter and the pill never name one state two ways. Filled in
-    // `Component.onCompleted` rather than in the declaration: a `readonly var`
-    // whose initialiser throws once stays undefined for the object's lifetime.
-    property var filterLabels: []
-
     // `xbps-query -L` plus the `.conf` files, as `{url, count, signed, file}`.
     // Recomputed only when the backend re-reads, so `JSON.parse` never runs per
     // binding evaluation. A value this view cannot parse is an empty list: a
@@ -87,36 +80,53 @@ Item {
         return code
     }
 
-    // One list, two kinds of filter: the three state words first, then one entry
-    // per region. Picking a region is what keeps a user in Europe from probing
-    // every mirror in Asia and the Americas.
+    // The regions the combo offers, in the model's order. `World` is dropped:
+    // its entry is the "Worldwide" one, which means every mirror rather than
+    // the handful tagged `World`.
+    readonly property var filterRegions: view.regionCodes.filter(code => code !== "World")
+
+    // One list, two kinds of filter: every region first, then "Worldwide",
+    // which clears the filter, then the one state worth isolating. "All" and
+    // "OK" are gone — no filter is the default, and two more entries only made
+    // the list longer without answering a question the user asks.
     function filterEntries() {
-        const entries = view.filterLabels.slice()
-        const codes = view.regionCodes
-        for (let i = 0; i < codes.length; ++i) {
-            entries.push(view.regionLabel(codes[i]))
+        const entries = []
+        const regions = view.filterRegions
+        for (let i = 0; i < regions.length; ++i) {
+            entries.push(view.regionLabel(regions[i]))
         }
+        entries.push(i18nd("kxbps", "Worldwide"))
+        entries.push(i18nd("kxbps", "Failed"))
         return entries
     }
 
     // The index of the entry the model currently describes.
     readonly property int filterIndex: {
         const model = view.mirrorBackend.model
+        const regions = view.filterRegions
         if (model.regionFilter.length > 0) {
-            const at = view.regionCodes.indexOf(model.regionFilter)
-            return at >= 0 ? 3 + at : 0
+            const at = regions.indexOf(model.regionFilter)
+            return at >= 0 ? at : regions.length
         }
-        return model.filter
+        if (model.filter === 2) {
+            return regions.length + 1
+        }
+        return regions.length
     }
 
     function applyFilter(index) {
         const model = view.mirrorBackend.model
-        if (index < 3) {
-            model.regionFilter = ""
-            model.filter = index
-        } else {
+        const regions = view.filterRegions
+        if (index < regions.length) {
             model.filter = 0
-            model.regionFilter = view.regionCodes[index - 3]
+            model.regionFilter = regions[index]
+        } else if (index === regions.length) {
+            // "Worldwide": every mirror, not only the ones tagged `World`.
+            model.filter = 0
+            model.regionFilter = ""
+        } else {
+            model.regionFilter = ""
+            model.filter = 2
         }
     }
 
@@ -144,12 +154,12 @@ Item {
 
     onMirrorBackendChanged: repos = parseRepos(mirrorBackend ? mirrorBackend.systemRepos : "[]")
     Component.onCompleted: {
-        filterLabels = [
-            i18nd("kxbps", "All"),
-            i18nd("kxbps", "OK"),
-            i18nd("kxbps", "Failed")
-        ]
         repos = parseRepos(mirrorBackend ? mirrorBackend.systemRepos : "[]")
+        // Europe first: the list is 34 rows long and the nearest mirrors are
+        // the ones a user picks. "Worldwide" in the combo clears it again.
+        if (mirrorBackend && mirrorBackend.model.regionFilter.length === 0) {
+            mirrorBackend.model.regionFilter = "EU"
+        }
     }
 
     Connections {
@@ -187,8 +197,10 @@ Item {
                 QQC2.Label {
                     Layout.fillWidth: true
                     visible: view.mirrorBackend.probing
+                    // The batch covers the visible rows, so the total is the
+                    // list's count, not the snapshot size.
                     text: i18nd("kxbps", "%1 of %2 mirrors probed",
-                                view.mirrorBackend.finishedCount, view.mirrorBackend.model.count)
+                                view.mirrorBackend.finishedCount, mirrorList.count)
                     color: Kirigami.Theme.disabledTextColor
                 }
 

@@ -33,13 +33,20 @@ QQC2.ItemDelegate {
     rightPadding: Kirigami.Units.largeSpacing
     topPadding: 0
     bottomPadding: 0
-    highlighted: delegate.selected
-
-    // Breeze paints the selected row in the highlight colour only while the
-    // view has focus; unfocused, the row keeps the plain background. The badge
-    // follows the paint, not the selection flag, or it turns dark on dark.
-    readonly property bool paintedAsSelected: delegate.selected
-                                              && (delegate.ListView.view ? delegate.ListView.view.activeFocus : false)
+    // No `highlighted`: the style paints that as a solid highlight band, which
+    // turns one row into a bright stripe. The selection is the same 20 % tint
+    // the sidebar uses, with an accent bar on the leading edge, so the list
+    // reads as a table rather than as a warning.
+    background: Rectangle {
+        color: delegate.selected
+               ? Qt.rgba(Kirigami.Theme.highlightColor.r,
+                         Kirigami.Theme.highlightColor.g,
+                         Kirigami.Theme.highlightColor.b, 0.2)
+               : (delegate.hovered ? Qt.rgba(Kirigami.Theme.highlightColor.r,
+                                             Kirigami.Theme.highlightColor.g,
+                                             Kirigami.Theme.highlightColor.b, 0.1)
+                                   : "transparent")
+    }
 
     Accessible.role: Accessible.RadioButton
     Accessible.name: model.country.length > 0
@@ -92,6 +99,16 @@ QQC2.ItemDelegate {
 
     contentItem: RowLayout {
         spacing: Kirigami.Units.largeSpacing
+
+        // The accent of the chosen mirror, on the leading edge. It is the same
+        // signal the sidebar gives for the current page.
+        Rectangle {
+            visible: delegate.selected
+            Layout.preferredWidth: Math.round(Kirigami.Units.smallSpacing / 2)
+            Layout.fillHeight: true
+            Layout.leftMargin: -delegate.leftPadding
+            color: Kirigami.Theme.highlightColor
+        }
 
         ColumnLayout {
             Layout.fillWidth: true
@@ -150,7 +167,7 @@ QQC2.ItemDelegate {
                     visible: delegate.selected
                     text: i18nd("kxbps", "Selected")
                     font: Kirigami.Theme.smallFont
-                    color: delegate.paintedAsSelected ? Kirigami.Theme.highlightedTextColor : Kirigami.Theme.highlightColor
+                    color: Kirigami.Theme.highlightColor
                 }
 
                 QQC2.Label {
@@ -182,16 +199,5 @@ QQC2.ItemDelegate {
             }
         }
 
-        // The mockup makes the choice a named button: a row that only reacts
-        // to a click reads as text, and "Choose" says what the click does.
-        DenseButton {
-            text: delegate.inUse ? i18nd("kxbps", "In use") : i18nd("kxbps", "Choose")
-            font: Kirigami.Theme.smallFont
-            enabled: !delegate.inUse
-            Accessible.name: delegate.inUse
-                             ? i18nd("kxbps", "%1 is in use", model.name)
-                             : i18nd("kxbps", "Use %1", model.name)
-            onClicked: delegate.mirrorBackend.currentMirror = model.url
-        }
     }
 }

@@ -71,6 +71,17 @@ void kxbps_log_model_append(QObject *model, const QString &line)
     static_cast<LogModel *>(model)->append(line);
 }
 
+void kxbps_installed_check_log_append(QObject *owner, const QString &line)
+{
+    if (!owner) {
+        return;
+    }
+    QObject *log = static_cast<InstalledBackend *>(owner)->getCheckLog();
+    if (log) {
+        kxbps_log_model_append(log, line);
+    }
+}
+
 QObject *kxbps_create_plan_backend(QObject *parent, const QString &payloadJson)
 {
     return new PlanBackend(payloadJson, parent);

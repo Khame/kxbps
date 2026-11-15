@@ -47,6 +47,11 @@ void kxbps_queue_model_set_state(QObject *model, const QString &queueJson);
 QObject *kxbps_create_log_model(QObject *parent);
 void kxbps_log_model_append(QObject *model, const QString &line);
 
+// Appends one line to the store owner's check log, the model the log drawer
+// shows when no transaction has run. Another backend reaches it through this
+// forwarder instead of owning a second log: the drawer has one source.
+void kxbps_installed_check_log_append(QObject *owner, const QString &line);
+
 // A fully populated plan dialog model, built from one JSON payload.
 QObject *kxbps_create_plan_backend(QObject *parent, const QString &payloadJson);
 
