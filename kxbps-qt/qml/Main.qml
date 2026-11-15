@@ -985,7 +985,8 @@ Kirigami.ApplicationWindow {
                         // hamburger would repeat both.
                         //
                         // A button, not a tool button: the row is buttons, and
-                        // a flat icon among bordered ones reads as disabled.
+                        // the shared component is what keeps them at one height
+                        // and one font step.
                         DenseButton {
                             icon.name: "view-refresh"
                             text: i18nd("kxbps", "Refresh")
@@ -1044,6 +1045,9 @@ Kirigami.ApplicationWindow {
                                   ? i18ndp("kxbps", "Apply (%1)", "Apply (%1)", installedBackend.queueCount)
                                   : i18nd("kxbps", "Apply")
                             icon.name: "dialog-ok-apply"
+                            // The frame is what separates the accent action
+                            // from the flat controls around it.
+                            flat: false
                             highlighted: installedBackend.queueCount > 0
                             enabled: installedBackend.queueCount > 0
                             onClicked: root.reviewQueue()
@@ -1063,6 +1067,8 @@ Kirigami.ApplicationWindow {
                             visible: root.section === "mirrors"
                             text: i18nd("kxbps", "Apply to system")
                             icon.name: "dialog-ok-apply"
+                            // The other accent action: it writes /etc/xbps.d.
+                            flat: false
                             enabled: mirrorBackend.pending
                                      && !mirrorBackend.probing
                                      && !mirrorBackend.systemLoading
