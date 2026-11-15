@@ -23,6 +23,14 @@ the project uses semantic versioning.
   search could disagree. A typed word now filters the listing in memory, exact
   name first; only a pattern with regex syntax, or a local match that finds
   nothing, goes to `xbps-query -Rs`.
+- The details pane stayed empty for any package whose facts were already
+  cached: the pointer that says which package the pane is showing moved only
+  when a read started. It now follows every selection, and the change is
+  announced so the pane redraws.
+- The pane asked for the download size only in the repository take, so a
+  package the index does not know at that version showed `—` while the
+  installed record had the number. The row now reads download first, then the
+  size on disk.
 
 ## [0.11.0] - 2026-11-15
 

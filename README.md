@@ -16,7 +16,7 @@ The sidebar filters the package table:
 | --- | --- |
 | Installed | `xbps-query -l` |
 | Upgradable | `xbps-install -un`, then `xbps-install -M -un` on a check |
-| Available | `xbps-query -Rs ''`, and `xbps-query -Rs <text>` while you type |
+| Available | `xbps-query -M -Rs ''` at start-up, then filtered in memory while you type; `xbps-query -Rs <text>` for regex syntax or when nothing matches locally |
 | Marked | the queue file, `~/.local/share/kxbps/queue.json` |
 | Explicit | `xbps-query -m` |
 | Orphans | `xbps-query -O` |
