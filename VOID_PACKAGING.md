@@ -138,6 +138,30 @@ When the tarball changes but the version does not, run `./xbps-src clean kxbps`
 first: `masterdir/builddir/kxbps-<version>` is reused when it exists, and with an
 unchanged version number it is indistinguishable from a fresh one.
 
+The shared `masterdir/` is not proof that the declared dependencies are enough:
+it keeps packages from earlier builds, and a missing `makedepends` still
+resolves there. For that check, use a throwaway masterdir and hostdir:
+
+```sh
+export XBPS_MASTERDIR=/var/tmp/kxbps-clean/masterdir
+export XBPS_HOSTDIR=/var/tmp/kxbps-clean/hostdir
+mkdir -p "$XBPS_HOSTDIR/sources/kxbps-0.11.0"
+cp kxbps-0.11.0.tar.gz "$XBPS_HOSTDIR/sources/kxbps-0.11.0/"
+./xbps-src binary-bootstrap
+./xbps-src pkg kxbps
+```
+
+The tarball has to be seeded there, because a release asset does not exist until
+after the build. 0.11.0 was checked this way: the fresh masterdir installed every
+dependency from the repository, and the package it produced has the same size,
+the same required symbol versions and the same `--version` output as the one from
+the shared masterdir; only the ELF build-id and the order of the dynamic string
+and version tables differ.
+
+`ERROR: Package 'qt6-base-devel-…' already installed` in the log does not mean
+the masterdir is dirty: `qt6-base-devel` sits in both `hostmakedepends` and
+`makedepends`, so the second install attempt reports it and the build goes on.
+
 Sign it, and remove the old signature first:
 
 ```sh
