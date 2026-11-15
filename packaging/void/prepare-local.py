@@ -33,11 +33,14 @@ def version() -> str:
 
 
 def _normalise(archive: bytes) -> bytes:
-    """Drop the global pax header and pin every timestamp.
+    """Drop the commit id and pin every timestamp.
 
-    `git archive` writes a `pax_global_header` naming the commit and stamps each
-    member with the commit time. Both make two archives of the same tree differ,
-    so they are removed here.
+    `git archive` writes a global pax header holding `comment=<commit id>` and
+    stamps each member with the commit time. `tarfile` reads the global records
+    and hands them to every member, and its writer hoists a record shared by all
+    members back into a global header, so the commit id survives a plain
+    read-write round trip. It is dropped here, along with any per-member
+    timestamp, which leaves a digest that depends on the tree alone.
     """
     source = tarfile.open(fileobj=io.BytesIO(archive))
     buffer = io.BytesIO()
@@ -46,6 +49,11 @@ def _normalise(archive: bytes) -> bytes:
             if member.name == "pax_global_header":
                 continue
             member.mtime = 0
+            member.pax_headers = {
+                key: value
+                for key, value in member.pax_headers.items()
+                if key not in {"comment", "mtime"}
+            }
             target.addfile(member, source.extractfile(member))
     return buffer.getvalue()
 
