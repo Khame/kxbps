@@ -31,6 +31,16 @@ None of these needs root, and none of them changes a file.
 | `xbps-query -p installed_size -s ''` | sizes | `<pkgver>: <humanised size>` |
 | `xbps-query -R -p filename-size -s ''` | download column | `<pkgver>: <humanised size> (<repository>)` |
 
+The two property takes describe the same package from two places, and they do
+not always agree: the plain take reads the installed record, the `-R` take reads
+the repository index. Every field is taken from the installed record first and
+from the index only where that record is silent, because the installed record is
+what is on the system. The download size is read from both, so a package the
+index does not know at that version — a local build, a removed repository — still
+shows it; the repository field follows the same rule and therefore names where
+the package came from, not where it would come from today. A version the index
+knows only newer does not replace the installed one.
+
 The bulk size takes are the one place where a failed command does not fail the
 screen: an index that was never synced leaves the size columns empty and the
 package list stays. Every other read is all or nothing, because a half-read list
