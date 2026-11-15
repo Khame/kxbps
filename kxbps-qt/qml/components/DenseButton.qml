@@ -27,4 +27,9 @@ QQC2.Button {
     implicitHeight: Kirigami.Units.gridUnit * 1.6
     padding: Kirigami.Units.smallSpacing
     flat: true
+    // One icon size for every control. The sidebar draws its own icons at
+    // `iconSizes.small`; leaving the button to the style produced a second,
+    // slightly different size for the same kind of glyph.
+    icon.width: Kirigami.Units.iconSizes.small
+    icon.height: Kirigami.Units.iconSizes.small
 }

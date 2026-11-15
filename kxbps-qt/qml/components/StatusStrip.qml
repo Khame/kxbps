@@ -107,12 +107,33 @@ Rectangle {
         }
 
         DenseButton {
-            text: i18nd("kxbps", "Log")
-            icon.name: "utilities-terminal"
+            // The button draws its own row: a `QQuickIcon` from a file keeps
+            // the SVG's black `currentColor` instead of taking the theme
+            // colour, so the glyph and its label are painted here.
+            text: ""
             font: Kirigami.Theme.smallFont
+            Accessible.name: i18nd("kxbps", "Log")
             checkable: true
             checked: bar.logOpen
             onClicked: bar.logToggleRequested()
+
+            contentItem: RowLayout {
+                spacing: Kirigami.Units.smallSpacing
+
+                KxbpsIcon {
+                    Layout.preferredWidth: Kirigami.Units.iconSizes.small
+                    Layout.preferredHeight: Kirigami.Units.iconSizes.small
+                    symbolicName: "log"
+                    highlighted: bar.logOpen
+                }
+
+                QQC2.Label {
+                    text: i18nd("kxbps", "Log")
+                    font: Kirigami.Theme.smallFont
+                    color: bar.logOpen ? Kirigami.Theme.highlightedTextColor
+                                       : Kirigami.Theme.textColor
+                }
+            }
         }
     }
 }

@@ -674,13 +674,13 @@ Kirigami.ApplicationWindow {
     // Most used first: the installed set, the updates, the search for new
     // packages, then the queue and the diagnostic filters.
     readonly property var filterEntries: [
-        { token: "installed", label: i18nd("kxbps", "Installed"), icon: "package-installed-updated" },
-        { token: "updates", label: i18nd("kxbps", "Upgradable"), icon: "system-software-update", alert: true },
-        { token: "all", label: i18nd("kxbps", "Available"), icon: "system-search", focusSearch: true },
-        { token: "queued", label: i18nd("kxbps", "Marked"), icon: "view-task" },
-        { token: "explicit", label: i18nd("kxbps", "Explicit"), icon: "package-x-generic" },
-        { token: "orphans", label: i18nd("kxbps", "Orphans"), icon: "package-remove" },
-        { token: "held", label: i18nd("kxbps", "On hold"), icon: "object-locked" }
+        { token: "installed", label: i18nd("kxbps", "Installed"), icon: "installed" },
+        { token: "updates", label: i18nd("kxbps", "Upgradable"), icon: "updates", alert: true },
+        { token: "all", label: i18nd("kxbps", "Available"), icon: "available", focusSearch: true },
+        { token: "queued", label: i18nd("kxbps", "Marked"), icon: "selected" },
+        { token: "explicit", label: i18nd("kxbps", "Explicit"), icon: "manual" },
+        { token: "orphans", label: i18nd("kxbps", "Orphans"), icon: "orphaned" },
+        { token: "held", label: i18nd("kxbps", "On hold"), icon: "locked" }
     ]
 
     // Refreshing xbps: the installed set and the repository list are two
@@ -882,7 +882,7 @@ Kirigami.ApplicationWindow {
                     NavItem {
                         Layout.fillWidth: true
                         label: i18nd("kxbps", "Mirrors")
-                        iconName: "network-server"
+                        iconName: "mirrors"
                         highlighted: root.section === "mirrors"
                         onClicked: root.section = "mirrors"
                     }
@@ -890,7 +890,7 @@ Kirigami.ApplicationWindow {
                     NavItem {
                         Layout.fillWidth: true
                         label: i18nd("kxbps", "Repositories")
-                        iconName: "folder-remote"
+                        iconName: "repositories"
                         highlighted: root.section === "repositories"
                         onClicked: root.section = "repositories"
                     }
@@ -898,7 +898,7 @@ Kirigami.ApplicationWindow {
                     NavItem {
                         Layout.fillWidth: true
                         label: i18nd("kxbps", "Help")
-                        iconName: "help-contents"
+                        iconName: "help"
                         highlighted: root.section === "help"
                         onClicked: root.section = "help"
                     }
@@ -913,7 +913,7 @@ Kirigami.ApplicationWindow {
                     NavItem {
                         Layout.fillWidth: true
                         label: i18nd("kxbps", "Settings")
-                        iconName: "settings-configure"
+                        iconName: "settings"
                         highlighted: root.section === "settings"
                         onClicked: root.section = "settings"
                     }

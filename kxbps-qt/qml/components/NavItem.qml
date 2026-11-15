@@ -19,7 +19,8 @@ QQC2.ItemDelegate {
     id: item
 
     property string label
-    // A Breeze icon name. Empty draws no icon and the label takes the space.
+    // A KXbps symbolic icon name, without the `kxbps-` prefix and the
+    // `-symbolic.svg` suffix. Empty draws no icon and the label takes the space.
     property string iconName: ""
     // The counters are only interesting when non-zero, so an empty string
     // hides the badge instead of reserving room for a "0".
@@ -67,13 +68,14 @@ QQC2.ItemDelegate {
             color: Kirigami.Theme.highlightColor
         }
 
-        Kirigami.Icon {
+        KxbpsIcon {
             visible: !item.compact && item.iconName.length > 0
             Layout.preferredWidth: Kirigami.Units.iconSizes.small
             Layout.preferredHeight: Kirigami.Units.iconSizes.small
-            source: item.iconName
-            color: item.highlighted ? Kirigami.Theme.highlightedTextColor
-                                    : Kirigami.Theme.textColor
+            symbolicName: item.iconName
+            // The selected row is a 20% tint, not a full highlight: normal text
+            // colour is the one that keeps its contrast.
+            highlighted: false
         }
 
         QQC2.Label {
@@ -83,8 +85,7 @@ QQC2.ItemDelegate {
             elide: Text.ElideRight
             font: item.compact ? Kirigami.Theme.smallFont : Kirigami.Theme.defaultFont
             color: item.muted ? Kirigami.Theme.disabledTextColor
-                 : (item.highlighted ? Kirigami.Theme.highlightedTextColor
-                                     : Kirigami.Theme.textColor)
+                              : Kirigami.Theme.textColor
         }
 
         QQC2.Label {
@@ -92,8 +93,7 @@ QQC2.ItemDelegate {
             text: item.badgeText
             font: Kirigami.Theme.smallFont
             color: item.badgeAlert ? Kirigami.Theme.negativeTextColor
-                 : (item.highlighted ? Kirigami.Theme.highlightedTextColor
-                                     : Kirigami.Theme.disabledTextColor)
+                                   : Kirigami.Theme.disabledTextColor
         }
     }
 }

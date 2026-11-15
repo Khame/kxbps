@@ -83,6 +83,19 @@ Item {
         leftPadding: Kirigami.Units.largeSpacing
         rightPadding: Kirigami.Units.largeSpacing
 
+        Accessible.role: Accessible.Button
+        Accessible.name: i18nd("kxbps", "Log")
+
+        // The drawer header is part of the log surface, not a raised control:
+        // the same flat row the sidebar uses, with a hover tint from the theme.
+        background: Rectangle {
+            color: header.hovered
+                   ? Qt.rgba(Kirigami.Theme.highlightColor.r,
+                             Kirigami.Theme.highlightColor.g,
+                             Kirigami.Theme.highlightColor.b, 0.1)
+                   : "transparent"
+        }
+
         // A single click toggles after the double-click interval has passed, so
         // a double click does not toggle twice and land where it started.
         onClicked: toggleTimer.restart()
@@ -93,6 +106,12 @@ Item {
 
         contentItem: RowLayout {
             spacing: Kirigami.Units.smallSpacing
+
+            KxbpsIcon {
+                Layout.preferredWidth: Kirigami.Units.iconSizes.small
+                Layout.preferredHeight: Kirigami.Units.iconSizes.small
+                symbolicName: "log"
+            }
 
             QQC2.Label {
                 text: i18nd("kxbps", "Log")

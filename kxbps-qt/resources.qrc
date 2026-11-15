@@ -3,5 +3,17 @@
   <qresource prefix="/qt/qml/org/kde/kxbps">
     <file alias="icons/kxbps.svg">../packaging/icons/app/kxbps.svg</file>
     <file alias="icons/kxbps-updates.svg">../packaging/icons/app/kxbps-updates.svg</file>
+    <file alias="icons/actions/kxbps-installed-symbolic.svg">../packaging/icons/actions/kxbps-installed-symbolic.svg</file>
+    <file alias="icons/actions/kxbps-updates-symbolic.svg">../packaging/icons/actions/kxbps-updates-symbolic.svg</file>
+    <file alias="icons/actions/kxbps-available-symbolic.svg">../packaging/icons/actions/kxbps-available-symbolic.svg</file>
+    <file alias="icons/actions/kxbps-selected-symbolic.svg">../packaging/icons/actions/kxbps-selected-symbolic.svg</file>
+    <file alias="icons/actions/kxbps-manual-symbolic.svg">../packaging/icons/actions/kxbps-manual-symbolic.svg</file>
+    <file alias="icons/actions/kxbps-orphaned-symbolic.svg">../packaging/icons/actions/kxbps-orphaned-symbolic.svg</file>
+    <file alias="icons/actions/kxbps-locked-symbolic.svg">../packaging/icons/actions/kxbps-locked-symbolic.svg</file>
+    <file alias="icons/actions/kxbps-mirrors-symbolic.svg">../packaging/icons/actions/kxbps-mirrors-symbolic.svg</file>
+    <file alias="icons/actions/kxbps-repositories-symbolic.svg">../packaging/icons/actions/kxbps-repositories-symbolic.svg</file>
+    <file alias="icons/actions/kxbps-help-symbolic.svg">../packaging/icons/actions/kxbps-help-symbolic.svg</file>
+    <file alias="icons/actions/kxbps-settings-symbolic.svg">../packaging/icons/actions/kxbps-settings-symbolic.svg</file>
+    <file alias="icons/actions/kxbps-log-symbolic.svg">../packaging/icons/actions/kxbps-log-symbolic.svg</file>
   </qresource>
 </RCC>

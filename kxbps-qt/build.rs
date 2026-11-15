@@ -3,6 +3,7 @@ fn main() {
     // would not trigger a rebuild.
     println!("cargo:rerun-if-changed=../packaging/icons/app/kxbps.svg");
     println!("cargo:rerun-if-changed=../packaging/icons/app/kxbps-updates.svg");
+    println!("cargo:rerun-if-changed=../packaging/icons/actions");
 
     // Hand-written C++ shim that installs KI18n's `KLocalizedContext` on the QML
     // engine's root context, which is what makes `i18nd()` callable in QML.
@@ -14,6 +15,7 @@ fn main() {
             .qml_file("qml/views/SettingsView.qml")
             .qml_file("qml/views/HelpView.qml")
             .qml_file("qml/views/RepositoriesView.qml")
+            .qml_file("qml/components/KxbpsIcon.qml")
             .qml_file("qml/components/NavItem.qml")
             .qml_file("qml/components/PackageDelegate.qml")
             .qml_file("qml/components/QueueDelegate.qml")
