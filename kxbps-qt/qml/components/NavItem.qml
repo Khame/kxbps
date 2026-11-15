@@ -73,9 +73,6 @@ QQC2.ItemDelegate {
             Layout.preferredWidth: Kirigami.Units.iconSizes.small
             Layout.preferredHeight: Kirigami.Units.iconSizes.small
             symbolicName: item.iconName
-            // The selected row is a 20% tint, not a full highlight: normal text
-            // colour is the one that keeps its contrast.
-            highlighted: false
         }
 
         QQC2.Label {

@@ -124,14 +124,17 @@ Rectangle {
                     Layout.preferredWidth: Kirigami.Units.iconSizes.small
                     Layout.preferredHeight: Kirigami.Units.iconSizes.small
                     symbolicName: "log"
-                    highlighted: bar.logOpen
                 }
 
                 QQC2.Label {
                     text: i18nd("kxbps", "Log")
                     font: Kirigami.Theme.smallFont
-                    color: bar.logOpen ? Kirigami.Theme.highlightedTextColor
-                                       : Kirigami.Theme.textColor
+                    // The checked state only tints the background, so the text
+                    // keeps the strip's own colour. `highlightedTextColor` is
+                    // the colour for solid highlight backgrounds — on a dark
+                    // strip it is the darker of the two, and the button read as
+                    // an empty box while the drawer was open.
+                    color: Kirigami.Theme.textColor
                 }
             }
         }

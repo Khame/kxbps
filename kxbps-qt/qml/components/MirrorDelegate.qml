@@ -35,6 +35,12 @@ QQC2.ItemDelegate {
     bottomPadding: 0
     highlighted: delegate.selected
 
+    // Breeze paints the selected row in the highlight colour only while the
+    // view has focus; unfocused, the row keeps the plain background. The badge
+    // follows the paint, not the selection flag, or it turns dark on dark.
+    readonly property bool paintedAsSelected: delegate.selected
+                                              && (delegate.ListView.view ? delegate.ListView.view.activeFocus : false)
+
     Accessible.role: Accessible.RadioButton
     Accessible.name: model.country.length > 0
                      ? i18nd("kxbps", "%1, %2", model.name, model.country)
@@ -144,7 +150,7 @@ QQC2.ItemDelegate {
                     visible: delegate.selected
                     text: i18nd("kxbps", "Selected")
                     font: Kirigami.Theme.smallFont
-                    color: delegate.highlighted ? Kirigami.Theme.highlightedTextColor : Kirigami.Theme.highlightColor
+                    color: delegate.paintedAsSelected ? Kirigami.Theme.highlightedTextColor : Kirigami.Theme.highlightColor
                 }
 
                 QQC2.Label {

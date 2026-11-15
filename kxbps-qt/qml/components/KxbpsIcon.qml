@@ -13,12 +13,10 @@ Kirigami.Icon {
     // A name from `packaging/icons/actions`, without the `kxbps-` prefix and
     // the `-symbolic.svg` suffix, for example `installed` or `log`.
     property string symbolicName: ""
-    property bool highlighted: false
 
     source: symbolicName.length > 0
             ? "qrc:/qt/qml/org/kde/kxbps/icons/actions/kxbps-" + symbolicName + "-symbolic.svg"
             : ""
     isMask: true
-    color: highlighted ? Kirigami.Theme.highlightedTextColor
-                       : Kirigami.Theme.textColor
+    color: Kirigami.Theme.textColor
 }
