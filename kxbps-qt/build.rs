@@ -15,6 +15,7 @@ fn main() {
             .qml_file("qml/views/SettingsView.qml")
             .qml_file("qml/views/HelpView.qml")
             .qml_file("qml/views/RepositoriesView.qml")
+            .qml_file("qml/components/AboutActionRow.qml")
             .qml_file("qml/components/KxbpsIcon.qml")
             .qml_file("qml/components/NavItem.qml")
             .qml_file("qml/components/PackageDelegate.qml")
@@ -65,6 +66,8 @@ fn main() {
     // `QFile` access to the protected `QAbstractItemModel` members the Rust
     // model cannot reach.
     .cpp_file("src/k18n_shim.cpp")
+    // The About page's Qt/KDE Frameworks versions and platform name.
+    .cpp_file("src/about_shim.cpp")
     // The style proxy that keeps the desktop style from underlining button
     // mnemonics.
     .cpp_file("src/style_shim.cpp")

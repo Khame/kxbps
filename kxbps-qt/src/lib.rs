@@ -82,6 +82,19 @@ pub mod qobject {
         // tray, so QML asks before it creates a `SystemTrayIcon`.
         include!("backend_shim.h");
 
+        // Implemented in `src/about_shim.cpp`; the About page reports the
+        // libraries this build actually links against, not a copied string.
+        include!("about_shim.h");
+
+        #[cxx_name = "kxbps_qt_version"]
+        fn system_qt_version() -> QString;
+
+        #[cxx_name = "kxbps_kf_version"]
+        fn system_kf_version() -> QString;
+
+        #[cxx_name = "kxbps_platform_name"]
+        fn system_platform_name() -> QString;
+
         #[cxx_name = "kxbps_tray_available"]
         fn tray_available() -> bool;
 
@@ -123,6 +136,18 @@ pub mod qobject {
 
         #[qinvokable]
         fn version(self: &AppBackend) -> QString;
+
+        /// The Qt runtime the window is using, shown in About.
+        #[qinvokable]
+        fn qt_version(self: &AppBackend) -> QString;
+
+        /// The KDE Frameworks version KXbps was built against, shown in About.
+        #[qinvokable]
+        fn kf_version(self: &AppBackend) -> QString;
+
+        /// The product name and the Qt platform plugin, shown in About.
+        #[qinvokable]
+        fn platform_name(self: &AppBackend) -> QString;
 
         /// Announces a set of available updates. The strings arrive already
         /// translated; this only forwards them to the session bus.
@@ -204,6 +229,21 @@ impl qobject::AppBackend {
     /// the package cannot disagree about which build this is.
     fn version(&self) -> cxx_qt_lib::QString {
         cxx_qt_lib::QString::from(crate::VERSION)
+    }
+
+    /// The Qt runtime the window is using.
+    fn qt_version(&self) -> cxx_qt_lib::QString {
+        qobject::system_qt_version()
+    }
+
+    /// The KDE Frameworks version this build was compiled against.
+    fn kf_version(&self) -> cxx_qt_lib::QString {
+        qobject::system_kf_version()
+    }
+
+    /// The product name and the Qt platform plugin.
+    fn platform_name(&self) -> cxx_qt_lib::QString {
+        qobject::system_platform_name()
     }
 
     /// Forwards one announcement to the desktop's notification service.

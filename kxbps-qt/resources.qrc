@@ -15,5 +15,6 @@
     <file alias="icons/actions/kxbps-help-symbolic.svg">../packaging/icons/actions/kxbps-help-symbolic.svg</file>
     <file alias="icons/actions/kxbps-settings-symbolic.svg">../packaging/icons/actions/kxbps-settings-symbolic.svg</file>
     <file alias="icons/actions/kxbps-log-symbolic.svg">../packaging/icons/actions/kxbps-log-symbolic.svg</file>
+    <file alias="icons/actions/kxbps-coffee-symbolic.svg">../packaging/icons/actions/kxbps-coffee-symbolic.svg</file>
   </qresource>
 </RCC>
