@@ -937,7 +937,7 @@ msgstr "Osierocone: pakiety zainstalowane jako zależność, których nic już n
 #: kxbps-qt/qml/components/PlanDialog.qml:302
 #: kxbps-qt/qml/views/PackagesView.qml:717
 msgid "Package"
-msgstr "Paczka"
+msgstr "Pakiet"
 
 #: kxbps-qt/qml/components/PackageFilesDialog.qml:34
 msgid "Package files"
