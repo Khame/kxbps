@@ -96,9 +96,28 @@ carries no patches.
 
 ## Building locally
 
-Copy the template into a void-packages tree. For a release build it downloads
-the tarball from the GitHub release; for a local build, generate the tarball
-first and put it in the source cache:
+`xbps-src` lives in a void-packages checkout, not in a package. One checkout
+serves every Khame package. `binary-bootstrap` fills its `masterdir/` with the
+minimal root the build runs in, and is needed once per checkout:
+
+```sh
+git clone --depth=1 https://github.com/void-linux/void-packages.git
+cd void-packages
+./xbps-src binary-bootstrap
+```
+
+`xlint` is not in the tree either: `sudo xbps-install xtools` provides it.
+
+The package directory is a copy, not a link:
+
+```sh
+mkdir -p srcpkgs/kxbps
+cp ~/workspace/projects/software/khaxbps/packaging/void/template srcpkgs/kxbps/
+```
+
+A release build downloads the tarball from the GitHub release. For a local build
+with no release to download from, generate it first and put it in the source
+cache:
 
 ```sh
 cd ~/workspace/projects/software/khaxbps
@@ -108,13 +127,16 @@ cp kxbps-0.11.0.tar.gz \
     ~/workspace/projects/software/void/void-packages/hostdir/sources/kxbps-0.11.0/
 
 cd ~/workspace/projects/software/void/void-packages
-cp ~/workspace/projects/software/khaxbps/packaging/void/template srcpkgs/kxbps/
-
 ./xbps-src pkg kxbps
 xlint srcpkgs/kxbps/template
 ```
 
-Run `xbps-src` as a regular user. The package ends up in `hostdir/binpkgs/`.
+Run `xbps-src` as a regular user; it needs no root, and it creates `masterdir/`
+and `hostdir/` inside the checkout. The package ends up in `hostdir/binpkgs/`.
+
+When the tarball changes but the version does not, run `./xbps-src clean kxbps`
+first: `masterdir/builddir/kxbps-<version>` is reused when it exists, and with an
+unchanged version number it is indistinguishable from a fresh one.
 
 Sign it, and remove the old signature first:
 

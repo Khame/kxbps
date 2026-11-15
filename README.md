@@ -89,9 +89,12 @@ with undefined references to `cxx_qt_init_crate_*`.
 
 ## Install
 
-Build it from a checkout: [INSTALL.md](INSTALL.md) has the dependencies, the
-install script and what it puts where. There is no package in the official Void
-repository.
+Khame's signed repository carries the package for x86_64: [INSTALL.md](INSTALL.md)
+has the repository line, the key fingerprint and the two commands. There is no
+package in the official Void repository.
+
+It also builds from a checkout; INSTALL.md has the dependencies, the install
+script and what it puts where.
 
 ## Run
 

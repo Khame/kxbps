@@ -5,10 +5,27 @@ places.
 
 ## From a package
 
-If a repository you use carries it, one command installs everything:
+KXbps is published for x86_64 in Khame's signed repository. Point xbps at it
+once, then install:
 
 ```sh
-sudo xbps-install -S kxbps
+sudo sh -c 'echo "repository=https://khame.github.io/void-packages/" > /etc/xbps.d/10-khame.conf'
+sudo xbps-install -S      # answer Y to import the repository key
+sudo xbps-install kxbps
+```
+
+On the first sync xbps asks whether to import the signing key. Compare the
+fingerprint before answering:
+
+```
+35:2b:06:7c:52:04:76:b1:4a:de:a0:8b:49:9c:e2:66
+```
+
+The published key gives the same fingerprint:
+
+```sh
+curl -fsSO https://khame.github.io/void-packages/Khame-void-repo.pub
+ssh-keygen -E md5 -lf <(ssh-keygen -i -m PKCS8 -f Khame-void-repo.pub)
 ```
 
 `sudo xbps-remove kxbps` takes it out again. The state in
