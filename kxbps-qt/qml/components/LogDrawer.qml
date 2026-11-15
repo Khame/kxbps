@@ -32,12 +32,20 @@ Item {
     readonly property bool hasJob: job !== null
     readonly property bool hasLines: hasJob
                                       || (checkLines !== null && checkLines.count > 0)
-    readonly property real headerHeight: Kirigami.Units.gridUnit * 2
+    // The bar carries a full-size button, so its height is the button plus one
+    // padding step above and below. A round grid unit left the control clipped
+    // by the row it sits in.
+    readonly property real headerHeight: Kirigami.Units.gridUnit * 1.6
+                                          + Kirigami.Units.smallSpacing * 2
     // Collapsed, the drawer takes no room at all: the window's app bar carries
     // the toggle, so a second header row would only repeat it.
     readonly property real collapsedHeight: 0
     readonly property real maximumHeight: Math.min(Kirigami.Units.gridUnit * 18,
                                                    (Window.window ? Window.window.height : Kirigami.Units.gridUnit * 36) * 0.6)
+    // The layout sizes the drawer from these, so the bar stays on screen when
+    // the window is too short for the log body: the body gives way, not the
+    // control.
+    Layout.minimumHeight: expanded ? headerHeight : 0
 
     readonly property string stateWord: {
         if (!hasJob) {
@@ -54,7 +62,6 @@ Item {
 
     implicitHeight: expanded ? Math.max(headerHeight, Math.min(expandedHeight, maximumHeight))
                              : 0
-    height: implicitHeight
 
     // Dragging to the minimum leaves `expandedHeight` at the header height.
     // Expanding again must restore a readable body, not just flip the flag.
@@ -92,6 +99,10 @@ Item {
         visible: drawer.expanded
         leftPadding: Kirigami.Units.largeSpacing
         rightPadding: Kirigami.Units.largeSpacing
+        // The bar's height is the button plus these two steps; the style's own
+        // padding was larger than the room left for the control.
+        topPadding: Kirigami.Units.smallSpacing
+        bottomPadding: Kirigami.Units.smallSpacing
 
         Accessible.role: Accessible.Button
         Accessible.name: i18nd("kxbps", "Log")
