@@ -5,6 +5,44 @@ the project uses semantic versioning.
 
 ## [Unreleased]
 
+## [0.11.0] - 2026-11-15
+
+### Added
+
+- The mirror table carries the address xbps is pointed at and the tier
+  `xmirror` prints, `T1`/`T2`: two mirrors in the same city are no longer two
+  rows that read the same, and a community mirror is not mistaken for an
+  upstream one.
+- The log drawer copies its lines with one button, the way the About page
+  copies the library list. A report about a failed transaction usually starts
+  by pasting the output somewhere else.
+
+### Changed
+
+- The mirror page uses the window's chrome: the region filter sits on the
+  toolbar, the count in the page footer, and the rows are one line with a
+  hairline between them.
+- The sort heading is `Ping`, in the last column and muted like every other
+  heading: the number is what the sweep produces, and the row's own facts come
+  first.
+- The sidebar and the log draw the KXbps symbolic icon set, and every icon name
+  lives in one registry.
+- The About page is rebuilt around the real build, and the Help page describes
+  the workflow the tool actually has.
+- Polish says "pakiet" everywhere; the package column still said "Paczka".
+
+### Fixed
+
+- A mirror row with no country pushed that row's address, region, tier and
+  state to the left, because its server cell could not grow.
+- The sort direction reached the list but never the heading: the arrow and the
+  accessible name kept saying "ascending".
+- Hold runs `xbps-pkgdb` instead of flipping a local flag, so the system and the
+  store agree.
+- The mirror probe covers the rows the filter leaves visible, and Apply stays
+  usable while it runs.
+- The log button and the mirror badge stay readable on the dark strip.
+
 ## [0.10.1] - 2026-11-15
 
 ### Changed
