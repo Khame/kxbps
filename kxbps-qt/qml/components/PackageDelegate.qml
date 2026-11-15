@@ -15,6 +15,7 @@ import QtQuick
 import QtQuick.Controls as QQC2
 import QtQuick.Layouts
 import org.kde.kirigami as Kirigami
+import "../Tint.js" as Tint
 import org.kde.ki18n 1.0
 
 QQC2.ItemDelegate {
@@ -137,13 +138,10 @@ QQC2.ItemDelegate {
 
     background: Rectangle {
         color: delegate.selected
-               ? Qt.rgba(Kirigami.Theme.highlightColor.r,
-                         Kirigami.Theme.highlightColor.g,
-                         Kirigami.Theme.highlightColor.b, 0.28)
-               : (delegate.hovered ? Qt.rgba(Kirigami.Theme.highlightColor.r,
-                                             Kirigami.Theme.highlightColor.g,
-                                             Kirigami.Theme.highlightColor.b, 0.07)
-                                   : "transparent")
+               ? Tint.wash(Kirigami.Theme.highlightColor, Tint.selection)
+               : (delegate.hovered
+                  ? Tint.wash(Kirigami.Theme.highlightColor, Tint.hover)
+                  : "transparent")
 
         // The left accent of the selected row: the theme colour at a width the
         // unit scale defines, never a measured pixel line.

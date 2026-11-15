@@ -8,6 +8,7 @@ import QtQuick
 import QtQuick.Controls as QQC2
 import QtQuick.Layouts
 import org.kde.kirigami as Kirigami
+import "../Tint.js" as Tint
 import org.kde.ki18n 1.0
 import "../icons/IconNames.js" as Icons
 
@@ -54,10 +55,9 @@ QQC2.ItemDelegate {
     Accessible.name: row.packageName
     Accessible.description: row.actionWord + " · " + row.versionText + " · " + row.sizeText
     background: Rectangle {
-        color: row.hovered ? Qt.rgba(Kirigami.Theme.highlightColor.r,
-                                     Kirigami.Theme.highlightColor.g,
-                                     Kirigami.Theme.highlightColor.b, 0.07)
-                           : "transparent"
+        color: row.hovered
+               ? Tint.wash(Kirigami.Theme.highlightColor, Tint.hover)
+               : "transparent"
 
         Kirigami.Separator {
             anchors.left: parent.left

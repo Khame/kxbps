@@ -14,6 +14,7 @@ import QtQuick
 import QtQuick.Controls as QQC2
 import QtQuick.Layouts
 import org.kde.kirigami as Kirigami
+import "../Tint.js" as Tint
 
 QQC2.ItemDelegate {
     id: item
@@ -45,13 +46,10 @@ QQC2.ItemDelegate {
     // current, like every Plasma sidebar.
     background: Rectangle {
         color: item.highlighted && !item.muted
-               ? Qt.rgba(Kirigami.Theme.highlightColor.r,
-                         Kirigami.Theme.highlightColor.g,
-                         Kirigami.Theme.highlightColor.b, 0.2)
-               : (item.hovered && !item.muted ? Qt.rgba(Kirigami.Theme.highlightColor.r,
-                                                       Kirigami.Theme.highlightColor.g,
-                                                       Kirigami.Theme.highlightColor.b, 0.1)
-                                              : "transparent")
+               ? Tint.wash(Kirigami.Theme.highlightColor, Tint.selection)
+               : (item.hovered && !item.muted
+                  ? Tint.wash(Kirigami.Theme.highlightColor, Tint.hover)
+                  : "transparent")
     }
 
     contentItem: RowLayout {

@@ -12,6 +12,7 @@ import QtQuick
 import QtQuick.Controls as QQC2
 import QtQuick.Layouts
 import org.kde.kirigami as Kirigami
+import "../Tint.js" as Tint
 import org.kde.ki18n 1.0
 import "../icons/IconNames.js" as Icons
 
@@ -91,9 +92,7 @@ Item {
         // the same flat row the sidebar uses, with a hover tint from the theme.
         background: Rectangle {
             color: header.hovered
-                   ? Qt.rgba(Kirigami.Theme.highlightColor.r,
-                             Kirigami.Theme.highlightColor.g,
-                             Kirigami.Theme.highlightColor.b, 0.1)
+                   ? Tint.wash(Kirigami.Theme.highlightColor, Tint.hover)
                    : "transparent"
         }
 
