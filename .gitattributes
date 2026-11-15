@@ -1,0 +1,2 @@
+# Maintainer notes are not part of the source tarball.
+VOID_PACKAGING.md export-ignore
