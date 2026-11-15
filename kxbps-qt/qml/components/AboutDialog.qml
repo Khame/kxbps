@@ -9,6 +9,7 @@ import QtQuick.Controls as QQC2
 import QtQuick.Layouts
 import org.kde.kirigami as Kirigami
 import org.kde.ki18n 1.0
+import "../icons/IconNames.js" as Icons
 
 Kirigami.Dialog {
     id: dialog
@@ -137,7 +138,7 @@ Kirigami.Dialog {
                 }
 
                 AboutActionRow {
-                    iconSource: "qrc:/qt/qml/org/kde/kxbps/icons/actions/kxbps-coffee-symbolic.svg"
+                    iconSource: "qrc:/qt/qml/org/kde/kxbps/icons/actions/kxbps-" + Icons.coffee + "-symbolic.svg"
                     label: i18nd("kxbps", "Donate")
                     target: dialog.donateUrl
                 }

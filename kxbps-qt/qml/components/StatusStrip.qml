@@ -12,6 +12,7 @@ import QtQuick.Controls as QQC2
 import QtQuick.Layouts
 import org.kde.kirigami as Kirigami
 import org.kde.ki18n 1.0
+import "../icons/IconNames.js" as Icons
 
 Rectangle {
     id: bar
@@ -123,7 +124,7 @@ Rectangle {
                 KxbpsIcon {
                     Layout.preferredWidth: Kirigami.Units.iconSizes.small
                     Layout.preferredHeight: Kirigami.Units.iconSizes.small
-                    symbolicName: "log"
+                    symbolicName: Icons.log
                 }
 
                 QQC2.Label {
