@@ -40,6 +40,12 @@ pub const REPO_ACTION_ID: &str = "io.github.khame.kxbps.repo";
 /// The polkit action id of the mirror helper.
 pub const MIRROR_ACTION_ID: &str = "io.github.khame.kxbps.mirror";
 
+/// The absolute path of `xbps-pkgdb`, the tool that pins a package version.
+pub const XPBS_PKGDB_PATH: &str = "/usr/bin/xbps-pkgdb";
+
+/// The polkit action that authorizes holding or unholding one package.
+pub const HOLD_ACTION_ID: &str = "io.github.khame.kxbps.hold";
+
 /// Which of the two privileged tools a transaction runs.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Transaction {
@@ -134,6 +140,9 @@ pub enum Privileged {
     /// `pkexec /usr/libexec/kxbps-repo-apply <verb> <value>`: one repository
     /// file, added or removed.
     Repo { verb: String, value: String },
+    /// `pkexec /usr/bin/xbps-pkgdb -m hold|unhold <name>`: one package pinned
+    /// to its current version, or released again.
+    Hold { name: String, held: bool },
 }
 
 impl Privileged {
@@ -159,13 +168,20 @@ impl Privileged {
                 verb.clone(),
                 value.clone(),
             ],
+            Self::Hold { name, held } => vec![
+                String::from(PKEXEC),
+                String::from(XPBS_PKGDB_PATH),
+                String::from("-m"),
+                String::from(if *held { "hold" } else { "unhold" }),
+                name.clone(),
+            ],
         }
     }
 
     /// The base URL of a mirror action; `None` for a package transaction.
     pub fn mirror_base(&self) -> Option<&str> {
         match self {
-            Self::Package(_) | Self::Repo { .. } => None,
+            Self::Package(_) | Self::Repo { .. } | Self::Hold { .. } => None,
             Self::Mirror(base) => Some(base),
         }
     }
@@ -176,6 +192,7 @@ impl Privileged {
             Self::Package(transaction) => transaction.action_id(),
             Self::Mirror(_) => MIRROR_ACTION_ID,
             Self::Repo { .. } => REPO_ACTION_ID,
+            Self::Hold { .. } => HOLD_ACTION_ID,
         }
     }
 
@@ -199,6 +216,18 @@ pub fn repo_argv(verb: &str, value: &str) -> Vec<String> {
     Privileged::Repo {
         verb: verb.to_owned(),
         value: value.to_owned(),
+    }
+    .argv()
+}
+
+/// The argv of one hold change: `pkexec /usr/bin/xbps-pkgdb -m hold|unhold`.
+///
+/// `held` is the state the package should end in, not the state it is in, so
+/// the caller cannot turn a hold into an unhold by toggling twice.
+pub fn hold_argv(name: &str, held: bool) -> Vec<String> {
+    Privileged::Hold {
+        name: name.to_owned(),
+        held,
     }
     .argv()
 }
@@ -669,5 +698,27 @@ mod tests {
         assert_eq!(Outcome::PkexecMissing.key(), "jobPkexecMissing");
         assert_eq!(Outcome::XbpsFailed(19).key(), "jobXbpsFailed");
         assert_eq!(Outcome::XbpsFailed(19).args(), v(&["19"]));
+    }
+
+    #[test]
+    fn a_hold_is_one_pkgdb_command_in_the_direction_asked() {
+        assert_eq!(
+            hold_argv("vim", true),
+            v(&["pkexec", "/usr/bin/xbps-pkgdb", "-m", "hold", "vim"])
+        );
+        assert_eq!(
+            hold_argv("vim", false),
+            v(&["pkexec", "/usr/bin/xbps-pkgdb", "-m", "unhold", "vim"])
+        );
+    }
+
+    #[test]
+    fn the_hold_has_its_own_policy_action() {
+        let hold = Privileged::Hold {
+            name: String::from("vim"),
+            held: true,
+        };
+        assert_eq!(hold.action_id(), "io.github.khame.kxbps.hold");
+        assert_eq!(hold.mirror_base(), None);
     }
 }

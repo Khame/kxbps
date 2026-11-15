@@ -422,6 +422,9 @@ Item {
 
     // The window owns the field, so asking it to take focus is a signal.
     signal searchFieldRequested()
+    // A hold change runs through pkexec like any other privileged action,
+    // so the window shows the prompt, the log and the result.
+    signal holdStarted(var started)
 
     // Enter in the toolbar's field applies the pattern at once.
     function submitSearch() {
@@ -969,6 +972,7 @@ Item {
             installedBackend: view.installedBackend
             packageName: view.selectedPkgver
             packageLabel: view.selectedName
+            onHoldStarted: (started) => view.holdStarted(started)
         }
 
         // The narrow form's way into the facts, next to the log strip. It only
@@ -1031,6 +1035,7 @@ Item {
             installedBackend: view.installedBackend
             packageName: view.selectedPkgver
             packageLabel: view.selectedName
+            onHoldStarted: (started) => view.holdStarted(started)
         }
     }
 

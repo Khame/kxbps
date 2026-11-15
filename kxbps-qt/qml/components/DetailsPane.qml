@@ -44,6 +44,10 @@ Item {
     // every narrower form stacks them.
     property int rowLayout: 0
 
+    // The job the hold toggle started, so the window can show its prompt, log
+    // and result like any other privileged action.
+    signal holdStarted(var started)
+
     // Bumped when the store changes, so `info` re-reads the snapshot: the
     // backend hands out a copy and has no notify signal for `get()`.
     property int refreshToken: 0
@@ -155,6 +159,12 @@ Item {
         // neither the installed nor the queue counter.
         function onStateRevisionChanged() {
             pane.refreshToken++
+            // The backend drops its cached facts when the installed records
+            // move — a hold changes one — so ask again for the package on
+            // screen; otherwise the pane keeps the state from before the click.
+            if (pane.packageName.length > 0 && pane.catalogBackend) {
+                pane.catalogBackend.requestFacts(pane.packageName)
+            }
         }
     }
 
@@ -507,7 +517,7 @@ Item {
             visible: pane.installed
             text: pane.info.held ? i18nd("kxbps", "Unhold") : i18nd("kxbps", "Hold")
             icon.name: pane.info.held ? "object-unlocked" : "object-locked"
-            onClicked: pane.installedBackend.toggleHold(pane.name)
+            onClicked: pane.holdStarted(pane.installedBackend.toggleHold(pane.name))
         }
     }
 

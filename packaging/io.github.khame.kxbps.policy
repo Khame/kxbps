@@ -25,6 +25,19 @@
     </defaults>
   </action>
 
+  <!-- Hold: `xbps-pkgdb` pins one package to its current version, or releases
+       it again. polkit matches one executable per action, so this cannot ride
+       on the install action even though both change the system. -->
+  <action id="io.github.khame.kxbps.hold">
+    <description>Hold or release a package version</description>
+    <message>Authentication is required to hold or release a package</message>
+    <annotate key="org.freedesktop.policykit.exec.path">/usr/bin/xbps-pkgdb</annotate>
+    <defaults>
+      <allow_active>auth_admin</allow_active>
+      <allow_inactive>no</allow_inactive>
+    </defaults>
+  </action>
+
   <!-- Repositories: the helper writes or removes one 20-kxbps-*.conf file. -->
   <action id="io.github.khame.kxbps.repo">
     <description>Add or remove a repository configuration</description>

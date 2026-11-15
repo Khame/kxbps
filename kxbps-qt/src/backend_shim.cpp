@@ -182,6 +182,11 @@ void kxbps_installed_apply_plan(QObject *owner, const QString &itemsJson)
     static_cast<InstalledBackend *>(owner)->applyPlanItems(itemsJson);
 }
 
+void kxbps_installed_hold_landed(QObject *owner)
+{
+    static_cast<InstalledBackend *>(owner)->holdLanded();
+}
+
 bool kxbps_job_begin(QObject *job)
 {
     return static_cast<JobBackend *>(job)->beginTransaction();

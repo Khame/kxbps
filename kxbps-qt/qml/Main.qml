@@ -117,6 +117,10 @@ Kirigami.ApplicationWindow {
             return i18nd("kxbps", "Repository %1 added.", job.labelArg)
         case "repoRemoveDone":
             return i18nd("kxbps", "Repository %1 removed.", job.labelArg)
+        case "holdDone":
+            return i18nd("kxbps", "%1 is now held at its current version.", job.labelArg)
+        case "unholdDone":
+            return i18nd("kxbps", "%1 can be updated again.", job.labelArg)
         case "repoSyncFailed":
             return i18nd("kxbps", "Repository %1 added, but the package index could not be refreshed", job.labelArg)
         case "errorRepoUrl":
@@ -1134,6 +1138,7 @@ Kirigami.ApplicationWindow {
                         catalogBackend: catalogBackend
                         job: root.job
                         onSearchFieldRequested: toolbarSearch.forceActiveFocus()
+                        onHoldStarted: (started) => root.startJob(started)
                     }
 
                     MirrorsView {

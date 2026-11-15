@@ -107,6 +107,9 @@ QObject *kxbps_start_mirror_job(QObject *owner, const QString &payloadJson);
 // saves it and refreshes the models.
 void kxbps_installed_apply_plan(QObject *owner, const QString &itemsJson);
 
+// Tells the owner that a hold job ended, so it re-reads the installed set.
+void kxbps_installed_hold_landed(QObject *owner);
+
 // The privileged transaction has started: ask the store owner to stop any
 // other job, then take the single-transaction slot. `true` when this job owns
 // it; a `false` answer means another job is running and this one must not

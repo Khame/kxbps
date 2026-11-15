@@ -185,7 +185,11 @@ pub mod qobject {
         fn queue_all_updates(self: Pin<&mut InstalledBackend>);
 
         #[qinvokable]
-        fn toggle_hold(self: Pin<&mut InstalledBackend>, name: &QString);
+        /// Pins or releases one package through `pkexec xbps-pkgdb`, and
+        /// returns the job so the window shows the password prompt, the log
+        /// and the result like any other privileged action.
+        #[qinvokable]
+        fn toggle_hold(self: &InstalledBackend, name: &QString) -> QObjectMutPtr;
 
         // Planning asks xbps what it would do, which is a process, so every
         // `open*` starts a worker thread and answers through `plan_ready`
@@ -330,6 +334,10 @@ pub mod qobject {
         // Called by `kxbps_installed_apply_plan` on the GUI thread when a job
         // finishes; not invokable so QML cannot bypass the job.
         fn apply_plan_items(self: Pin<&mut InstalledBackend>, items_json: &QString);
+
+        // Called by `kxbps_installed_hold_landed` when a hold job finishes; not
+        // invokable for the same reason.
+        fn hold_landed(self: Pin<&mut InstalledBackend>);
 
         // The mirror backend's apply job reports through this owner, because the
         // job is only created with the owner it was handed. `watch` records the
@@ -725,13 +733,22 @@ impl qobject::InstalledBackend {
         refresh_store(self.as_mut());
     }
 
-    fn toggle_hold(mut self: Pin<&mut Self>, name: &cxx_qt_lib::QString) {
-        {
-            let data = Pin::get_mut(self.as_mut().rust_mut());
-            data.store.toggle_hold(&name.to_string());
-        }
-        save_store(self.as_mut());
-        refresh_store(self.as_mut());
+    fn toggle_hold(&self, name: &cxx_qt_lib::QString) -> QObjectMutPtr {
+        let name = name.to_string();
+        // The target state comes from the snapshot, which `xbps-query -H`
+        // filled: the store never invents a hold of its own.
+        let Some(installed) = self.store.installed.get(&name) else {
+            return unsafe { QObjectMutPtr::from_raw(std::ptr::null_mut()) };
+        };
+        let json = crate::job_backend::hold_payload_json(&name, !installed.held);
+        qobject::start_job(self.parent_ptr(), &QString::from(json.as_str()))
+    }
+
+    /// Called by `kxbps_installed_hold_landed` on the GUI thread when a hold
+    /// job finishes, so the pill, the filter and the details pane read the
+    /// state xbps now has rather than the one the click assumed.
+    fn hold_landed(mut self: Pin<&mut Self>) {
+        self.as_mut().reload();
     }
 
     /// Plans the transaction queue on a worker thread.

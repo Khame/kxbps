@@ -212,6 +212,11 @@ pub mod qobject {
         /// started it clears its busy flag and re-reads the system state.
         #[cxx_name = "kxbps_installed_mirror_job_landed"]
         fn installed_mirror_job_landed(owner: QObjectMutPtr);
+
+        /// Tells the store owner that a hold job ended, so the pill and the
+        /// filters re-read what xbps now holds.
+        #[cxx_name = "kxbps_installed_hold_landed"]
+        fn installed_hold_landed(owner: QObjectMutPtr);
     }
 
     #[auto_cxx_name]
@@ -333,6 +338,10 @@ pub mod keys {
     /// The repository file was written, but `xbps-install -S` failed
     /// (`%1` = the URL).
     pub const REPO_SYNC_FAILED: &str = "repoSyncFailed";
+    /// `xbps-pkgdb` pinned the package (`%1` = its name).
+    pub const HOLD_DONE: &str = "holdDone";
+    /// `xbps-pkgdb` released the package again (`%1` = its name).
+    pub const UNHOLD_DONE: &str = "unholdDone";
 }
 
 /// What the job thread needs: the plan the dialog was built from, or the one
@@ -354,6 +363,19 @@ pub struct JobPayload {
     /// One repository edit for `kxbps-repo-apply`; `None` for the other jobs.
     #[serde(default)]
     pub repo: Option<RepoRequest>,
+    /// One hold change for `xbps-pkgdb`; `None` for the other jobs.
+    #[serde(default)]
+    pub hold: Option<HoldRequest>,
+}
+
+/// One hold change: the package and the state it should end in.
+///
+/// `held` is the target state, not the current one, so a stale click cannot
+/// flip a package the user just released.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct HoldRequest {
+    pub name: String,
+    pub held: bool,
 }
 
 /// One repository edit: the verb the helper takes and its value (a URL for
@@ -382,10 +404,18 @@ impl JobPayload {
         {
             return vec![kxbps_core::transaction::repo_argv(&repo.verb, &repo.value)];
         }
+        if let Some(hold) = self.hold.as_ref().filter(|hold| !hold.name.is_empty()) {
+            return vec![kxbps_core::transaction::hold_argv(&hold.name, hold.held)];
+        }
         match &self.mirror {
             Some(base) if !base.is_empty() => vec![mirror_argv(base)],
             _ => Vec::new(),
         }
+    }
+
+    /// Whether this payload pins or releases one package.
+    pub fn is_hold(&self) -> bool {
+        self.hold.as_ref().is_some_and(|hold| !hold.name.is_empty())
     }
 
     /// Whether this payload is a mirror apply, i.e. not a package transaction.
@@ -408,6 +438,7 @@ pub fn mirror_payload_json(base: &str) -> String {
         items: Vec::new(),
         mirror: Some(base.to_owned()),
         repo: None,
+        hold: None,
     })
     .unwrap_or_else(|_| String::from("{}"))
 }
@@ -420,6 +451,21 @@ pub fn repo_payload_json(verb: &str, value: &str) -> String {
         repo: Some(RepoRequest {
             verb: verb.to_owned(),
             value: value.to_owned(),
+        }),
+        hold: None,
+    })
+    .unwrap_or_else(|_| String::from("{}"))
+}
+
+/// The payload JSON of one hold change, as `kxbps_start_job` takes it.
+pub fn hold_payload_json(name: &str, held: bool) -> String {
+    serde_json::to_string(&JobPayload {
+        items: Vec::new(),
+        mirror: None,
+        repo: None,
+        hold: Some(HoldRequest {
+            name: name.to_owned(),
+            held,
         }),
     })
     .unwrap_or_else(|_| String::from("{}"))
@@ -463,6 +509,28 @@ impl End {
 /// [`kxbps_core::mirror_apply::Exit`]) that overlap pkexec's alphabet: `2`, `3`,
 /// `4` and `5` are the helper's refusals and failures, and 126/127 still mean
 /// pkexec never got that far. The mapping goes through
+/// The line a finished job appends to its log.
+///
+/// The subject is the value the job was given — a mirror URL, a repository file
+/// or a package name — so the line names the thing that changed instead of
+/// repeating the tool. A package plan has no single subject and reports its
+/// count.
+fn success_line(kind: JobKind, subject: &str, item_count: usize) -> String {
+    match kind {
+        JobKind::HoldApply { held } => {
+            format!("{subject} {}.", if held { "held" } else { "unheld" })
+        }
+        JobKind::MirrorApply => format!("mirror {subject} applied."),
+        JobKind::RepoApply { remove } => {
+            format!(
+                "repository {subject} {}.",
+                if remove { "removed" } else { "added" }
+            )
+        }
+        JobKind::Plan => format!("{item_count} packages processed."),
+    }
+}
+
 /// [`kxbps_core::transaction::Outcome`] first so the pkexec codes stay one
 /// definition.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -473,6 +541,8 @@ pub enum JobKind {
     MirrorApply,
     /// `pkexec /usr/libexec/kxbps-repo-apply <verb> <value>`.
     RepoApply { remove: bool },
+    /// `pkexec /usr/bin/xbps-pkgdb -m hold|unhold <name>`.
+    HoldApply { held: bool },
 }
 
 impl JobKind {
@@ -483,7 +553,9 @@ impl JobKind {
 
     /// The kind a payload describes; a package plan wins when both are present.
     pub fn of(payload: &JobPayload) -> Self {
-        if payload.is_repo() {
+        if let Some(hold) = payload.hold.as_ref().filter(|hold| !hold.name.is_empty()) {
+            Self::HoldApply { held: hold.held }
+        } else if payload.is_repo() {
             Self::RepoApply {
                 remove: payload
                     .repo
@@ -507,6 +579,7 @@ impl JobKind {
             Self::Plan => Verdict::of(End::of(code)),
             Self::MirrorApply => mirror_verdict(code, detail, url),
             Self::RepoApply { remove } => repo_verdict(code, url, remove),
+            Self::HoldApply { held } => hold_verdict(code, url, held),
         }
     }
 }
@@ -554,6 +627,30 @@ fn repo_verdict(code: i32, value: &str, remove: bool) -> Verdict {
         },
         None => Verdict::of(End::of(code)),
     }
+}
+
+/// The verdict of one `xbps-pkgdb` run.
+///
+/// `0` is the tool's own success, and the key names the direction so the strip
+/// says "pinned" or "released" rather than a generic "done". Everything else
+/// keeps the package-plan mapping, so a dismissed dialog or a missing pkexec
+/// reads exactly as it does for a transaction.
+fn hold_verdict(code: i32, name: &str, held: bool) -> Verdict {
+    if code == 0 {
+        return Verdict {
+            done: true,
+            failed: false,
+            cancelled: false,
+            exit_code: 0,
+            key: if held {
+                keys::HOLD_DONE
+            } else {
+                keys::UNHOLD_DONE
+            },
+            args: vec![name.to_owned()],
+        };
+    }
+    Verdict::of(End::of(code))
 }
 
 /// The mirror helper's verdict for one exit code.
@@ -1014,6 +1111,8 @@ impl JobBackendRust {
         // value the helper was given. Both refresh the system half afterwards.
         let mirror = if kind.is_repo() {
             payload.repo.as_ref().map(|repo| repo.value.clone())
+        } else if matches!(kind, JobKind::HoldApply { .. }) {
+            payload.hold.as_ref().map(|hold| hold.name.clone())
         } else {
             payload
                 .mirror
@@ -1246,26 +1345,34 @@ impl qobject::JobBackend {
         self.as_mut().progress_changed();
         if verdict.applied() {
             append_line(self.as_ref(), "");
-            match &self.mirror {
-                Some(url) => append_line(self.as_ref(), &format!("mirror {url} applied.")),
-                None => append_line(
-                    self.as_ref(),
-                    &format!("{} packages processed.", self.item_count()),
-                ),
-            }
+            let subject = self.mirror.as_deref().unwrap_or("");
+            append_line(
+                self.as_ref(),
+                &success_line(self.kind, subject, self.item_count()),
+            );
         }
         settle(self.as_mut(), &verdict);
         if verdict.applied() {
-            match &self.mirror {
+            match self.kind {
+                // A hold changes what xbps pins, not what it installs: the
+                // store re-reads the installed set so the pill, the filters and
+                // the details pane stop showing the state from before the click.
+                JobKind::HoldApply { .. } => {
+                    if !owner.as_ptr().is_null() {
+                        qobject::installed_hold_landed(owner);
+                    }
+                }
                 // A mirror apply changes `/etc/xbps.d`, not the installed set:
                 // the store must not be touched, and the mirror view re-reads
                 // its system state through the notification below.
-                Some(_) => {
+                JobKind::MirrorApply => {
                     if self.notify_owner && !owner.as_ptr().is_null() {
                         qobject::installed_mirror_job_landed(owner);
                     }
                 }
-                None => {
+                // The repositories page owns its own result.
+                JobKind::RepoApply { .. } => {}
+                JobKind::Plan => {
                     let items = QString::from(self.items_json.as_str());
                     qobject::installed_apply_plan(owner, &items);
                 }
@@ -1402,6 +1509,7 @@ mod tests {
             items,
             mirror: None,
             repo: None,
+            hold: None,
         })
         .commands()
         .to_vec()
@@ -1466,6 +1574,7 @@ mod tests {
             items: Vec::new(),
             mirror: Some(String::from("https://repo-default.voidlinux.org/")),
             repo: None,
+            hold: None,
         };
         let job = JobBackendRust::new(&payload);
         assert_eq!(job.kind(), JobKind::MirrorApply);
@@ -1509,6 +1618,7 @@ mod tests {
             items: Vec::new(),
             mirror: Some(String::new()),
             repo: None,
+            hold: None,
         };
         assert!(JobBackendRust::new(&payload).commands().is_empty());
         assert_eq!(
@@ -1520,6 +1630,7 @@ mod tests {
             items: vec![item("vim", PlanAction::Install, None, Some("1_1"))],
             mirror: Some(String::from("https://a/")),
             repo: None,
+            hold: None,
         };
         let job = JobBackendRust::new(&both);
         assert_eq!(job.kind(), JobKind::Plan, "a plan wins over a stray mirror");
@@ -1536,6 +1647,7 @@ mod tests {
                 items: Vec::new(),
                 mirror: Some(String::from(base)),
                 repo: None,
+                hold: None,
             };
             let job = JobBackendRust::new(&payload);
             assert_eq!(job.commands()[0].len(), 3, "{base}");
@@ -1956,5 +2068,68 @@ mod tests {
             "pkexec /usr/bin/xbps-install -S -y vim ; pkexec /usr/bin/xbps-remove -y nano"
         );
         assert_eq!(command_text(&[]), "", "an empty plan has no command");
+    }
+
+    #[test]
+    fn a_hold_payload_is_one_pkgdb_command() {
+        let payload = JobPayload {
+            hold: Some(HoldRequest {
+                name: String::from("vim"),
+                held: true,
+            }),
+            ..JobPayload::default()
+        };
+        assert!(payload.is_hold());
+        assert_eq!(
+            payload.commands(),
+            [vec![
+                String::from("pkexec"),
+                String::from("/usr/bin/xbps-pkgdb"),
+                String::from("-m"),
+                String::from("hold"),
+                String::from("vim"),
+            ]]
+        );
+        assert_eq!(JobKind::of(&payload), JobKind::HoldApply { held: true });
+    }
+
+    #[test]
+    fn a_hold_verdict_names_the_package_and_keeps_pkexec_codes() {
+        let held = JobKind::HoldApply { held: true }.verdict(0, "", "vim");
+        assert!(held.done && !held.failed);
+        assert_eq!(held.key, keys::HOLD_DONE);
+        assert_eq!(held.args, vec!["vim"]);
+
+        let unheld = JobKind::HoldApply { held: false }.verdict(0, "", "vim");
+        assert_eq!(unheld.key, keys::UNHOLD_DONE);
+
+        let dismissed = JobKind::HoldApply { held: true }.verdict(126, "", "vim");
+        assert!(dismissed.failed);
+        assert_eq!(dismissed.key, keys::AUTH_DISMISSED);
+    }
+
+    #[test]
+    fn a_finished_job_names_what_it_changed() {
+        assert_eq!(
+            success_line(JobKind::HoldApply { held: true }, "htop", 0),
+            "htop held."
+        );
+        assert_eq!(
+            success_line(JobKind::HoldApply { held: false }, "htop", 0),
+            "htop unheld."
+        );
+        assert_eq!(
+            success_line(JobKind::MirrorApply, "https://a/", 0),
+            "mirror https://a/ applied."
+        );
+        assert_eq!(
+            success_line(JobKind::RepoApply { remove: false }, "20-x.conf", 0),
+            "repository 20-x.conf added."
+        );
+        assert_eq!(
+            success_line(JobKind::RepoApply { remove: true }, "20-x.conf", 0),
+            "repository 20-x.conf removed."
+        );
+        assert_eq!(success_line(JobKind::Plan, "", 3), "3 packages processed.");
     }
 }
