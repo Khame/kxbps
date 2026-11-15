@@ -205,6 +205,11 @@ metadata stale in every place you would check later.
   global header. The record has to be removed from the members.
 - The window renders SVG through Qt's icon-engine plugin. The shlib scan cannot
   see it; `qt6-svg` has to be in `depends` by hand.
+- `xbps-install -n` reads only the indexes already cached in
+  `<rootdir>/var/db/xbps/`. In a fresh rootdir that directory does not exist and
+  every package answers `not found in repository pool`, ours included. The manual
+  says it in the `-n` entry: use `-M` to sync the indexes into memory for the
+  operation. `xbps-query -M` works without a cache for the same reason.
 - `xbps-query --repository=… -p pkgver` answers from a cached index unless `-M`
   is passed, and a stale answer looks like a failed publication.
 - The version is read from the workspace manifest, so a crate that sets its own
