@@ -12,7 +12,7 @@ maintainer="Khame <khame.dev@protonmail.com>"
 license="GPL-3.0-or-later"
 homepage="https://github.com/Khame/kxbps"
 distfiles="${homepage}/releases/download/v${version}/kxbps-${version}.tar.gz"
-checksum=17532989ac62f60d10b544ddc98ea43c20cb977ed31fb1359148d6636e2cccbb
+checksum=a173c69c722d0e9b6f71c9ef32af3920f70aa06e2d2e8b556225d75aa6e2e50f
 
 # The default do_install would `cargo install` every binary in the workspace
 # into /usr/bin. The two helpers are only ever started by polkit, and the
