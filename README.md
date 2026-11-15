@@ -36,10 +36,17 @@ there is nothing to show yet.
 ## Update checks
 
 `xbps-install -un` reads the local index, so the Upgradable list is as old as the
-last repository sync. The **Check for updates** button on that page, the timer in
-Settings (30 minutes, 1, 3, 6, 12 or 24 hours) and the start of the app run
+last repository sync. The timer in Settings (30 minutes, 1, 3, 6, 12 or 24
+hours), the start of the app and the moment the window is shown again run
 `xbps-install -M -un` instead: xbps fetches the repository indexes into memory,
-writes nothing and needs no root.
+writes nothing and needs no root. The Available list is refreshed the same way
+and on the same clock, so a package added to a repository appears without a
+sync.
+
+The **Check for updates** button on that page is the real sync: `xbps-install -S`
+through polkit, which writes the indexes to disk and asks for the password. It is
+the only read that needs one, and after it a terminal sees the same packages the
+window does.
 
 A check that cannot read a repository leaves the list as it was and says why,
 together with the age of the last successful check; it never claims the system
