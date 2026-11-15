@@ -15,6 +15,7 @@ The file is written as `kxbps-<version>.tar.gz`; the version comes from
 import argparse
 import gzip
 import hashlib
+import io
 import subprocess
 import sys
 import tarfile
@@ -29,6 +30,24 @@ def version() -> str:
         if line.startswith("version") and "=" in line:
             return line.split("=", 1)[1].strip().strip('"')
     raise SystemExit("Cargo.toml has no workspace version")
+
+
+def _normalise(archive: bytes) -> bytes:
+    """Drop the global pax header and pin every timestamp.
+
+    `git archive` writes a `pax_global_header` naming the commit and stamps each
+    member with the commit time. Both make two archives of the same tree differ,
+    so they are removed here.
+    """
+    source = tarfile.open(fileobj=io.BytesIO(archive))
+    buffer = io.BytesIO()
+    with tarfile.open(fileobj=buffer, mode="w", format=tarfile.PAX_FORMAT) as target:
+        for member in source.getmembers():
+            if member.name == "pax_global_header":
+                continue
+            member.mtime = 0
+            target.addfile(member, source.extractfile(member))
+    return buffer.getvalue()
 
 
 def main() -> int:
@@ -52,13 +71,18 @@ def main() -> int:
     out = Path(args.output) / name
 
     # `git archive` honours `export-ignore` in .gitattributes, so the maintainer
-    # notes and packaging/void stay out of the release.
+    # notes and packaging/void stay out of the release. Its tar also records the
+    # commit id and the commit time, which would change the digest on every
+    # commit even when the tree did not change — and a checksum that invalidates
+    # itself in the commit that writes it is worse than none. The archive is
+    # rewritten with a fixed timestamp and no global header, so the digest
+    # depends on the tree alone.
     archive = subprocess.run(
         ["git", "-C", str(ROOT), "archive", "--format=tar", f"--prefix=kxbps-{version_}/", "HEAD"],
         capture_output=True,
         check=True,
     ).stdout
-    out.write_bytes(gzip.compress(archive, compresslevel=9, mtime=0))
+    out.write_bytes(gzip.compress(_normalise(archive), compresslevel=9, mtime=0))
 
     with tarfile.open(out) as tar:
         members = tar.getmembers()
