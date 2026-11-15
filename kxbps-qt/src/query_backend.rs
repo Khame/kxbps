@@ -346,6 +346,10 @@ impl qobject::QueryBackend {
         let started = Pin::get_mut(self.as_mut().rust_mut())
             .begin_facts(&pkgver)
             .is_some();
+        // The pane reads `get()` only while the pointer names the package on
+        // screen, and a cached answer moves the pointer without starting a
+        // read. The change is announced here, not from a finished read.
+        self.as_mut().facts_pkgver_changed();
         if started {
             self.as_mut().run_facts(pkgver);
         }
@@ -732,11 +736,15 @@ impl QueryBackendRust {
 
     /// Starts a read for `pkgver` unless its facts are cached or in flight.
     fn begin_facts(&mut self, pkgver: &str) -> Option<u64> {
+        // The pointer follows every request, cached or not: the pane reads
+        // `get()` only while `factsPkgver` is the package on screen, so a
+        // cached answer asked for again would otherwise stay hidden behind the
+        // package read last.
+        self.facts_pkgver = QString::from(pkgver);
         if self.facts.contains_key(pkgver) || self.facts_pending.as_deref() == Some(pkgver) {
             return None;
         }
         self.facts_pending = Some(pkgver.to_owned());
-        self.facts_pkgver = QString::from(pkgver);
         Some(self.facts_generation.fetch_add(1, Ordering::SeqCst) + 1)
     }
 
@@ -1592,5 +1600,41 @@ mod tests {
             Some(listing.to_string()),
             "the listing survives every typed search"
         );
+    }
+}
+
+#[cfg(test)]
+mod facts_pointer_tests {
+    use super::*;
+
+    fn facts() -> PackageFacts {
+        PackageFacts {
+            installed: true,
+            ..PackageFacts::default()
+        }
+    }
+
+    #[test]
+    fn a_cached_answer_is_visible_again_when_the_selection_returns() {
+        let mut backend = QueryBackendRust::default();
+        // Two packages read in order: the pointer ends on the second.
+        backend.begin_facts("asusctl-1_1");
+        backend.finish_facts(String::from("asusctl-1_1"), Ok(facts()));
+        backend.begin_facts("asusctl-plasma-1_1");
+        backend.finish_facts(String::from("asusctl-plasma-1_1"), Ok(facts()));
+        assert_eq!(backend.facts_pkgver.to_string(), "asusctl-plasma-1_1");
+
+        // Going back asks for a cached answer: no read starts, but the pane
+        // must still see it, so the pointer has to move.
+        assert!(
+            backend.begin_facts("asusctl-1_1").is_none(),
+            "cached: nothing to read"
+        );
+        assert_eq!(
+            backend.facts_pkgver.to_string(),
+            "asusctl-1_1",
+            "the pointer follows the selection, not the last read"
+        );
+        assert!(backend.facts_of("asusctl-1_1").is_some());
     }
 }
