@@ -552,6 +552,10 @@ const FACT_PROPERTIES: &[&str] = &[
     "installed_size",
     "repository",
     "state",
+    // The installed record carries the download size of the version that is on
+    // the system. Without it the pane has nothing to show when the repository
+    // index does not know that version (a local build, a removed repository).
+    "filename-size",
 ];
 
 /// The property list of the repository-mode answer, which also carries the
@@ -680,7 +684,7 @@ pub fn read_package(
             "not installed"
         }
         .to_owned(),
-        filename_size: value_of(&download, "filename-size"),
+        filename_size: preferred(&plain, &download, "filename-size"),
         depends,
         required_by,
     })
@@ -1461,7 +1465,7 @@ mod tests {
             (
                 "-p",
                 ok_reply(
-                    "vim-9.2.1031_1\nVim editor (vi clone)\nhttps://www.vim.org\nVim\n2125KB\nhttps://repo-de.voidlinux.org/current\ninstalled\n",
+                    "vim-9.2.1031_1\nVim editor (vi clone)\nhttps://www.vim.org\nVim\n2125KB\nhttps://repo-de.voidlinux.org/current\ninstalled\n1700KB\n",
                 ),
             ),
             (
@@ -1492,7 +1496,7 @@ mod tests {
             assert_eq!(facts.installed_size, "2125KB");
             assert_eq!(facts.repository, "https://repo-de.voidlinux.org/current");
             assert_eq!(facts.state, "installed");
-            assert_eq!(facts.filename_size, "1735KB");
+            assert_eq!(facts.filename_size, "1700KB");
             assert_eq!(facts.depends, vec!["glibc>=2.41_1".to_owned()]);
             assert_eq!(facts.required_by, vec!["base-system".to_owned()]);
             assert_eq!(facts.version(), "9.2.1031_1");
@@ -1503,7 +1507,7 @@ mod tests {
                 vec![
                     "xbps-query",
                     "-p",
-                    "pkgver,short_desc,homepage,license,installed_size,repository,state",
+                    "pkgver,short_desc,homepage,license,installed_size,repository,state,filename-size",
                     "vim-9.2.1031_1",
                 ],
                 vec![
@@ -1576,7 +1580,7 @@ mod tests {
             (
                 "-p",
                 ok_reply(
-                    "vim-9.2.1031_1\nVim editor (vi clone)\nhttps://www.vim.org\nVim\n2125KB\nhttps://repo-de.voidlinux.org/current\ninstalled\n",
+                    "vim-9.2.1031_1\nVim editor (vi clone)\nhttps://www.vim.org\nVim\n2125KB\nhttps://repo-de.voidlinux.org/current\ninstalled\n1900KB\n",
                 ),
             ),
             (
@@ -1596,13 +1600,43 @@ mod tests {
         );
         assert_eq!(facts.version(), "9.2.1031_1");
         assert_eq!(
-            facts.filename_size, "1800KB",
-            "the download size only the repository take reports"
+            facts.filename_size, "1900KB",
+            "the installed record's download size wins, like every other field"
         );
         assert_eq!(
             facts.installed_size, "2125KB",
             "the installed record's size wins over the repository's"
         );
+    }
+
+    #[test]
+    fn the_download_size_survives_a_missing_repository_record() {
+        // The installed record knows the download size; the index does not know
+        // this version, which is what a local build or a removed repository
+        // looks like. The pane still has to show both numbers.
+        let invoke = transport_by_mode(vec![
+            (
+                "-p",
+                ok_reply(
+                    "asusctl-1_1\nDaemon\nhttps://example.org\nMPL-2.0\n44MB\n/home/khame/hostdir/binpkgs\ninstalled\n14MB\n",
+                ),
+            ),
+            (
+                "-R -p",
+                r#"{"exitCode":2,"stdout":"","stderr":"Package 'asusctl-1_1' not found","timedOut":false}"#
+                    .to_owned(),
+            ),
+            ("-x", ok_reply("glibc>=2.41_1\n")),
+            ("-X", ok_reply("")),
+        ]);
+        let facts =
+            read_package(&invoke, "asusctl", "asusctl-1_1").expect("the installed record answers");
+        assert!(facts.installed);
+        assert_eq!(
+            facts.filename_size, "14MB",
+            "the download size comes from the installed record"
+        );
+        assert_eq!(facts.installed_size, "44MB");
     }
 
     #[test]

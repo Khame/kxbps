@@ -280,11 +280,14 @@ Item {
 
         Fact {
             label: i18nd("kxbps", "Size")
-            value: (pane.info.size !== undefined && pane.info.size !== ""
-                    ? pane.info.size : "—")
+            // The download comes first: it is the number a reader needs before
+            // deciding, and the installed size is what the package takes on
+            // disk afterwards.
+            value: (pane.info.download !== undefined && pane.info.download !== ""
+                    ? pane.info.download : "—")
                    + " → "
-                   + (pane.info.download !== undefined && pane.info.download !== ""
-                      ? pane.info.download : "—")
+                   + (pane.info.size !== undefined && pane.info.size !== ""
+                      ? pane.info.size : "—")
             mono: true
         }
 
