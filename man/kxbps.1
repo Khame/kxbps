@@ -16,12 +16,20 @@ and the
 .B Apply
 button runs the queue: it asks xbps for a dry run first, shows the plan and the
 exact byte count, and only then starts the transaction. Installing, removing,
-switching the mirror and adding a repository go through polkit; reading the
-package lists needs no privileges.
+switching the mirror, adding a repository and syncing the repository indexes go
+through polkit; reading the package lists needs no privileges.
 .PP
 The update check follows the interval set in the Settings page, announces a set
 of available updates once, reminds after three hours, and afterwards reports
-through the tray icon and the dock badge alone.
+through the tray icon and the dock badge alone. It fetches the repository
+indexes into memory and writes nothing, and the same read refreshes the list of
+installable packages.
+.PP
+The button on the Updates page is the one read that writes: it runs
+.B xbps-install \-S
+through polkit, which stores the indexes on disk and asks for the password.
+After it, every later read, in this window and in a terminal, sees the same
+packages.
 .SH OPTIONS
 .TP
 .B \-\-tray
