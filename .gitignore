@@ -7,3 +7,4 @@ screenshots/
 qmlls.ini
 __pycache__/
 *.pyc
+*.po~

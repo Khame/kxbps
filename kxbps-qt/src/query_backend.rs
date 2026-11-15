@@ -439,9 +439,6 @@ impl qobject::QueryBackend {
     fn invalidate_list_search(mut self: Pin<&mut Self>) {
         let data = Pin::get_mut(self.as_mut().rust_mut());
         data.forget_listing();
-        // A transaction syncs the indexes before it installs, so the next fresh
-        // read is worth the network again: the clock starts over.
-        data.list_search_at = 0;
     }
 
     /// Reads the repository hits against freshly fetched indexes.
