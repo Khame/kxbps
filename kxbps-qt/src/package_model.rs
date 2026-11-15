@@ -347,6 +347,53 @@ fn search_hit_visible(
     }
 }
 
+/// Whether `pattern` is a plain word, so a substring match answers what
+/// `xbps-query -Rs` would.
+///
+/// The local filter compares names and descriptions as text. Regex syntax means
+/// something else to xbps, so those patterns go to the repository read instead
+/// of being answered wrongly from memory.
+fn is_plain_pattern(pattern: &str) -> bool {
+    // A dot is a regex wildcard, but it is also in half the package names on
+    // Void (`python3.12`, `kxbps-0.11`). Treating it as a literal can only make
+    // the local answer narrower, and a local answer with no hits falls through
+    // to the repository read, so the wildcard meaning is not lost.
+    !pattern.is_empty()
+        && !pattern.chars().any(|c| {
+            matches!(
+                c,
+                '^' | '$' | '*' | '+' | '?' | '(' | ')' | '[' | ']' | '{' | '}' | '|' | '\\'
+            )
+        })
+}
+
+/// The listing rows matching `pattern`, exact name first and the rest in the
+/// order the listing holds them.
+fn local_search(listing: &[SearchRow], pattern: &str) -> Vec<SearchRow> {
+    let needle = pattern.to_lowercase();
+    let mut hits: Vec<SearchRow> = listing
+        .iter()
+        .filter(|row| {
+            row.name.to_lowercase().contains(&needle)
+                || row.description.to_lowercase().contains(&needle)
+        })
+        .cloned()
+        .collect();
+    hits.sort_by_key(|row| {
+        let name = row.name.to_lowercase();
+        if name == needle {
+            0
+        } else if name.starts_with(&needle) {
+            1
+        } else if name.contains(&needle) {
+            2
+        } else {
+            3
+        }
+    });
+    hits
+}
+
 /// Value of `role` for one row; an invalid `QVariant` for unknown roles.
 pub fn role_value(role: i32, row: &RowView<'_>) -> QVariant {
     match role {
@@ -441,6 +488,12 @@ pub struct PackageModelRust {
     /// row list. While this is `Some`, `rows` is empty and the search rows are
     /// what `data()` answers from.
     active_search: Option<ActiveSearch>,
+    /// The last repository listing read with an empty pattern, kept so a typed
+    /// pattern can be answered from memory instead of another `xbps-query`.
+    ///
+    /// Only the empty answer fills it: a typed answer describes a different
+    /// question and would make the next keystroke filter the wrong set.
+    listing: Option<Vec<SearchRow>>,
 }
 
 /// The ranked repository answer the list is showing.
@@ -457,6 +510,7 @@ struct ActiveSearch {
 }
 
 /// One repository hit as a row.
+#[derive(Clone)]
 struct SearchRow {
     name: String,
     version: String,
@@ -540,6 +594,7 @@ impl Default for PackageModelRust {
             search_error: QString::from(""),
             search_error_args: QStringList::default(),
             active_search: None,
+            listing: None,
         }
     }
 }
@@ -1291,10 +1346,62 @@ impl qobject::PackageModel {
         }
         self.as_mut().search_changed();
         if !answered {
+            // The listing read at start-up is the whole repository: a plain
+            // word is answered from it without a process, and only a pattern
+            // that means something else to xbps goes to the read.
+            if self.as_mut().show_local_search(&pattern) {
+                return;
+            }
             self.as_mut().mark_search_loading();
             self.as_mut()
                 .search_requested(QString::from(pattern.as_str()));
         }
+    }
+
+    /// Answers `pattern` from the listing already in memory.
+    ///
+    /// Returns `false` when no listing was read, or when the pattern carries
+    /// regex syntax: `xbps-query -Rs` treats the pattern as a regex, and a
+    /// substring match would answer a different question. The caller then asks
+    /// the repositories.
+    fn show_local_search(mut self: Pin<&mut Self>, pattern: &str) -> bool {
+        if !is_plain_pattern(pattern) {
+            return false;
+        }
+        let hits = {
+            let data = Pin::get_mut(self.as_mut().rust_mut());
+            match data.listing.as_ref() {
+                Some(listing) => local_search(listing, pattern),
+                None => return false,
+            }
+        };
+        if hits.is_empty() {
+            // Nothing here, but the repositories may still answer: the read is
+            // the only thing that knows what a wildcard or a description match
+            // would find. The rows on screen are left alone until it lands.
+            return false;
+        }
+        {
+            let data = Pin::get_mut(self.as_mut().rust_mut());
+            data.active_search = Some(ActiveSearch {
+                pattern: pattern.to_owned(),
+                hits,
+                error_key: String::new(),
+            });
+            data.count = data.visible_count();
+            data.searching = true;
+            data.search_loading = false;
+            data.search_error = QString::from("");
+            data.search_error_args = QStringList::default();
+        }
+        qobject::model_begin_reset(base(self.as_mut()));
+        qobject::model_end_reset(base(self.as_mut()));
+        self.as_mut().count_changed();
+        self.as_mut().searching_changed();
+        self.as_mut().search_loading_changed();
+        self.as_mut().search_error_changed();
+        self.as_mut().search_error_args_changed();
+        true
     }
 
     fn set_search_results(
@@ -1324,8 +1431,12 @@ impl qobject::PackageModel {
         } else {
             hits
         };
+        let listing = self.search.to_string().trim().is_empty() && key.is_empty();
         {
             let data = Pin::get_mut(self.as_mut().rust_mut());
+            if listing {
+                data.listing = Some(hits.clone());
+            }
             data.active_search = Some(ActiveSearch {
                 pattern: data.search.to_string().trim().to_owned(),
                 hits,
@@ -1625,6 +1736,53 @@ mod tests {
             state: InstallState::Installed,
             description: description.to_owned(),
         }
+    }
+
+    /// One repository hit as the model holds it.
+    fn hit(name: &str, description: &str) -> SearchRow {
+        SearchRow {
+            name: name.to_owned(),
+            version: String::from("1_1"),
+            pkgver: format!("{name}-1_1"),
+            description: description.to_owned(),
+            tagged: None,
+        }
+    }
+
+    #[test]
+    fn a_plain_word_is_answered_from_the_listing_and_regex_is_not() {
+        assert!(is_plain_pattern("vim"));
+        assert!(is_plain_pattern("kxbps-0.11"));
+        assert!(is_plain_pattern("libreoffice calc"));
+        assert!(
+            !is_plain_pattern("lib.*dev"),
+            "xbps reads the pattern as a regex, a substring match would differ"
+        );
+        assert!(!is_plain_pattern("^vim"));
+        assert!(!is_plain_pattern(""));
+    }
+
+    #[test]
+    fn the_local_search_ranks_the_exact_name_first() {
+        let listing = vec![
+            hit("gvim", "graphical vim"),
+            hit("vim", "Vi IMproved"),
+            hit("vim-plug", "vim plugin manager"),
+            hit("nano", "text editor"),
+        ];
+        let names: Vec<String> = local_search(&listing, "vim")
+            .iter()
+            .map(|row| row.name.clone())
+            .collect();
+        assert_eq!(names, ["vim", "vim-plug", "gvim"]);
+        let by_description: Vec<String> = local_search(&listing, "editor")
+            .iter()
+            .map(|row| row.name.clone())
+            .collect();
+        assert_eq!(by_description, ["nano"], "a description match still counts");
+        let by_description = local_search(&listing, "Vi IMproved");
+        assert_eq!(by_description.len(), 1);
+        assert_eq!(by_description[0].name, "vim");
     }
 
     /// One update as `xbps-install -un` printed it.

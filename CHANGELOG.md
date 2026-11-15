@@ -19,6 +19,10 @@ the project uses semantic versioning.
   install or a terminal `xbps-install -S`. The listing is now refreshed against
   the repositories on the same clock as the update check, and the footer says
   so while it runs.
+- Typing a name on that page asked xbps again, so the fresh listing and the
+  search could disagree. A typed word now filters the listing in memory, exact
+  name first; only a pattern with regex syntax, or a local match that finds
+  nothing, goes to `xbps-query -Rs`.
 
 ## [0.11.0] - 2026-11-15
 

@@ -5,7 +5,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: kxbps 0.10.1\n"
 "Report-Msgid-Bugs-To: \n"
-"POT-Creation-Date: 2026-11-15 18:35+0000\n"
+"POT-Creation-Date: 2026-11-15 19:22+0000\n"
 "PO-Revision-Date: 2026-11-15 10:28+0000\n"
 "Last-Translator: KXbps translation contributors <khame.dev@protonmail.com>\n"
 "Language-Team: Italian\n"
@@ -348,11 +348,11 @@ msgstr "Annuncia gli aggiornamenti all'avvio"
 msgid "Another transaction is running"
 msgstr "Un'altra transazione è in corso"
 
-#: kxbps-qt/qml/Main.qml:1078 kxbps-qt/qml/components/PlanDialog.qml:265
+#: kxbps-qt/qml/Main.qml:1079 kxbps-qt/qml/components/PlanDialog.qml:265
 msgid "Apply"
 msgstr "Applica"
 
-#: kxbps-qt/qml/Main.qml:1077
+#: kxbps-qt/qml/Main.qml:1078
 msgid "Apply (%1)"
 msgid_plural "Apply (%1)"
 msgstr[0] "Applica (%1)"
@@ -362,7 +362,7 @@ msgstr[1] "Applica (%1)"
 msgid "Apply queued changes"
 msgstr "Applica le modifiche in coda"
 
-#: kxbps-qt/qml/Main.qml:1165
+#: kxbps-qt/qml/Main.qml:1166
 msgid "Apply to system"
 msgstr "Applica al sistema"
 
@@ -394,8 +394,10 @@ msgid "Available"
 msgstr "Disponibile"
 
 #: kxbps-qt/qml/views/HelpView.qml:36
-msgid "Available: repository packages. Type a name and press Enter."
-msgstr "Disponibili: pacchetti dei repository. Digita un nome e premi Invio."
+msgid ""
+"Available: repository packages, read fresh when the window starts. Typing "
+"filters them in place; a pattern with regex syntax is sent to xbps."
+msgstr "Disponibile: pacchetti dei repository, letti all'avvio. Digitare li filtra sul posto; un pattern con sintassi regex viene inviato a xbps."
 
 #: kxbps-qt/qml/views/HelpView.qml:47
 msgid ""
@@ -419,7 +421,7 @@ msgstr "Annullato."
 msgid "Cannot remove"
 msgstr "Impossibile rimuovere"
 
-#: kxbps-qt/qml/Main.qml:1153
+#: kxbps-qt/qml/Main.qml:1154
 msgid "Check"
 msgstr "Verifica"
 
@@ -432,7 +434,7 @@ msgstr "Cerca aggiornamenti"
 msgid "Check for updates:"
 msgstr "Cerca aggiornamenti:"
 
-#: kxbps-qt/qml/Main.qml:1155
+#: kxbps-qt/qml/Main.qml:1156
 msgid "Check the listed mirrors"
 msgstr "Verifica i mirror dell'elenco"
 
@@ -799,7 +801,7 @@ msgstr "Contrassegna %1 per l'installazione"
 msgid "Mark %1 for the update"
 msgstr "Contrassegna %1 per l'aggiornamento"
 
-#: kxbps-qt/qml/Main.qml:1053 kxbps-qt/qml/Main.qml:1056
+#: kxbps-qt/qml/Main.qml:1054 kxbps-qt/qml/Main.qml:1057
 msgid "Mark all upgrades"
 msgstr "Contrassegna tutti gli aggiornamenti"
 
@@ -815,7 +817,7 @@ msgstr "Contrassegnati: pacchetti nella coda."
 msgid "Mirror applied."
 msgstr "Mirror applicato."
 
-#: kxbps-qt/qml/Main.qml:1125
+#: kxbps-qt/qml/Main.qml:1126
 msgid "Mirror filter"
 msgstr "Filtro dei mirror"
 
@@ -1151,7 +1153,7 @@ msgstr "Esamina i pacchetti bloccati"
 msgid "Running xbps…"
 msgstr "Esecuzione di xbps…"
 
-#: kxbps-qt/qml/Main.qml:1035
+#: kxbps-qt/qml/Main.qml:1036
 msgid "Search packages…"
 msgstr "Cerca pacchetti…"
 
@@ -1241,7 +1243,9 @@ msgstr "Sincronizzazione dell'indice dei repository…"
 msgid ""
 "Syncing the repository indexes writes the index files, so it asks for the "
 "password as well."
-msgstr "Sincronizzare gli indici dei repository scrive i file di indice, quindi chiede anch'esso la password."
+msgstr ""
+"Sincronizzare gli indici dei repository scrive i file di indice, quindi "
+"chiede anch'esso la password."
 
 #: kxbps-qt/qml/Main.qml:769
 msgid "System is up to date"
@@ -1264,7 +1268,11 @@ msgid ""
 "The button on this page is the real sync: it runs xbps-install -S through "
 "polkit, writes the indexes to disk and asks for the password. Every later "
 "read then sees the new packages, in this window and in a terminal."
-msgstr "Il pulsante di questa pagina è la sincronizzazione vera: esegue xbps-install -S tramite polkit, scrive gli indici su disco e chiede la password. Ogni lettura successiva vede i nuovi pacchetti, in questa finestra e in un terminale."
+msgstr ""
+"Il pulsante di questa pagina è la sincronizzazione vera: esegue xbps-install "
+"-S tramite polkit, scrive gli indici su disco e chiede la password. Ogni "
+"lettura successiva vede i nuovi pacchetti, in questa finestra e in un "
+"terminale."
 
 #: kxbps-qt/qml/views/HelpView.qml:63
 msgid ""
@@ -1272,7 +1280,11 @@ msgid ""
 "password and writes nothing. The Available list is refreshed the same way on "
 "the same clock, which is how a package added to a repository shows up "
 "without a sync."
-msgstr "Il controllo scarica gli indici dei repository in memoria: non serve la password e non scrive nulla. L'elenco Disponibile viene aggiornato allo stesso modo e con la stessa cadenza, così un pacchetto aggiunto a un repository compare senza sincronizzare."
+msgstr ""
+"Il controllo scarica gli indici dei repository in memoria: non serve la "
+"password e non scrive nulla. L'elenco Disponibile viene aggiornato allo "
+"stesso modo e con la stessa cadenza, così un pacchetto aggiunto a un "
+"repository compare senza sincronizzare."
 
 #: kxbps-qt/qml/views/PackagesView.qml:508
 msgid ""
@@ -1437,7 +1449,7 @@ msgstr "Rilascia"
 msgid "Unmark %1"
 msgstr "Rimuovi il contrassegno da %1"
 
-#: kxbps-qt/qml/Main.qml:1063 kxbps-qt/qml/Main.qml:1066
+#: kxbps-qt/qml/Main.qml:1064 kxbps-qt/qml/Main.qml:1067
 msgid "Unmark all"
 msgstr "Rimuovi tutti i contrassegni"
 
@@ -1559,6 +1571,10 @@ msgstr "xbps ha fallito con codice di uscita %1"
 #: kxbps-qt/qml/views/HelpView.qml:89
 msgid "xbps reads its configuration from /etc/xbps.d."
 msgstr "xbps legge la sua configurazione da /etc/xbps.d."
+
+#~ msgid "Available: repository packages. Type a name and press Enter."
+#~ msgstr ""
+#~ "Disponibili: pacchetti dei repository. Digita un nome e premi Invio."
 
 #~ msgid "Latency"
 #~ msgstr "Latenza"

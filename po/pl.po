@@ -5,7 +5,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: kxbps 0.11.0\n"
 "Report-Msgid-Bugs-To: \n"
-"POT-Creation-Date: 2026-11-15 18:35+0000\n"
+"POT-Creation-Date: 2026-11-15 19:22+0000\n"
 "PO-Revision-Date: 2026-11-15 00:07+0000\n"
 "Last-Translator: KXbps translation contributors <khame.dev@protonmail.com>\n"
 "Language-Team: Polish\n"
@@ -347,11 +347,11 @@ msgstr "Powiadamiaj o dostępnych aktualizacjach przy uruchomieniu"
 msgid "Another transaction is running"
 msgstr "Inna transakcja jest w toku"
 
-#: kxbps-qt/qml/Main.qml:1078 kxbps-qt/qml/components/PlanDialog.qml:265
+#: kxbps-qt/qml/Main.qml:1079 kxbps-qt/qml/components/PlanDialog.qml:265
 msgid "Apply"
 msgstr "Zastosuj"
 
-#: kxbps-qt/qml/Main.qml:1077
+#: kxbps-qt/qml/Main.qml:1078
 msgid "Apply (%1)"
 msgid_plural "Apply (%1)"
 msgstr[0] "Zastosuj (%1)"
@@ -362,7 +362,7 @@ msgstr[2] "Zastosuj (%1)"
 msgid "Apply queued changes"
 msgstr "Zastosuj zmiany z kolejki"
 
-#: kxbps-qt/qml/Main.qml:1165
+#: kxbps-qt/qml/Main.qml:1166
 msgid "Apply to system"
 msgstr "Zastosuj w systemie"
 
@@ -392,8 +392,8 @@ msgid "Available"
 msgstr "Dostępne"
 
 #: kxbps-qt/qml/views/HelpView.qml:36
-msgid "Available: repository packages. Type a name and press Enter."
-msgstr "Dostępne: pakiety z repozytoriów. Wpisz nazwę i naciśnij Enter."
+msgid "Available: repository packages, read fresh when the window starts. Typing filters them in place; a pattern with regex syntax is sent to xbps."
+msgstr "Dostępne: pakiety z repozytoriów, czytane od nowa przy starcie. Wpisywanie filtruje je na miejscu; wzorzec z wyrażeniem regularnym idzie do xbps."
 
 #: kxbps-qt/qml/views/HelpView.qml:47
 msgid "Before anything is written, xbps runs a dry run. The plan shows the packages, the actions and the exact bytes to download and install."
@@ -413,7 +413,7 @@ msgstr "Anulowano."
 msgid "Cannot remove"
 msgstr "Nie można usunąć"
 
-#: kxbps-qt/qml/Main.qml:1153
+#: kxbps-qt/qml/Main.qml:1154
 msgid "Check"
 msgstr "Sprawdź"
 
@@ -426,7 +426,7 @@ msgstr "Sprawdź aktualizacje"
 msgid "Check for updates:"
 msgstr "Sprawdzanie aktualizacji:"
 
-#: kxbps-qt/qml/Main.qml:1155
+#: kxbps-qt/qml/Main.qml:1156
 msgid "Check the listed mirrors"
 msgstr "Sprawdź serwery z listy"
 
@@ -755,7 +755,7 @@ msgstr "Zaznacz %1 do instalacji"
 msgid "Mark %1 for the update"
 msgstr "Zaznacz %1 do aktualizacji"
 
-#: kxbps-qt/qml/Main.qml:1053 kxbps-qt/qml/Main.qml:1056
+#: kxbps-qt/qml/Main.qml:1054 kxbps-qt/qml/Main.qml:1057
 msgid "Mark all upgrades"
 msgstr "Zaznacz wszystkie aktualizacje"
 
@@ -771,7 +771,7 @@ msgstr "Zaznaczone: pakiety w kolejce."
 msgid "Mirror applied."
 msgstr "Zastosowano lustro."
 
-#: kxbps-qt/qml/Main.qml:1125
+#: kxbps-qt/qml/Main.qml:1126
 msgid "Mirror filter"
 msgstr "Filtr luster"
 
@@ -1097,7 +1097,7 @@ msgstr "Przejrzyj zablokowane pakiety"
 msgid "Running xbps…"
 msgstr "xbps pracuje…"
 
-#: kxbps-qt/qml/Main.qml:1035
+#: kxbps-qt/qml/Main.qml:1036
 msgid "Search packages…"
 msgstr "Szukaj pakietów…"
 
@@ -1339,7 +1339,7 @@ msgstr "Odblokuj"
 msgid "Unmark %1"
 msgstr "Odznacz %1"
 
-#: kxbps-qt/qml/Main.qml:1063 kxbps-qt/qml/Main.qml:1066
+#: kxbps-qt/qml/Main.qml:1064 kxbps-qt/qml/Main.qml:1067
 msgid "Unmark all"
 msgstr "Odznacz wszystko"
 
@@ -1452,6 +1452,9 @@ msgstr "xbps zgłosił błąd, kod wyjścia %1"
 #: kxbps-qt/qml/views/HelpView.qml:89
 msgid "xbps reads its configuration from /etc/xbps.d."
 msgstr "xbps czyta konfigurację z /etc/xbps.d."
+
+#~ msgid "Available: repository packages. Type a name and press Enter."
+#~ msgstr "Dostępne: pakiety z repozytoriów. Wpisz nazwę i naciśnij Enter."
 
 #~ msgid "Latency"
 #~ msgstr "Opóźnienie"

@@ -62,6 +62,12 @@ The one action that writes the disk index is the button on the Updates page:
 `pkexec /usr/bin/xbps-install -S` under the install action's authorization. After
 it, `xbps-query -Rs` in a terminal sees the same packages the window does.
 
+A typed pattern is answered from that same listing while it is in memory: the
+model matches names and descriptions as text, exact name first, and asks
+`xbps-query -Rs` only when the pattern carries regex syntax or the local match
+finds nothing. So a package added to a repository is found by name without a
+second process, and a wildcard search still gets xbps' own answer.
+
 ## Commands the plan and the transaction run
 
 `xbps-install -n …` and `xbps-remove -n …` are the dry runs. They print the same

@@ -33,7 +33,7 @@ Item {
             bullets: [
                 i18nd("kxbps", "Installed: packages in the system."),
                 i18nd("kxbps", "Upgradable: installed packages with a newer version in the repository."),
-                i18nd("kxbps", "Available: repository packages. Type a name and press Enter."),
+                i18nd("kxbps", "Available: repository packages, read fresh when the window starts. Typing filters them in place; a pattern with regex syntax is sent to xbps."),
                 i18nd("kxbps", "Marked: packages in the queue."),
                 i18nd("kxbps", "Explicit: packages installed on purpose, not as a dependency."),
                 i18nd("kxbps", "Orphans: packages installed as a dependency that nothing needs now."),
