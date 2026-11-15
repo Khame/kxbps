@@ -5,6 +5,35 @@ the project uses semantic versioning.
 
 ## [Unreleased]
 
+## [0.10.1] - 2026-11-15
+
+### Changed
+
+- The details pane is a header, a fact grid and one row of actions: the queue
+  action on the left, Files and Hold on the right. Dependencies and "required
+  by" are one name per token in two aligned columns, so a version constraint
+  stays next to the package it belongs to instead of running into a paragraph.
+- The file list lives in a dialog behind Files, and the Query page is gone: the
+  page repeated what the rest of the window already shows, and the one
+  diagnostic it still owned (`-f`) now sits next to the package it describes.
+- Buttons hug their label at 85% of the theme font, and the application font is
+  capped at 10 pt, so a toolbar row no longer carries a tall empty box around
+  every label.
+- Buttons are flat. Only Apply and Apply to system keep a frame: the two
+  controls that change the machine should not read like the rest.
+- A button no longer underlines the letter of its mnemonic; Alt+letter still
+  activates it.
+- Polish says "pakiet", not "paczka" — the old word means a parcel.
+
+### Fixed
+
+- The details pane asks the repository index for the file list of a package
+  that is not installed, instead of answering with exit code 2 and an empty
+  detail.
+- The Available page answers every repository-listing request. The backend used
+  to skip a pattern it had already delivered, so every visit after the first
+  waited for an answer that never came.
+
 ## [0.10.0] - 2026-11-14
 
 First public release, in beta: the window, the store format and the command

@@ -3,10 +3,10 @@
 # This file is distributed under the same license as the KXbps package.
 msgid ""
 msgstr ""
-"Project-Id-Version: kxbps 0.10.0\n"
+"Project-Id-Version: kxbps 0.10.1\n"
 "Report-Msgid-Bugs-To: \n"
-"POT-Creation-Date: 2026-11-14 22:59+0000\n"
-"PO-Revision-Date: 2026-11-14 23:57+0000\n"
+"POT-Creation-Date: 2026-11-15 00:06+0000\n"
+"PO-Revision-Date: 2026-11-15 00:07+0000\n"
 "Last-Translator: KXbps translation contributors <khame.dev@protonmail.com>\n"
 "Language-Team: French\n"
 "Language: fr\n"
@@ -133,7 +133,7 @@ msgstr[1] "il y a %1 jours"
 msgid "%1 did not answer within %2 s."
 msgstr "%1 n'a pas répondu en %2 s."
 
-#: kxbps-qt/qml/components/DetailsPane.qml:124
+#: kxbps-qt/qml/components/DetailsPane.qml:130
 #: kxbps-qt/qml/components/PackageFilesDialog.qml:58
 #: kxbps-qt/qml/views/PackagesView.qml:477
 msgid "%1 did not answer within %2 seconds."
@@ -143,13 +143,13 @@ msgstr "%1 n'a pas répondu en %2 secondes."
 msgid "%1 exited with %2: %3"
 msgstr "%1 s'est arrêté avec %2 : %3"
 
-#: kxbps-qt/qml/components/DetailsPane.qml:131
+#: kxbps-qt/qml/components/DetailsPane.qml:137
 #: kxbps-qt/qml/components/PackageFilesDialog.qml:65
 #: kxbps-qt/qml/views/PackagesView.qml:484
 msgid "%1 failed with exit code %2."
 msgstr "%1 a échoué avec le code %2."
 
-#: kxbps-qt/qml/components/DetailsPane.qml:130
+#: kxbps-qt/qml/components/DetailsPane.qml:136
 #: kxbps-qt/qml/components/PackageFilesDialog.qml:64
 #: kxbps-qt/qml/views/PackagesView.qml:483
 msgid "%1 failed with exit code %2: %3"
@@ -224,7 +224,7 @@ msgid_plural "%1 paths"
 msgstr[0] "%1 chemin"
 msgstr[1] "%1 chemins"
 
-#: kxbps-qt/qml/components/DetailsPane.qml:133
+#: kxbps-qt/qml/components/DetailsPane.qml:139
 #: kxbps-qt/qml/components/PackageFilesDialog.qml:67
 #: kxbps-qt/qml/views/PackagesView.qml:486
 msgid "%1 printed a line this version does not understand (line %2): %3"
@@ -238,7 +238,7 @@ msgstr "%1 a affiché une ligne illisible pour xbps : %3 (ligne %2)"
 msgid "%1 printed no packages."
 msgstr "%1 n'a affiché aucun paquet."
 
-#: kxbps-qt/qml/components/DetailsPane.qml:135
+#: kxbps-qt/qml/components/DetailsPane.qml:141
 #: kxbps-qt/qml/components/PackageFilesDialog.qml:69
 msgid "%1 printed nothing."
 msgstr "%1 n'a rien affiché."
@@ -274,7 +274,7 @@ msgid_plural "%1 updates available"
 msgstr[0] "%1 mise à jour disponible"
 msgstr[1] "%1 mises à jour disponibles"
 
-#: kxbps-qt/qml/components/DetailsPane.qml:224
+#: kxbps-qt/qml/components/DetailsPane.qml:239
 msgid "%1 → %2"
 msgstr "%1 → %2"
 
@@ -323,11 +323,11 @@ msgstr "Annoncer les mises à jour au démarrage"
 msgid "Another transaction is running"
 msgstr "Une autre transaction est en cours"
 
-#: kxbps-qt/qml/Main.qml:1045 kxbps-qt/qml/components/PlanDialog.qml:265
+#: kxbps-qt/qml/Main.qml:1046 kxbps-qt/qml/components/PlanDialog.qml:265
 msgid "Apply"
 msgstr "Appliquer"
 
-#: kxbps-qt/qml/Main.qml:1044
+#: kxbps-qt/qml/Main.qml:1045
 msgid "Apply (%1)"
 msgid_plural "Apply (%1)"
 msgstr[0] "Appliquer (%1)"
@@ -341,7 +341,7 @@ msgstr "Appliquer demande d'abord un essai à xbps, pour que le plan et le nombr
 msgid "Apply queued changes"
 msgstr "Appliquer les changements en file"
 
-#: kxbps-qt/qml/Main.qml:1064
+#: kxbps-qt/qml/Main.qml:1068
 msgid "Apply to system"
 msgstr "Appliquer au système"
 
@@ -419,7 +419,7 @@ msgstr "Impossible de lire %1 : %2"
 msgid "Could not read the installed packages: %1"
 msgstr "Impossible de lire les paquets installés : %1"
 
-#: kxbps-qt/qml/components/DetailsPane.qml:137
+#: kxbps-qt/qml/components/DetailsPane.qml:143
 msgid "Could not read the package: %1"
 msgstr "Impossible de lire le paquet : %1"
 
@@ -431,7 +431,7 @@ msgstr "Impossible de lire la configuration xbps."
 msgid "Could not read the xbps configuration: %1."
 msgstr "Impossible de lire la configuration xbps : %1."
 
-#: kxbps-qt/qml/components/DetailsPane.qml:122
+#: kxbps-qt/qml/components/DetailsPane.qml:128
 #: kxbps-qt/qml/components/PackageFilesDialog.qml:56
 #: kxbps-qt/qml/views/PackagesView.qml:475
 msgid "Could not run %1: %2"
@@ -465,12 +465,12 @@ msgstr "Impossible d'écrire la configuration xbps."
 msgid "Could not write the xbps configuration: %1"
 msgstr "Impossible d'écrire la configuration xbps : %1"
 
-#: kxbps-qt/qml/components/DetailsPane.qml:236
+#: kxbps-qt/qml/components/DetailsPane.qml:251
 #: kxbps-qt/qml/components/PlanDialog.qml:124
 msgid "Dependency"
 msgstr "Dépendance"
 
-#: kxbps-qt/qml/components/DetailsPane.qml:288
+#: kxbps-qt/qml/components/DetailsPane.qml:303
 msgid "Depends"
 msgstr "Dépend de"
 
@@ -543,7 +543,7 @@ msgid "Everything is up to date."
 msgstr "Tout est à jour."
 
 #: kxbps-qt/qml/Main.qml:348 kxbps-qt/qml/Main.qml:681
-#: kxbps-qt/qml/components/DetailsPane.qml:235
+#: kxbps-qt/qml/components/DetailsPane.qml:250
 msgid "Explicit"
 msgstr "Explicite"
 
@@ -552,11 +552,11 @@ msgstr "Explicite"
 msgid "Failed"
 msgstr "Échec"
 
-#: kxbps-qt/qml/components/DetailsPane.qml:446
+#: kxbps-qt/qml/components/DetailsPane.qml:500
 msgid "Files"
 msgstr "Fichiers"
 
-#: kxbps-qt/qml/components/DetailsPane.qml:448
+#: kxbps-qt/qml/components/DetailsPane.qml:502
 msgid "Files of the package"
 msgstr "Fichiers du paquet"
 
@@ -576,8 +576,8 @@ msgstr "Filtrer les chemins…"
 msgid "Finished."
 msgstr "Terminé."
 
-#: kxbps-qt/qml/Main.qml:352 kxbps-qt/qml/components/DetailsPane.qml:240
-#: kxbps-qt/qml/components/DetailsPane.qml:241
+#: kxbps-qt/qml/Main.qml:352 kxbps-qt/qml/components/DetailsPane.qml:255
+#: kxbps-qt/qml/components/DetailsPane.qml:256
 #: kxbps-qt/qml/components/PackageDelegate.qml:236
 msgid "Held"
 msgstr "Retenu"
@@ -594,7 +594,7 @@ msgstr "Aide"
 msgid "Hide"
 msgstr "Masquer"
 
-#: kxbps-qt/qml/components/DetailsPane.qml:454
+#: kxbps-qt/qml/components/DetailsPane.qml:508
 msgid "Hold"
 msgstr "Retenir"
 
@@ -658,7 +658,7 @@ msgstr "Latence, du plus rapide au plus lent"
 msgid "Latency, sorted slowest first"
 msgstr "Latence, du plus lent au plus rapide"
 
-#: kxbps-qt/qml/components/DetailsPane.qml:252
+#: kxbps-qt/qml/components/DetailsPane.qml:267
 msgid "License"
 msgstr "Licence"
 
@@ -675,7 +675,7 @@ msgstr "Marquer %1 pour l'installation"
 msgid "Mark %1 for the update"
 msgstr "Marquer %1 pour la mise à jour"
 
-#: kxbps-qt/qml/Main.qml:1017 kxbps-qt/qml/Main.qml:1020
+#: kxbps-qt/qml/Main.qml:1018 kxbps-qt/qml/Main.qml:1021
 msgid "Mark all upgrades"
 msgstr "Marquer toutes les mises à jour"
 
@@ -712,7 +712,7 @@ msgstr "Plus"
 msgid "Needed by: %1"
 msgstr "Requis par : %1"
 
-#: kxbps-qt/qml/components/DetailsPane.qml:295
+#: kxbps-qt/qml/components/DetailsPane.qml:323
 msgid "No dependencies"
 msgstr "Aucune dépendance"
 
@@ -776,13 +776,13 @@ msgstr "Amérique du Nord"
 msgid "Not checked yet"
 msgstr "Pas encore vérifié"
 
-#: kxbps-qt/qml/components/DetailsPane.qml:241
+#: kxbps-qt/qml/components/DetailsPane.qml:256
 msgid "Not held"
 msgstr "Non retenu"
 
 #. A package that is not installed is neither explicit nor a
 #. dependency; `explicit` is simply false for it.
-#: kxbps-qt/qml/components/DetailsPane.qml:233
+#: kxbps-qt/qml/components/DetailsPane.qml:248
 msgid "Not installed"
 msgstr "Non installé"
 
@@ -794,7 +794,7 @@ msgstr "Non installé : %1"
 msgid "Not probed"
 msgstr "Non testé"
 
-#: kxbps-qt/qml/components/DetailsPane.qml:311
+#: kxbps-qt/qml/components/DetailsPane.qml:351
 msgid "Nothing depends on it"
 msgstr "Rien n'en dépend"
 
@@ -835,7 +835,7 @@ msgstr "Retenu"
 msgid "Open KXbps"
 msgstr "Ouvrir KXbps"
 
-#: kxbps-qt/qml/components/DetailsPane.qml:234
+#: kxbps-qt/qml/components/DetailsPane.qml:249
 #: kxbps-qt/qml/components/PlanDialog.qml:128
 msgid "Orphan"
 msgstr "Orphelin"
@@ -861,7 +861,7 @@ msgstr "Paquets"
 msgid "Plain HTTP is not probed"
 msgstr "Le HTTP simple n'est pas testé"
 
-#: kxbps-qt/qml/Main.qml:1054
+#: kxbps-qt/qml/Main.qml:1058
 msgid "Probe all"
 msgstr "Tester tous"
 
@@ -873,15 +873,15 @@ msgstr "Test en cours"
 msgid "Queue"
 msgstr "File d'attente"
 
-#: kxbps-qt/qml/components/DetailsPane.qml:97
+#: kxbps-qt/qml/components/DetailsPane.qml:103
 msgid "Queue installation"
 msgstr "Mettre l'installation en file"
 
-#: kxbps-qt/qml/components/DetailsPane.qml:96
+#: kxbps-qt/qml/components/DetailsPane.qml:102
 msgid "Queue removal"
 msgstr "Mettre la suppression en file"
 
-#: kxbps-qt/qml/components/DetailsPane.qml:95
+#: kxbps-qt/qml/components/DetailsPane.qml:101
 msgid "Queue the update"
 msgstr "Mettre la mise à jour en file"
 
@@ -905,7 +905,7 @@ msgstr "Lecture de la liste des dépôts…"
 msgid "Ready"
 msgstr "Prêt"
 
-#: kxbps-qt/qml/Main.qml:991 kxbps-qt/qml/Main.qml:992
+#: kxbps-qt/qml/Main.qml:992 kxbps-qt/qml/Main.qml:993
 msgid "Refresh"
 msgstr "Actualiser"
 
@@ -937,7 +937,7 @@ msgstr "Supprimer %1 et ses dépendants"
 msgid "Remove %1 from the queue"
 msgstr "Retirer %1 de la file"
 
-#: kxbps-qt/qml/components/DetailsPane.qml:94
+#: kxbps-qt/qml/components/DetailsPane.qml:100
 #: kxbps-qt/qml/components/QueueDelegate.qml:112
 msgid "Remove from the queue"
 msgstr "Retirer de la file"
@@ -962,7 +962,7 @@ msgstr "Suppression de %1…"
 msgid "Repositories"
 msgstr "Dépôts"
 
-#: kxbps-qt/qml/components/DetailsPane.qml:245
+#: kxbps-qt/qml/components/DetailsPane.qml:260
 msgid "Repository"
 msgstr "Dépôt"
 
@@ -982,7 +982,7 @@ msgstr "Dépôt %1 supprimé."
 msgid "Requested"
 msgstr "Demandé"
 
-#: kxbps-qt/qml/components/DetailsPane.qml:304
+#: kxbps-qt/qml/components/DetailsPane.qml:332
 msgid "Required by"
 msgstr "Requis par"
 
@@ -998,7 +998,7 @@ msgstr "Examiner les paquets bloqués"
 msgid "Running xbps…"
 msgstr "Exécution de xbps…"
 
-#: kxbps-qt/qml/Main.qml:1006
+#: kxbps-qt/qml/Main.qml:1007
 msgid "Search packages…"
 msgstr "Rechercher des paquets…"
 
@@ -1006,7 +1006,7 @@ msgstr "Rechercher des paquets…"
 msgid "Searching the repositories…"
 msgstr "Recherche dans les dépôts…"
 
-#: kxbps-qt/qml/components/DetailsPane.qml:480
+#: kxbps-qt/qml/components/DetailsPane.qml:521
 msgid "Select a package to see its details."
 msgstr "Sélectionnez un paquet pour voir ses détails."
 
@@ -1037,7 +1037,7 @@ msgstr "Afficher KXbps"
 msgid "Signed"
 msgstr "Signé"
 
-#: kxbps-qt/qml/components/DetailsPane.qml:257
+#: kxbps-qt/qml/components/DetailsPane.qml:272
 #: kxbps-qt/qml/components/PlanDialog.qml:331
 #: kxbps-qt/qml/views/PackagesView.qml:771
 msgid "Size"
@@ -1055,7 +1055,7 @@ msgstr "Démarrer avec la session"
 msgid "Startup:"
 msgstr "Démarrage :"
 
-#: kxbps-qt/qml/components/DetailsPane.qml:230
+#: kxbps-qt/qml/components/DetailsPane.qml:245
 #: kxbps-qt/qml/views/MirrorsView.qml:288
 msgid "State"
 msgstr "État"
@@ -1204,7 +1204,7 @@ msgstr "Transaction échouée"
 msgid "Transaction plan"
 msgstr "Plan de la transaction"
 
-#: kxbps-qt/qml/components/DetailsPane.qml:454
+#: kxbps-qt/qml/components/DetailsPane.qml:508
 msgid "Unhold"
 msgstr "Relâcher"
 
@@ -1212,7 +1212,7 @@ msgstr "Relâcher"
 msgid "Unmark %1"
 msgstr "Démarquer %1"
 
-#: kxbps-qt/qml/Main.qml:1029 kxbps-qt/qml/Main.qml:1032
+#: kxbps-qt/qml/Main.qml:1030 kxbps-qt/qml/Main.qml:1033
 msgid "Unmark all"
 msgstr "Tout démarquer"
 
@@ -1249,7 +1249,7 @@ msgstr "Utiliser %1"
 msgid "Use desktop notifications"
 msgstr "Utiliser les notifications du bureau"
 
-#: kxbps-qt/qml/components/DetailsPane.qml:222
+#: kxbps-qt/qml/components/DetailsPane.qml:237
 #: kxbps-qt/qml/components/PlanDialog.qml:321
 msgid "Version"
 msgstr "Version"
