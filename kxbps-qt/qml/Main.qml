@@ -656,6 +656,7 @@ Kirigami.ApplicationWindow {
         qtVersion: appBackend.qtVersion()
         kfVersion: appBackend.kfVersion()
         platformName: appBackend.platformName()
+        librariesText: appBackend.librariesText()
     }
 
     // Applying the selected mirror rewrites the file xbps reads, for every user:

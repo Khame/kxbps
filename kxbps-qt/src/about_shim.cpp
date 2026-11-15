@@ -2,7 +2,6 @@
 
 #include "about_shim.h"
 
-#include <QtCore/QCoreApplication>
 #include <QtCore/QSysInfo>
 #include <QtGui/QGuiApplication>
 
@@ -18,8 +17,12 @@ QString kxbps_kf_version()
     return QString::fromLatin1(KI18N_VERSION_STRING);
 }
 
-QString kxbps_platform_name()
+QString kxbps_platform_pretty()
 {
-    return QSysInfo::prettyProductName() + QStringLiteral(" (")
-        + QGuiApplication::platformName() + QStringLiteral(")");
+    return QSysInfo::prettyProductName();
+}
+
+QString kxbps_platform_plugin()
+{
+    return QGuiApplication::platformName();
 }

@@ -38,6 +38,30 @@ pub mod xbps_snapshot;
 /// pins the files that cannot read it at build time.
 pub const VERSION: &str = env!("CARGO_PKG_VERSION");
 
+/// The text the About page reports about this build.
+///
+/// The values come from the libraries the binary links against, but the shape
+/// of the strings is decided here, in plain Rust, so it can be tested without
+/// a `QGuiApplication`.
+pub mod about {
+    /// `"Void Linux (xcb)"` — the product name and the Qt platform plugin.
+    /// The brackets are dropped when Qt reports no plugin, rather than
+    /// printing an empty pair.
+    pub fn platform_label(pretty: &str, plugin: &str) -> String {
+        if plugin.is_empty() {
+            pretty.to_string()
+        } else {
+            format!("{pretty} ({plugin})")
+        }
+    }
+
+    /// The block "Copy to clipboard" puts on the clipboard: one library per
+    /// line, version after the name, the platform last.
+    pub fn libraries_text(version: &str, kf: &str, qt: &str, platform: &str) -> String {
+        format!("KXbps {version}\nKDE Frameworks {kf}\nQt {qt}\n{platform}")
+    }
+}
+
 #[cxx_qt::bridge]
 pub mod qobject {
     unsafe extern "C++" {
@@ -92,8 +116,11 @@ pub mod qobject {
         #[cxx_name = "kxbps_kf_version"]
         fn system_kf_version() -> QString;
 
-        #[cxx_name = "kxbps_platform_name"]
-        fn system_platform_name() -> QString;
+        #[cxx_name = "kxbps_platform_pretty"]
+        fn system_platform_pretty() -> QString;
+
+        #[cxx_name = "kxbps_platform_plugin"]
+        fn system_platform_plugin() -> QString;
 
         #[cxx_name = "kxbps_tray_available"]
         fn tray_available() -> bool;
@@ -148,6 +175,10 @@ pub mod qobject {
         /// The product name and the Qt platform plugin, shown in About.
         #[qinvokable]
         fn platform_name(self: &AppBackend) -> QString;
+
+        /// The "Copy to clipboard" block of the About page.
+        #[qinvokable]
+        fn libraries_text(self: &AppBackend) -> QString;
 
         /// Announces a set of available updates. The strings arrive already
         /// translated; this only forwards them to the session bus.
@@ -243,7 +274,22 @@ impl qobject::AppBackend {
 
     /// The product name and the Qt platform plugin.
     fn platform_name(&self) -> cxx_qt_lib::QString {
-        qobject::system_platform_name()
+        let pretty = qobject::system_platform_pretty().to_string();
+        let plugin = qobject::system_platform_plugin().to_string();
+        cxx_qt_lib::QString::from(crate::about::platform_label(&pretty, &plugin))
+    }
+
+    /// The "Copy to clipboard" block: one library per line.
+    fn libraries_text(&self) -> cxx_qt_lib::QString {
+        let kf = qobject::system_kf_version().to_string();
+        let qt = qobject::system_qt_version().to_string();
+        let platform = self.platform_name().to_string();
+        cxx_qt_lib::QString::from(crate::about::libraries_text(
+            crate::VERSION,
+            &kf,
+            &qt,
+            &platform,
+        ))
     }
 
     /// Forwards one announcement to the desktop's notification service.
@@ -467,6 +513,63 @@ mod version_guard {
         assert!(
             metainfo.contains(&format!("<release version=\"{VERSION}\"")),
             "the AppStream metadata has no release entry for {VERSION}"
+        );
+    }
+}
+
+#[cfg(test)]
+mod about_tests {
+    use super::about::{libraries_text, platform_label};
+
+    #[test]
+    fn the_platform_label_puts_the_qt_plugin_in_brackets() {
+        assert_eq!(platform_label("Void Linux", "xcb"), "Void Linux (xcb)");
+        assert_eq!(
+            platform_label("Void Linux", "wayland"),
+            "Void Linux (wayland)"
+        );
+    }
+
+    #[test]
+    fn the_platform_label_drops_the_brackets_when_there_is_no_plugin() {
+        assert_eq!(platform_label("Void Linux", ""), "Void Linux");
+    }
+
+    #[test]
+    fn the_copied_block_puts_every_library_on_its_own_line() {
+        assert_eq!(
+            libraries_text("0.10.1", "6.30.0", "6.11.2", "Void Linux (xcb)"),
+            "KXbps 0.10.1\nKDE Frameworks 6.30.0\nQt 6.11.2\nVoid Linux (xcb)"
+        );
+    }
+}
+
+#[cfg(test)]
+mod about_runtime_tests {
+    //! The two values the About page reports from the libraries this build
+    //! links against. `qVersion()` and `KI18N_VERSION_STRING` need no
+    //! application instance, so a plain test binary can read them.
+
+    #[test]
+    fn the_qt_version_comes_from_the_runtime() {
+        let version = super::qobject::system_qt_version().to_string();
+        let major = version
+            .split('.')
+            .next()
+            .and_then(|part| part.parse::<u32>().ok());
+        assert!(
+            major.is_some_and(|major| major >= 6),
+            "unexpected Qt version: {version:?}"
+        );
+    }
+
+    #[test]
+    fn the_frameworks_version_comes_from_the_build() {
+        let version = super::qobject::system_kf_version().to_string();
+        let parts: Vec<&str> = version.split('.').collect();
+        assert!(
+            parts.len() >= 2 && parts[0].parse::<u32>().is_ok() && parts[1].parse::<u32>().is_ok(),
+            "unexpected KDE Frameworks version: {version:?}"
         );
     }
 }

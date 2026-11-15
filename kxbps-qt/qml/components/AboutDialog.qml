@@ -17,18 +17,15 @@ Kirigami.Dialog {
     property string qtVersion: ""
     property string kfVersion: ""
     property string platformName: ""
+    // Built by `AppBackend.libraries_text()` in Rust, so the block that goes
+    // to the clipboard is the one the tests cover.
+    property string librariesText: ""
 
     readonly property string licenseName: "GPL-3.0-or-later"
     readonly property string licenseUrl: "https://www.gnu.org/licenses/gpl-3.0.html"
     readonly property string projectUrl: "https://github.com/Khame/kxbps"
     readonly property string issuesUrl: "https://github.com/Khame/kxbps/issues"
     readonly property string donateUrl: "https://buymeacoffee.com/khame"
-
-    readonly property string librariesText:
-        "KXbps " + dialog.version + "\n"
-        + "KDE Frameworks " + dialog.kfVersion + "\n"
-        + "Qt " + dialog.qtVersion + "\n"
-        + dialog.platformName
 
     title: i18nd("kxbps", "About KXbps")
     preferredWidth: Kirigami.Units.gridUnit * 50
