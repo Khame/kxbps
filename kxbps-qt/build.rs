@@ -4,6 +4,12 @@ fn main() {
     println!("cargo:rerun-if-changed=../packaging/icons/app/kxbps.svg");
     println!("cargo:rerun-if-changed=../packaging/icons/app/kxbps-updates.svg");
     println!("cargo:rerun-if-changed=../packaging/icons/actions");
+    // The QML files are compiled into the binary by this script. Cargo watches
+    // only the paths named here once any `rerun-if-changed` is emitted, so
+    // without the directory a QML edit left the old file in the executable and
+    // the change looked like it did nothing.
+    println!("cargo:rerun-if-changed=qml");
+    println!("cargo:rerun-if-changed=build.rs");
 
     // Hand-written C++ shim that installs KI18n's `KLocalizedContext` on the QML
     // engine's root context, which is what makes `i18nd()` callable in QML.

@@ -183,8 +183,12 @@ Item {
     // delegate is the only place the row's fields are safe to read; a delegate
     // that is being created or destroyed has no name yet.
     function select(item) {
+        // A delegate that is being created or destroyed has no name yet, and
+        // the row it described is gone: the selection goes with it, or the
+        // details area would keep showing a package no longer on the list.
         if (item === null || item === undefined || item.packageName === undefined
                 || item.packageName.length === 0) {
+            view.clearSelection()
             return
         }
         view.selectedName = item.packageName
@@ -195,6 +199,24 @@ Item {
     function clearSelection() {
         view.selectedName = ""
         view.selectedPkgver = ""
+    }
+
+    // A filter or a search change is a new list: the row the selection named is
+    // not on it, and the list's own current row would point at whatever package
+    // now sits at that number. Both go, so the details area closes with the row
+    // it described instead of describing a stranger.
+    Connections {
+        target: view.packages
+
+        function onFilterChanged() {
+            list.currentIndex = -1
+            view.clearSelection()
+        }
+
+        function onSearchChanged() {
+            list.currentIndex = -1
+            view.clearSelection()
+        }
     }
 
     // The header's drag handles call this: one place clamps and assigns, so a
@@ -830,9 +852,11 @@ Item {
                     onCurrentItemChanged: view.select(currentItem)
                     // A model reset (filter or search change) drops the current row: the
                     // window must not keep acting on a row that is no longer on screen.
+                    // The page clears the selection itself on those two changes; this is
+                    // the net under a count that moves for any other reason.
                     onCountChanged: {
-                        if (currentIndex < 0 && view.selectedName.length > 0) {
-                            view.clearSelection()
+                        if (currentIndex >= count) {
+                            currentIndex = -1
                         }
                     }
                     QQC2.ScrollBar.vertical: QQC2.ScrollBar {
