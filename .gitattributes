@@ -1,2 +1,3 @@
-# Maintainer notes are not part of the source tarball.
+# Maintainer notes and the packaging helpers are not part of the source tarball.
 VOID_PACKAGING.md export-ignore
+packaging/void/ export-ignore
