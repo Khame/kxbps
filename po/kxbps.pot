@@ -8,7 +8,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: kxbps 0.10.1\n"
 "Report-Msgid-Bugs-To: \n"
-"POT-Creation-Date: 2026-11-15 00:06+0000\n"
+"POT-Creation-Date: 2026-11-15 10:19+0000\n"
 "PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\n"
 "Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
 "Language-Team: English\n"
@@ -284,6 +284,10 @@ msgstr ""
 msgid "%1, %2"
 msgstr ""
 
+#: kxbps-qt/qml/views/HelpView.qml:46
+msgid "A click on a row adds the package to the queue; the same click removes it. Apply runs the queue."
+msgstr ""
+
 #: kxbps-qt/qml/Main.qml:125
 msgid "A file for %1 already exists."
 msgstr ""
@@ -335,10 +339,6 @@ msgid_plural "Apply (%1)"
 msgstr[0] ""
 msgstr[1] ""
 
-#: kxbps-qt/qml/views/HelpView.qml:32
-msgid "Apply asks xbps for a dry run first, so the plan and the exact byte count appear before anything is written. A plan xbps refuses is shown with its reason, and nothing runs."
-msgstr ""
-
 #: kxbps-qt/qml/components/PlanDialog.qml:152
 msgid "Apply queued changes"
 msgstr ""
@@ -363,13 +363,21 @@ msgstr ""
 msgid "Authentication was dismissed"
 msgstr ""
 
-#: kxbps-qt/qml/views/HelpView.qml:45
+#: kxbps-qt/qml/views/HelpView.qml:68
 msgid "Authorisation"
 msgstr ""
 
 #: kxbps-qt/qml/Main.qml:344 kxbps-qt/qml/Main.qml:679
 #: kxbps-qt/qml/views/PackagesView.qml:759
 msgid "Available"
+msgstr ""
+
+#: kxbps-qt/qml/views/HelpView.qml:36
+msgid "Available: repository packages. Type a name and press Enter."
+msgstr ""
+
+#: kxbps-qt/qml/views/HelpView.qml:47
+msgid "Before anything is written, xbps runs a dry run. The plan shows the packages, the actions and the exact bytes to download and install."
 msgstr ""
 
 #: kxbps-qt/qml/components/BlockedDialog.qml:70
@@ -549,6 +557,10 @@ msgstr ""
 msgid "Explicit"
 msgstr ""
 
+#: kxbps-qt/qml/views/HelpView.qml:38
+msgid "Explicit: packages installed on purpose, not as a dependency."
+msgstr ""
+
 #: kxbps-qt/qml/components/MirrorDelegate.qml:84
 #: kxbps-qt/qml/views/MirrorsView.qml:150
 msgid "Failed"
@@ -574,6 +586,10 @@ msgstr ""
 msgid "Filter paths…"
 msgstr ""
 
+#: kxbps-qt/qml/views/HelpView.qml:29
+msgid "Filters"
+msgstr ""
+
 #: kxbps-qt/qml/Main.qml:92
 msgid "Finished."
 msgstr ""
@@ -592,7 +608,7 @@ msgstr ""
 msgid "Help"
 msgstr ""
 
-#: kxbps-qt/qml/components/LogDrawer.qml:110
+#: kxbps-qt/qml/components/LogDrawer.qml:129
 msgid "Hide"
 msgstr ""
 
@@ -600,8 +616,16 @@ msgstr ""
 msgid "Hold"
 msgstr ""
 
-#: kxbps-qt/qml/views/HelpView.qml:49
-msgid "If the prompt is dismissed or refused, the status bar says so and nothing changes."
+#: kxbps-qt/qml/views/HelpView.qml:56
+msgid "If a command fails, the last lines carry the reason xbps printed."
+msgstr ""
+
+#: kxbps-qt/qml/views/HelpView.qml:72
+msgid "If the prompt is dismissed or refused, the status strip says so and nothing changes."
+msgstr ""
+
+#: kxbps-qt/qml/views/HelpView.qml:48
+msgid "If xbps refuses the plan, the reason appears and nothing runs. The status strip keeps the result until the queue changes."
 msgstr ""
 
 #: kxbps-qt/qml/components/MirrorDelegate.qml:52
@@ -628,16 +652,28 @@ msgstr ""
 msgid "Installed"
 msgstr ""
 
-#: kxbps-qt/qml/views/HelpView.qml:48
-msgid "Installing, removing and changing the system need authorisation through polkit. The password prompt belongs to the system, not to this window."
+#: kxbps-qt/qml/views/HelpView.qml:34
+msgid "Installed: packages in the system."
+msgstr ""
+
+#: kxbps-qt/qml/views/HelpView.qml:71
+msgid "Installing, removing, changing the mirror and adding a repository need authorisation through polkit. The password prompt belongs to the system."
 msgstr ""
 
 #: kxbps-qt/qml/views/HelpView.qml:25
-msgid "It installs, updates and removes packages, switches the mirror and adds repositories, and asks for authorisation through polkit before it changes anything."
+msgid "It installs, updates and removes packages, switches the mirror and adds repositories. It asks for authorisation through polkit before it changes anything."
+msgstr ""
+
+#: kxbps-qt/qml/views/HelpView.qml:55
+msgid "It opens when a transaction starts. The button in the status strip opens and closes it, and the top edge can be dragged to resize."
 msgstr ""
 
 #: kxbps-qt/qml/components/AboutDialog.qml:72
 msgid "It runs xbps and shows exactly what xbps reports."
+msgstr ""
+
+#: kxbps-qt/qml/views/HelpView.qml:62
+msgid "KXbps checks for updates on the interval set in Settings. The check also runs when the window opens after a pause."
 msgstr ""
 
 #: kxbps-qt/qml/views/SettingsView.qml:164
@@ -645,7 +681,7 @@ msgid "KXbps is a native KDE package manager for Void Linux. It reads and change
 msgstr ""
 
 #: kxbps-qt/qml/views/HelpView.qml:24
-msgid "KXbps is a window onto xbps, the Void Linux package manager. Every list, version, size and error comes from an xbps command; nothing is invented."
+msgid "KXbps is a window onto xbps, the Void Linux package manager. Every package, version, size and error comes from an xbps command."
 msgstr ""
 
 #: kxbps-qt/qml/views/MirrorsView.qml:272
@@ -664,8 +700,10 @@ msgstr ""
 msgid "License"
 msgstr ""
 
-#: kxbps-qt/qml/components/LogDrawer.qml:98
-#: kxbps-qt/qml/components/StatusStrip.qml:110
+#: kxbps-qt/qml/components/LogDrawer.qml:87
+#: kxbps-qt/qml/components/LogDrawer.qml:117
+#: kxbps-qt/qml/components/StatusStrip.qml:115
+#: kxbps-qt/qml/components/StatusStrip.qml:131
 msgid "Log"
 msgstr ""
 
@@ -685,8 +723,8 @@ msgstr ""
 msgid "Marked"
 msgstr ""
 
-#: kxbps-qt/qml/views/HelpView.qml:31
-msgid "Marking a package adds it to the queue; the Apply button runs the queue."
+#: kxbps-qt/qml/views/HelpView.qml:37
+msgid "Marked: packages in the queue."
 msgstr ""
 
 #: kxbps-qt/qml/Main.qml:111
@@ -705,7 +743,7 @@ msgstr ""
 msgid "Mirrors"
 msgstr ""
 
-#: kxbps-qt/qml/views/HelpView.qml:60
+#: kxbps-qt/qml/views/HelpView.qml:90
 msgid "More"
 msgstr ""
 
@@ -766,7 +804,7 @@ msgstr ""
 msgid "No response"
 msgstr ""
 
-#: kxbps-qt/qml/components/LogDrawer.qml:194
+#: kxbps-qt/qml/components/LogDrawer.qml:213
 msgid "No transaction has run in this session yet."
 msgstr ""
 
@@ -816,6 +854,10 @@ msgstr ""
 msgid "Notifications and startup"
 msgstr ""
 
+#: kxbps-qt/qml/views/HelpView.qml:64
+msgid "Notifications are optional. Settings can turn them off, and then only the tray icon reports."
+msgstr ""
+
 #: kxbps-qt/qml/views/SettingsView.qml:37
 msgid "Notifications:"
 msgstr ""
@@ -833,6 +875,10 @@ msgstr ""
 msgid "On hold"
 msgstr ""
 
+#: kxbps-qt/qml/views/HelpView.qml:40
+msgid "On hold: packages xbps keeps at their current version."
+msgstr ""
+
 #: kxbps-qt/src/tray_item.h:55
 msgid "Open KXbps"
 msgstr ""
@@ -844,6 +890,10 @@ msgstr ""
 
 #: kxbps-qt/qml/Main.qml:350 kxbps-qt/qml/Main.qml:682
 msgid "Orphans"
+msgstr ""
+
+#: kxbps-qt/qml/views/HelpView.qml:39
+msgid "Orphans: packages installed as a dependency that nothing needs now."
 msgstr ""
 
 #: kxbps-qt/qml/components/PlanDialog.qml:302
@@ -891,12 +941,12 @@ msgstr ""
 msgid "Quit"
 msgstr ""
 
-#: kxbps-qt/qml/views/RepositoriesView.qml:146
-msgid "Reading repositories…"
+#: kxbps-qt/qml/views/HelpView.qml:70
+msgid "Reading package lists needs no root."
 msgstr ""
 
-#: kxbps-qt/qml/views/HelpView.qml:47
-msgid "Reading the package lists needs no root."
+#: kxbps-qt/qml/views/RepositoriesView.qml:146
+msgid "Reading repositories…"
 msgstr ""
 
 #: kxbps-qt/qml/views/PackagesView.qml:529
@@ -1022,10 +1072,15 @@ msgid "Server"
 msgstr ""
 
 #: kxbps-qt/qml/Main.qml:330 kxbps-qt/qml/Main.qml:915
+#: kxbps-qt/qml/views/HelpView.qml:76
 msgid "Settings"
 msgstr ""
 
-#: kxbps-qt/qml/components/LogDrawer.qml:110
+#: kxbps-qt/qml/views/HelpView.qml:78
+msgid "Settings holds the update interval, the startup switch and the two notification switches."
+msgstr ""
+
+#: kxbps-qt/qml/components/LogDrawer.qml:129
 #: kxbps-qt/qml/views/MirrorsView.qml:196
 #: kxbps-qt/qml/views/PackagesView.qml:993
 msgid "Show"
@@ -1053,6 +1108,10 @@ msgstr ""
 msgid "Start with the session"
 msgstr ""
 
+#: kxbps-qt/qml/views/HelpView.qml:79
+msgid "Start with the session writes an autostart entry. The other switches and the chosen mirror are saved in the state directory."
+msgstr ""
+
 #: kxbps-qt/qml/views/SettingsView.qml:75
 msgid "Startup:"
 msgstr ""
@@ -1078,10 +1137,6 @@ msgstr ""
 msgid "That file was not written by KXbps."
 msgstr ""
 
-#: kxbps-qt/qml/views/HelpView.qml:62
-msgid "The README covers installation and building. The manual page, man kxbps, covers the command line."
-msgstr ""
-
 #: kxbps-qt/qml/views/PackagesView.qml:501
 msgid "The data directory could not be located: neither XDG_DATA_HOME nor HOME is set."
 msgstr ""
@@ -1100,6 +1155,14 @@ msgstr ""
 
 #: kxbps-qt/qml/Main.qml:123
 msgid "The helper refused the repository URL."
+msgstr ""
+
+#: kxbps-qt/qml/views/HelpView.qml:54
+msgid "The log drawer at the bottom of the window shows the raw output of every xbps command. Lines are not translated."
+msgstr ""
+
+#: kxbps-qt/qml/views/HelpView.qml:92
+msgid "The manual page, man kxbps, covers the command line."
 msgstr ""
 
 #: kxbps-qt/qml/Main.qml:386
@@ -1130,15 +1193,15 @@ msgstr ""
 msgid "The previous configuration could not be restored: %1"
 msgstr ""
 
-#: kxbps-qt/qml/views/HelpView.qml:29
-msgid "The queue"
+#: kxbps-qt/qml/views/HelpView.qml:44
+msgid "The queue and the plan"
 msgstr ""
 
 #: kxbps-qt/qml/components/PlanDialog.qml:180
 msgid "The queue does not change the system."
 msgstr ""
 
-#: kxbps-qt/qml/views/HelpView.qml:55
+#: kxbps-qt/qml/views/HelpView.qml:85
 msgid "The queue, the preferences and the chosen mirror are kept in ~/.local/share/kxbps/."
 msgstr ""
 
@@ -1150,6 +1213,10 @@ msgstr ""
 msgid "The repository helper at %1 is not executable."
 msgstr ""
 
+#: kxbps-qt/qml/views/HelpView.qml:31
+msgid "The sidebar chooses the set the table shows. The search field narrows that set."
+msgstr ""
+
 #: kxbps-qt/qml/views/SettingsView.qml:148
 msgid "The switches are saved to the application's state directory and survive a restart."
 msgstr ""
@@ -1158,24 +1225,12 @@ msgstr ""
 msgid "The system is up to date."
 msgstr ""
 
-#: kxbps-qt/qml/views/HelpView.qml:41
-msgid "The tray icon shows an arrow while updates wait, and the dock button of the open window carries their number."
-msgstr ""
-
-#: kxbps-qt/qml/views/HelpView.qml:39
-msgid "The update check follows the interval set in Settings, and runs again when the window is opened after a long pause."
-msgstr ""
-
 #: kxbps-qt/qml/views/MirrorsView.qml:369
 msgid "The xbps configuration could not be parsed."
 msgstr ""
 
-#: kxbps-qt/qml/views/HelpView.qml:56
-msgid "The xbps configuration files are under /etc/xbps.d."
-msgstr ""
-
-#: kxbps-qt/qml/views/HelpView.qml:33
-msgid "The xbps log drawer at the bottom of the window carries the raw output of every command, and opens by itself when a transaction starts."
+#: kxbps-qt/qml/views/HelpView.qml:52
+msgid "The xbps log"
 msgstr ""
 
 #: kxbps-qt/qml/components/MirrorDelegate.qml:80
@@ -1231,7 +1286,7 @@ msgstr ""
 msgid "Update"
 msgstr ""
 
-#: kxbps-qt/qml/Main.qml:342 kxbps-qt/qml/views/HelpView.qml:37
+#: kxbps-qt/qml/Main.qml:342 kxbps-qt/qml/views/HelpView.qml:60
 msgid "Updates"
 msgstr ""
 
@@ -1241,6 +1296,10 @@ msgstr ""
 
 #: kxbps-qt/qml/Main.qml:678
 msgid "Upgradable"
+msgstr ""
+
+#: kxbps-qt/qml/views/HelpView.qml:35
+msgid "Upgradable: installed packages with a newer version in the repository."
 msgstr ""
 
 #: kxbps-qt/qml/components/MirrorDelegate.qml:187
@@ -1272,11 +1331,11 @@ msgstr ""
 msgid "When off, only the tray icon shows available updates."
 msgstr ""
 
-#: kxbps-qt/qml/views/HelpView.qml:40
-msgid "When updates are waiting, KXbps announces them once, reminds you after three hours, and after that only the tray icon keeps reporting."
+#: kxbps-qt/qml/views/HelpView.qml:63
+msgid "When updates wait, the tray icon shows an arrow and the open window's dock button carries their number."
 msgstr ""
 
-#: kxbps-qt/qml/views/HelpView.qml:53
+#: kxbps-qt/qml/views/HelpView.qml:83
 msgid "Where the state lives"
 msgstr ""
 
@@ -1318,4 +1377,8 @@ msgstr ""
 
 #: kxbps-qt/qml/Main.qml:102
 msgid "xbps failed with exit code %1"
+msgstr ""
+
+#: kxbps-qt/qml/views/HelpView.qml:86
+msgid "xbps reads its configuration from /etc/xbps.d."
 msgstr ""
