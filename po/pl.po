@@ -6,7 +6,7 @@ msgstr ""
 "Project-Id-Version: kxbps 0.10.0\n"
 "Report-Msgid-Bugs-To: \n"
 "POT-Creation-Date: 2026-11-14 22:59+0000\n"
-"PO-Revision-Date: 2026-11-14 23:00+0000\n"
+"PO-Revision-Date: 2026-11-14 23:57+0000\n"
 "Last-Translator: KXbps translation contributors <khame.dev@protonmail.com>\n"
 "Language-Team: Polish\n"
 "Language: pl\n"
@@ -166,9 +166,9 @@ msgstr[2] "%1 godzin temu"
 #: kxbps-qt/qml/views/PackagesView.qml:538
 msgid "%1 installed package"
 msgid_plural "%1 installed packages"
-msgstr[0] "%1 zainstalowana paczka"
-msgstr[1] "%1 zainstalowane paczki"
-msgstr[2] "%1 zainstalowanych paczek"
+msgstr[0] "%1 zainstalowany pakiet"
+msgstr[1] "%1 zainstalowane pakiety"
+msgstr[2] "%1 zainstalowanych pakietów"
 
 #: kxbps-qt/qml/components/MirrorDelegate.qml:186
 msgid "%1 is in use"
@@ -208,23 +208,23 @@ msgstr "%1 z %2 ścieżek"
 #: kxbps-qt/qml/views/PackagesView.qml:544
 msgid "%1 package"
 msgid_plural "%1 packages"
-msgstr[0] "%1 paczka"
-msgstr[1] "%1 paczki"
-msgstr[2] "%1 paczek"
+msgstr[0] "%1 pakiet"
+msgstr[1] "%1 pakiety"
+msgstr[2] "%1 pakietów"
 
 #: kxbps-qt/qml/components/Notifier.qml:52 kxbps-qt/src/tray_item.h:102
 msgid "%1 package can be updated."
 msgid_plural "%1 packages can be updated."
-msgstr[0] "%1 paczkę można zaktualizować."
-msgstr[1] "%1 paczki można zaktualizować."
-msgstr[2] "%1 paczek można zaktualizować."
+msgstr[0] "%1 pakiet można zaktualizować."
+msgstr[1] "%1 pakiety można zaktualizować."
+msgstr[2] "%1 pakietów można zaktualizować."
 
 #: kxbps-qt/qml/components/Notifier.qml:50
 msgid "%1 package is still waiting to be installed."
 msgid_plural "%1 packages are still waiting to be installed."
-msgstr[0] "%1 paczka wciąż czeka na instalację"
-msgstr[1] "%1 paczki wciąż czekają na instalację"
-msgstr[2] "%1 paczek wciąż czeka na instalację"
+msgstr[0] "%1 pakiet wciąż czeka na instalację"
+msgstr[1] "%1 pakiety wciąż czekają na instalację"
+msgstr[2] "%1 pakietów wciąż czeka na instalację"
 
 #: kxbps-qt/qml/components/PackageFilesDialog.qml:199
 msgid "%1 path"
@@ -245,7 +245,7 @@ msgstr "%1 wypisał wiersz, którego nie da się odczytać: %3 (wiersz %2)"
 
 #: kxbps-qt/qml/views/PackagesView.qml:488
 msgid "%1 printed no packages."
-msgstr "%1 nie wypisał żadnej paczki."
+msgstr "%1 nie wypisał żadnego pakietu."
 
 #: kxbps-qt/qml/components/DetailsPane.qml:135
 #: kxbps-qt/qml/components/PackageFilesDialog.qml:69
@@ -256,9 +256,9 @@ msgstr "%1 nic nie wypisał."
 #: kxbps-qt/qml/views/PackagesView.qml:542
 msgid "%1 queued package"
 msgid_plural "%1 queued packages"
-msgstr[0] "%1 paczka w kolejce"
-msgstr[1] "%1 paczki w kolejce"
-msgstr[2] "%1 paczek w kolejce"
+msgstr[0] "%1 pakiet w kolejce"
+msgstr[1] "%1 pakiety w kolejce"
+msgstr[2] "%1 pakietów w kolejce"
 
 #: kxbps-qt/qml/views/RepositoriesView.qml:233
 msgid "%1 repository"
@@ -432,11 +432,11 @@ msgstr "Nie udało się odczytać %1: %2"
 
 #: kxbps-qt/qml/views/PackagesView.qml:490
 msgid "Could not read the installed packages: %1"
-msgstr "Nie udało się odczytać zainstalowanych paczek: %1"
+msgstr "Nie udało się odczytać zainstalowanych pakietów: %1"
 
 #: kxbps-qt/qml/components/DetailsPane.qml:137
 msgid "Could not read the package: %1"
-msgstr "Nie udało się odczytać paczki: %1"
+msgstr "Nie udało się odczytać pakietu: %1"
 
 #: kxbps-qt/qml/views/MirrorsView.qml:367
 msgid "Could not read the xbps configuration."
@@ -523,7 +523,7 @@ msgstr "Pobieranie %1…"
 
 #: kxbps-qt/qml/Main.qml:85
 msgid "Downloading packages…"
-msgstr "Pobieranie paczek…"
+msgstr "Pobieranie pakietów…"
 
 #: kxbps-qt/qml/views/MirrorsView.qml:75
 msgid "Europe"
@@ -599,7 +599,7 @@ msgstr "Zablokowana"
 
 #: kxbps-qt/qml/components/PlanDialog.qml:226
 msgid "Held packages skipped: %1"
-msgstr "Pominięte zablokowane paczki: %1"
+msgstr "Pominięte zablokowane pakiety: %1"
 
 #: kxbps-qt/qml/Main.qml:336 kxbps-qt/qml/Main.qml:900
 msgid "Help"
@@ -629,7 +629,7 @@ msgstr "Zainstaluj"
 
 #: kxbps-qt/qml/components/PlanDialog.qml:156
 msgid "Install packages"
-msgstr "Instalacja paczek"
+msgstr "Instalacja pakietów"
 
 #: kxbps-qt/qml/components/QueueDelegate.qml:39
 msgid "Installation"
@@ -753,7 +753,7 @@ msgstr "Żaden pakiet nie jest zablokowany."
 
 #: kxbps-qt/qml/views/PackagesView.qml:450
 msgid "No package matches “%1”."
-msgstr "Żadna paczka nie pasuje do „%1”."
+msgstr "Żaden pakiet nie pasuje do „%1”."
 
 #: kxbps-qt/qml/components/PackageFilesDialog.qml:115
 msgid "No package selected."
@@ -761,11 +761,11 @@ msgstr "Nie wybrano pakietu."
 
 #: kxbps-qt/qml/views/PackagesView.qml:454
 msgid "No packages installed."
-msgstr "Brak zainstalowanych paczek."
+msgstr "Brak zainstalowanych pakietów."
 
 #: kxbps-qt/qml/views/PackagesView.qml:464
 msgid "No packages."
-msgstr "Brak paczek."
+msgstr "Brak pakietów."
 
 #: kxbps-qt/qml/components/PackageFilesDialog.qml:178
 msgid "No path matches the filter."
@@ -1007,7 +1007,7 @@ msgstr "Zależność odwrotna"
 
 #: kxbps-qt/qml/components/PlanDialog.qml:429
 msgid "Review blocked packages"
-msgstr "Przejrzyj zablokowane paczki"
+msgstr "Przejrzyj zablokowane pakiety"
 
 #: kxbps-qt/qml/Main.qml:80
 msgid "Running xbps…"
@@ -1015,7 +1015,7 @@ msgstr "xbps pracuje…"
 
 #: kxbps-qt/qml/Main.qml:1006
 msgid "Search packages…"
-msgstr "Szukaj paczek…"
+msgstr "Szukaj pakietów…"
 
 #: kxbps-qt/qml/views/PackagesView.qml:528
 msgid "Searching the repositories…"
@@ -1023,7 +1023,7 @@ msgstr "Szukanie w repozytoriach…"
 
 #: kxbps-qt/qml/components/DetailsPane.qml:480
 msgid "Select a package to see its details."
-msgstr "Wybierz paczkę, aby zobaczyć jej szczegóły."
+msgstr "Wybierz pakiet, aby zobaczyć jego szczegóły."
 
 #: kxbps-qt/qml/components/MirrorDelegate.qml:49
 #: kxbps-qt/qml/components/MirrorDelegate.qml:145
@@ -1237,7 +1237,7 @@ msgstr "Rozpakowywanie %1…"
 
 #: kxbps-qt/qml/Main.qml:88
 msgid "Unpacking packages…"
-msgstr "Rozpakowywanie paczek…"
+msgstr "Rozpakowywanie pakietów…"
 
 #: kxbps-qt/qml/components/PlanDialog.qml:111
 #: kxbps-qt/qml/components/QueueDelegate.qml:37
