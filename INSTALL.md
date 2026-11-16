@@ -74,13 +74,11 @@ It installs these files, plus one catalog per language under
 root. The QML is compiled into the binary, so there is no module directory to
 install.
 
-### Dependencies
+### Runtime dependencies
 
-Build time: `rust`, `cargo`, `lld`, `qt6-base-devel`, `qt6-declarative-devel`,
-`kf6-kirigami-devel`, `kf6-ki18n-devel`.
-
-Run time: `qt6-base`, `qt6-declarative`, `kf6-kirigami`, `kf6-ki18n`, `polkit`
-(for `pkexec`), `xbps` (for the tools the window runs).
+`qt6-base`, `qt6-declarative`, `kf6-kirigami`, `kf6-ki18n`, `polkit` (for
+`pkexec`), `xbps` (for the tools the window runs). Build dependencies: the
+`xbps-install` line above.
 
 ## Checking the install
 

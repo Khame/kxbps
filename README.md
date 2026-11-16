@@ -124,9 +124,9 @@ State lives in `~/.local/share/kxbps/` (`queue.json`, `prefs.json`,
 
 ## Build and test
 
+The dependencies and the install script are in [INSTALL.md](INSTALL.md).
+
 ```sh
-sudo xbps-install rust cargo lld qt6-base-devel qt6-declarative-devel \
-    kf6-kirigami-devel kf6-ki18n-devel
 cargo build
 cargo test --workspace
 cargo clippy --workspace --all-targets -- -D warnings
