@@ -426,6 +426,14 @@ Kirigami.ApplicationWindow {
     Connections {
         target: installedBackend
         function onQueueCountChanged() {
+            // The plan drops the entries xbps called already installed while it
+            // is finishing. That change belongs to the request in flight, so it
+            // must not discard the answer the plan is about to hand over — a
+            // discarded answer is a first Apply that does nothing but shorten
+            // the queue.
+            if (installedBackend.planPruning) {
+                return
+            }
             // A queue change invalidates the plan a dialog is showing; the
             // dialog drops the stale snapshot and releases the backend child.
             // The pending request goes too: its answer describes the queue the

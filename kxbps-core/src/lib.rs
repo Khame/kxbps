@@ -36,8 +36,8 @@ pub use mirror_config::{
 pub use mirrors::{DEFAULT_MIRROR, MIRRORS, MirrorInfo, Region};
 pub use plan::{
     Breaker, DryRunOutcome, EXIT_NOT_INSTALLED, EXIT_UNRESOLVED, already_installed_names,
-    is_already_installed, is_not_installed, items_from, lock_waited_on, missing_package,
-    parse_breakers, read_dry_run,
+    is_already_installed, is_not_installed, is_only_already_installed, items_from, lock_waited_on,
+    missing_package, parse_breakers, read_dry_run,
 };
 pub use probe::{PROBE_TIMEOUT, PROBE_TIMEOUT_MS, ProbeError, check_probe_url, measure};
 pub use request::{

@@ -273,6 +273,28 @@ pub fn is_already_installed(stderr: &str) -> bool {
         .any(|line| line.contains("already installed"))
 }
 
+/// Whether every non-empty stderr line is the already-installed notice.
+///
+/// `xbps-install` prints ``Package `x' already installed.`` for a name it has
+/// already put in the transaction — and an aborted transaction carries the
+/// sentence too. A non-zero exit is a notice only when the stderr says nothing
+/// else; anything more is a failure, and hiding it would drop the queue entries
+/// the sentence names.
+pub fn is_only_already_installed(stderr: &str) -> bool {
+    let mut noticed = false;
+    for line in stderr
+        .lines()
+        .map(str::trim)
+        .filter(|line| !line.is_empty())
+    {
+        if !is_already_installed(line) {
+            return false;
+        }
+        noticed = true;
+    }
+    noticed
+}
+
 /// The names xbps reported as already installed, in output order.
 ///
 /// `xbps-install -n <names>` answers ``ERROR: Package `<name>' already
@@ -534,6 +556,28 @@ ERROR: Transaction aborted due to unresolved dependencies.
             already_installed_names("ERROR: Package 'nosuchpkg' not found in repository pool.")
                 .is_empty(),
             "a missing package is not an installed one"
+        );
+    }
+
+    /// A non-zero exit is a notice only when the notice is all xbps said. An
+    /// abort carries it too, and reading that as "nothing to do" hides the
+    /// failure.
+    #[test]
+    fn only_a_stderr_of_notices_is_a_notice() {
+        assert!(is_only_already_installed(
+            "ERROR: Package `bash' already installed."
+        ));
+        assert!(is_only_already_installed(
+            "ERROR: Package `bash' already installed.\nPackage `vim' already installed.\n"
+        ));
+        assert!(!is_only_already_installed(""));
+        assert!(
+            !is_only_already_installed(
+                "ERROR: Package `mpv' already installed.\n\
+                 gst-plugins-base1-1.28.9_1: broken, unresolvable shlib `libtheoradec.so.1'\n\
+                 ERROR: Transaction aborted due to unresolved shlibs."
+            ),
+            "an abort is not a notice"
         );
     }
 

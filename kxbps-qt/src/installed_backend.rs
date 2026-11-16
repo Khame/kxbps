@@ -147,6 +147,12 @@ pub mod qobject {
         #[qproperty(bool, loading, READ, NOTIFY)]
         // Whether a plan is being read from xbps right now.
         #[qproperty(bool, plan_loading, READ, NOTIFY)]
+        // Whether a finished plan is dropping the queue entries it found
+        // satisfied. The drop moves `queueCount`, and that signal normally
+        // cancels the request a dialog is waiting for; this says the change is
+        // the plan's own bookkeeping, so the answer it is about to hand over
+        // must survive it.
+        #[qproperty(bool, plan_pruning, READ, NOTIFY)]
         // A stable fingerprint of the updates the window would announce: the
         // FNV of the effective update set, exactly what `apply_plan` compares
         // against the dismissed marker. Empty until the first read answers.
@@ -392,6 +398,7 @@ pub struct InstalledBackendRust {
     read_error_args: QStringList,
     loading: bool,
     plan_loading: bool,
+    plan_pruning: bool,
     pending_signature: QString,
     /// The last snapshot xbps answered; its updates and orphans are what the
     /// model and the query façade show. `None` until the first read.
@@ -461,6 +468,7 @@ impl Default for InstalledBackendRust {
             read_error_args: QStringList::default(),
             loading: false,
             plan_loading: false,
+            plan_pruning: false,
             pending_signature: QString::from(""),
             snapshot: None,
             generation: Arc::new(AtomicU64::new(0)),
@@ -903,11 +911,23 @@ impl qobject::InstalledBackend {
                 data.store
                     .queue
                     .retain(|item| !payload.satisfied.contains(&item.name));
-                before != data.store.queue.len()
+                let dropped = before != data.store.queue.len();
+                // `queueCountChanged` reaches QML from the refresh below, and
+                // the window treats it as an edit that cancels the request a
+                // dialog is waiting for. This drop is the plan's own move, so
+                // the answer it is about to hand over must survive it.
+                data.plan_pruning = dropped;
+                dropped
             };
             if dropped {
+                self.as_mut().plan_pruning_changed();
                 save_store(self.as_mut());
                 refresh_store(self.as_mut());
+                {
+                    let data = Pin::get_mut(self.as_mut().rust_mut());
+                    data.plan_pruning = false;
+                }
+                self.as_mut().plan_pruning_changed();
             }
         }
         let json = serde_json::to_string(&payload).unwrap_or_else(|_| String::from("{}"));

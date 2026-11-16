@@ -14,8 +14,8 @@
 use crate::xbps_runner::{READ_TIMEOUT_MS, REMOTE_TIMEOUT_MS, XPBS_INSTALL, XPBS_REMOVE, argv};
 use crate::xbps_snapshot::{Invoke, SnapshotError};
 use kxbps_core::{
-    DryRun, InstalledMap, Plan, PlanRequest, QueueItem, XbpsError, is_already_installed,
-    is_not_installed, missing_package, parse_breakers, parse_updates,
+    DryRun, InstalledMap, Plan, PlanRequest, QueueItem, XbpsError, is_not_installed,
+    missing_package, parse_breakers, parse_updates,
 };
 
 use crate::plan_backend::{PlanPayload, keys as plan_keys};
@@ -176,15 +176,16 @@ pub fn dry_run(
     match output.exit_code {
         0 => {
             let entries = parse_table(program.clone(), &output.stdout)?;
+            let items = kxbps_core::items_from(mode, installed, &request.names, &entries);
             Ok(DryOutcome {
                 empty: entries.is_empty(),
-                items: kxbps_core::items_from(mode, installed, &request.names, &entries),
-                blocked: Vec::new(),
                 satisfied: if mode.removes() {
                     Vec::new()
                 } else {
-                    kxbps_core::already_installed_names(&output.stderr)
+                    satisfied_names(&output.stderr, &items)
                 },
+                items,
+                blocked: Vec::new(),
             })
         }
         kxbps_core::EXIT_UNRESOLVED if mode.removes() => {
@@ -225,11 +226,14 @@ pub fn dry_run(
         }
         code => {
             // The `already installed` notice is worded like an error but is
-            // not one; a build that exits non-zero for it is still a notice.
-            if is_already_installed(&output.stderr) {
+            // not one; a build that exits non-zero for it is still a notice. An
+            // aborted transaction carries the same sentence, so only a stderr
+            // that says nothing else counts: anything more is a failure that
+            // must not be reported as "nothing to do".
+            if kxbps_core::is_only_already_installed(&output.stderr) {
                 return Ok(DryOutcome {
                     empty: true,
-                    satisfied: kxbps_core::already_installed_names(&output.stderr),
+                    satisfied: satisfied_names(&output.stderr, &[]),
                     ..DryOutcome::default()
                 });
             }
@@ -240,6 +244,20 @@ pub fn dry_run(
             }))
         }
     }
+}
+
+/// The names xbps called already installed that the table does not carry.
+///
+/// `xbps-install -M -n a b` prints ``Package `b' already installed.`` when `b`
+/// entered the transaction as a dependency of `a`, and prints `b` on the table
+/// as an `update` row at the same time: the sentence means "already in this
+/// transaction", not "nothing to do". Only a name the plan leaves out has
+/// nothing left to do, so only that one may leave the queue.
+fn satisfied_names(stderr: &str, items: &[kxbps_core::PlanItem]) -> Vec<String> {
+    kxbps_core::already_installed_names(stderr)
+        .into_iter()
+        .filter(|name| !items.iter().any(|item| &item.name == name))
+        .collect()
 }
 
 /// Parses the plan table, logging the unreadable line the way the read layer
@@ -527,6 +545,97 @@ mod tests {
         assert!(outcome.empty);
         assert!(outcome.items.is_empty());
         assert!(outcome.blocked.is_empty());
+    }
+
+    /// xbps says `already installed` for a name it has already put in the
+    /// transaction as a dependency of an earlier argument, and prints the same
+    /// name as an `update` row on the table:
+    ///
+    /// ```text
+    /// $ xbps-install -M -n fribidi fribidi-devel
+    /// ERROR: Package `fribidi-devel' already installed.
+    /// fribidi-devel-1.0.18_1 update …      <- the table carries it anyway
+    /// ```
+    ///
+    /// Such a name is not satisfied: dropping it from the queue leaves the
+    /// transaction short of a package the plan installs.
+    #[test]
+    fn a_name_the_table_carries_is_not_satisfied() {
+        let (invoke, _) = one_answer(&reply(
+            0,
+            "fribidi-devel-1.0.18_1 update x86_64 https://r/current 148027 23328\n\
+             fribidi-1.0.18_1 update x86_64 https://r/current 159864 33456\n",
+            "ERROR: Package `fribidi-devel' already installed.",
+        ));
+        let installed = installed(&[("fribidi", "1.0.16_1"), ("fribidi-devel", "1.0.16_1")]);
+        let request = PlanRequest::install(vec!["fribidi".to_owned(), "fribidi-devel".to_owned()]);
+        let outcome = dry_run(&request, &installed, &*invoke).expect("plans");
+        assert_eq!(outcome.items.len(), 2, "both rows are the transaction");
+        assert!(
+            outcome.satisfied.is_empty(),
+            "a name on the table has something to do: {:?}",
+            outcome.satisfied
+        );
+    }
+
+    /// An aborted transaction is a failure even when it carries the notice:
+    /// xbps exits 8 with `Transaction aborted due to unresolved shlibs` and
+    /// still names the package it did not have to add again. Reading that as
+    /// "nothing to do" hides the failure and drops the queue entry.
+    #[test]
+    fn an_aborted_transaction_is_a_failure_not_a_notice() {
+        let (invoke, _) = one_answer(&reply(
+            8,
+            "",
+            "ERROR: Package `mpv' already installed.\n\
+             gst-plugins-base1-1.28.9_1: broken, unresolvable shlib `libtheoradec.so.1'\n\
+             ERROR: Transaction aborted due to unresolved shlibs.",
+        ));
+        let request = PlanRequest::install(vec!["mpv".to_owned()]);
+        let error = dry_run(&request, &installed(&[("mpv", "0.42.0_1")]), &*invoke)
+            .expect_err("an abort is a failure");
+        assert_eq!(error.key(), "errorXbpsExit");
+    }
+
+    /// A build that exits non-zero for the notice alone is still a notice.
+    #[test]
+    fn a_non_zero_exit_that_says_nothing_else_is_still_a_notice() {
+        let (invoke, _) = one_answer(&reply(1, "", "ERROR: Package `bash' already installed."));
+        let request = PlanRequest::install(vec!["bash".to_owned()]);
+        let outcome = dry_run(&request, &installed(&[("bash", "5.2.037_1")]), &*invoke)
+            .expect("the notice is the whole answer");
+        assert!(outcome.empty);
+        assert_eq!(outcome.satisfied, ["bash".to_owned()]);
+    }
+
+    /// The queue's Apply drops the names the plan called satisfied. A mixed
+    /// queue keeps the steps and only the name xbps left out of the table is
+    /// dropped.
+    #[test]
+    fn a_mixed_queue_keeps_its_steps_and_drops_only_the_left_out_name() {
+        let (invoke, _) = one_answer(&reply(
+            0,
+            "vim-9.2.1031_1 update x86_64 https://r/current 4194304 1468006\n",
+            "ERROR: Package `bash' already installed.",
+        ));
+        let queue = vec![
+            QueueItem {
+                name: "vim".into(),
+                action: QueueAction::Update,
+            },
+            QueueItem {
+                name: "bash".into(),
+                action: QueueAction::Update,
+            },
+        ];
+        let payload = queue_payload(
+            &installed(&[("vim", "9.2.1000_1"), ("bash", "5.2.037_1")]),
+            &queue,
+            &*invoke,
+        );
+        assert_eq!(payload.items.len(), 1);
+        assert_eq!(payload.items[0].name, "vim");
+        assert_eq!(payload.satisfied, ["bash".to_owned()]);
     }
 
     #[test]
