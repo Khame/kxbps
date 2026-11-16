@@ -7,6 +7,12 @@
 // The whole text lives in `sections` below. Adding a section is adding one
 // object there, and `scripts/extract-i18n.sh` picks the new `i18nd` calls up
 // from the catalogs: no other file decides what this page says.
+//
+// The layout is a reading column, not a table: a measure narrow enough for the
+// eye to find the next line, a rule between sections, and a heading that stands
+// off its own text. The bullet list bolds the term before the colon, because
+// that term is what a reader scans for; the sentence after it stays ordinary
+// text.
 
 import QtQuick
 import QtQuick.Controls as QQC2
@@ -97,6 +103,32 @@ Item {
         }
     ]
 
+    // The measure. A line that runs the whole width of a maximized window is a
+    // line the eye loses its place in; 34 grid units is about ninety characters
+    // at the default font, and the page is centred in whatever room it has.
+    readonly property real readingWidth:
+        Math.min(parent.width - Kirigami.Units.largeSpacing * 2,
+                 Kirigami.Units.gridUnit * 34)
+
+    // A bullet is "Term: the sentence that explains it". The term is what a
+    // reader scans for, so it is bold and keeps its colon; a bullet without one
+    // is drawn as plain text. The split is display only: the translation owns
+    // the whole sentence and may put the colon anywhere, or nowhere.
+    function bulletHtml(text) {
+        const at = text.indexOf(": ")
+        if (at <= 0) {
+            return escapeHtml(text)
+        }
+        return "<b>" + escapeHtml(text.slice(0, at)) + "</b>: " + escapeHtml(text.slice(at + 2))
+    }
+
+    // The strings are plain text, but `Text.StyledText` reads angle brackets as
+    // markup: a translation carrying `~/.local/share` is safe, one carrying a
+    // `<` is not, so everything that is not the bold tag is escaped.
+    function escapeHtml(text) {
+        return text.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;")
+    }
+
     QQC2.ScrollView {
         anchors.fill: parent
         clip: true
@@ -106,47 +138,73 @@ Item {
         QQC2.ScrollBar.horizontal.policy: QQC2.ScrollBar.AlwaysOff
 
         ColumnLayout {
-            x: Kirigami.Units.largeSpacing
+            x: Math.max(Kirigami.Units.largeSpacing,
+                        (parent.width - view.readingWidth) / 2)
             y: Kirigami.Units.largeSpacing
-            width: Math.min(parent.width - Kirigami.Units.largeSpacing * 2,
-                            Kirigami.Units.gridUnit * 46)
-            spacing: Kirigami.Units.largeSpacing
+            width: view.readingWidth
+            // The rhythm is the delegate's: a section owns the air above it, so
+            // the rule between two sections sits at the same distance from both.
+            spacing: 0
 
             Repeater {
                 model: view.sections
 
                 delegate: ColumnLayout {
+                    id: section
                     required property var modelData
+                    required property int index
                     Layout.fillWidth: true
-                    spacing: Kirigami.Units.smallSpacing
+                    spacing: 0
+
+                    // The rule is what turns a wall of paragraphs into a page:
+                    // it separates two sections without a box or a colour.
+                    Kirigami.Separator {
+                        Layout.fillWidth: true
+                        Layout.topMargin: section.index === 0 ? 0 : Kirigami.Units.gridUnit
+                        Layout.bottomMargin: Kirigami.Units.gridUnit * 0.75
+                        visible: section.index > 0
+                    }
 
                     Kirigami.Heading {
                         Layout.fillWidth: true
+                        Layout.bottomMargin: Kirigami.Units.smallSpacing
                         level: 2
-                        text: modelData.heading
+                        text: section.modelData.heading
                         wrapMode: Text.WordWrap
                     }
 
-                    Repeater {
-                        model: modelData.paragraphs
+                    // Paragraphs are one block with air between them; the block
+                    // itself starts tight under its heading, which is what makes
+                    // the heading read as belonging to it.
+                    ColumnLayout {
+                        Layout.fillWidth: true
+                        spacing: Kirigami.Units.smallSpacing * 2
 
-                        delegate: QQC2.Label {
-                            required property string modelData
-                            Layout.fillWidth: true
-                            text: modelData
-                            textFormat: Text.PlainText
-                            wrapMode: Text.WordWrap
+                        Repeater {
+                            model: section.modelData.paragraphs
+
+                            delegate: QQC2.Label {
+                                required property string modelData
+                                Layout.fillWidth: true
+                                text: modelData
+                                textFormat: Text.PlainText
+                                wrapMode: Text.WordWrap
+                            }
                         }
                     }
 
+                    // The list is indented from the paragraph it follows, and
+                    // every bullet hangs off one lane so the terms line up.
                     ColumnLayout {
                         Layout.fillWidth: true
                         Layout.leftMargin: Kirigami.Units.largeSpacing
+                        Layout.topMargin: Kirigami.Units.smallSpacing * 2
                         spacing: Kirigami.Units.smallSpacing
-                        visible: modelData.bullets !== undefined && modelData.bullets.length > 0
+                        visible: section.modelData.bullets !== undefined
+                                 && section.modelData.bullets.length > 0
 
                         Repeater {
-                            model: modelData.bullets
+                            model: section.modelData.bullets
 
                             delegate: RowLayout {
                                 required property string modelData
@@ -156,13 +214,13 @@ Item {
                                 QQC2.Label {
                                     Layout.alignment: Qt.AlignTop
                                     text: "•"
-                                    color: Kirigami.Theme.textColor
+                                    color: Kirigami.Theme.disabledTextColor
                                 }
 
                                 QQC2.Label {
                                     Layout.fillWidth: true
-                                    text: modelData
-                                    textFormat: Text.PlainText
+                                    text: view.bulletHtml(modelData)
+                                    textFormat: Text.StyledText
                                     wrapMode: Text.WordWrap
                                 }
                             }
@@ -171,8 +229,10 @@ Item {
                 }
             }
 
+            // The scroll ends where the content does, so the last line needs
+            // air under it: a paragraph flush against the edge reads as cut off.
             Item {
-                Layout.fillHeight: true
+                Layout.preferredHeight: Kirigami.Units.gridUnit
             }
         }
     }
