@@ -122,9 +122,9 @@ cache:
 ```sh
 cd ~/workspace/projects/software/khaxbps
 ./packaging/void/prepare-local.py
-mkdir -p ~/workspace/projects/software/void/void-packages/hostdir/sources/kxbps-0.12.0
-cp kxbps-0.12.0.tar.gz \
-    ~/workspace/projects/software/void/void-packages/hostdir/sources/kxbps-0.12.0/
+mkdir -p ~/workspace/projects/software/void/void-packages/hostdir/sources/kxbps-<version>
+cp kxbps-<version>.tar.gz \
+    ~/workspace/projects/software/void/void-packages/hostdir/sources/kxbps-<version>/
 
 cd ~/workspace/projects/software/void/void-packages
 ./xbps-src pkg kxbps
@@ -145,18 +145,16 @@ resolves there. For that check, use a throwaway masterdir and hostdir:
 ```sh
 export XBPS_MASTERDIR=/var/tmp/kxbps-clean/masterdir
 export XBPS_HOSTDIR=/var/tmp/kxbps-clean/hostdir
-mkdir -p "$XBPS_HOSTDIR/sources/kxbps-0.12.0"
-cp kxbps-0.12.0.tar.gz "$XBPS_HOSTDIR/sources/kxbps-0.12.0/"
+mkdir -p "$XBPS_HOSTDIR/sources/kxbps-<version>"
+cp kxbps-<version>.tar.gz "$XBPS_HOSTDIR/sources/kxbps-<version>/"
 ./xbps-src binary-bootstrap
 ./xbps-src pkg kxbps
 ```
 
 The tarball has to be seeded there, because a release asset does not exist until
-after the build. 0.12.0 was checked this way: the fresh masterdir installed every
-dependency from the repository, and the package it produced has the same size,
-the same required symbol versions and the same `--version` output as the one from
-the shared masterdir; only the ELF build-id and the order of the dynamic string
-and version tables differ.
+after the build. A clean build with an empty masterdir installs every dependency
+from the repository; it should produce the same package as the shared one, apart
+from the ELF build-id and the table order.
 
 `ERROR: Package 'qt6-base-devel-…' already installed` in the log does not mean
 the masterdir is dirty: `qt6-base-devel` sits in both `hostmakedepends` and
@@ -230,7 +228,7 @@ The version has to agree in five places at the same time:
 | `CHANGELOG.md` | by hand |
 | `packaging/void/template` (`version`, `checksum`) | by hand, against the tarball |
 
-`python3 packaging/void/verify-release.py --tarball kxbps-0.12.0.tar.gz
+`python3 packaging/void/verify-release.py --tarball kxbps-<version>.tar.gz
 --void-packages <path>` checks all of them and exits nonzero on the first
 mismatch. Run it before tagging and again after the checksum update.
 
