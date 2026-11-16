@@ -65,7 +65,7 @@ It installs these files, plus one catalog per language under
 | `/usr/share/icons/hicolor/scalable/apps/kxbps-updates.svg` | the icon with the update arrow |
 | `/usr/share/icons/hicolor/scalable/status/kxbps-tray*.svg` | the tray icons: `kxbps-tray`, `kxbps-tray-updates` and their `-symbolic` forms |
 | `/usr/share/metainfo/io.github.khame.kxbps.metainfo.xml` | AppStream data |
-| `/usr/share/polkit-1/actions/io.github.khame.kxbps.policy` | the four actions |
+| `/usr/share/polkit-1/actions/io.github.khame.kxbps.policy` | the five actions |
 | `/usr/share/man/man1/kxbps.1` | the manual page |
 | `/usr/share/locale/<lang>/LC_MESSAGES/kxbps.mo` | translations: `de`, `es`, `fr`, `it`, `nl`, `pl`, `pt_BR` |
 
@@ -92,7 +92,7 @@ grep -c 'action id=' /usr/share/polkit-1/actions/io.github.khame.kxbps.policy
 QT_QPA_PLATFORM=offscreen timeout 5 kxbps
 ```
 
-The `grep` prints `4`. The last command should end on exit status 124 with
+The `grep` prints `5`. The last command should end on exit status 124 with
 nothing on stderr; the timeout is what stops it.
 
 ## Removing a checkout install

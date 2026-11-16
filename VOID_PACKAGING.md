@@ -17,7 +17,7 @@ Users should read [README.md](README.md) and [INSTALL.md](INSTALL.md) instead.
 | `packaging/install.sh` | installs a checkout into `/usr`: binaries, icons, entries, policy, man page, catalogs |
 | `packaging/io.github.khame.kxbps.desktop` | launcher entry, `Icon=kxbps` |
 | `packaging/io.github.khame.kxbps.metainfo.xml` | AppStream data; carries one `<release>` per version |
-| `packaging/io.github.khame.kxbps.policy` | the four polkit actions |
+| `packaging/io.github.khame.kxbps.policy` | the five polkit actions |
 | `packaging/icons/app/` | `kxbps.svg`, `kxbps-updates.svg` |
 | `packaging/icons/tray/symbolic/` | the four tray icons |
 | `packaging/icons/actions/` | the twelve symbolic glyphs the window draws |

@@ -73,13 +73,14 @@ there is no dock button to badge and the tray icon carries the news alone.
 
 ## Privileges
 
-Reading needs no root. Every write goes through `pkexec` and one of four polkit
+Reading needs no root. Every write goes through `pkexec` and one of five polkit
 actions:
 
 | Action | What it does |
 | --- | --- |
 | `io.github.khame.kxbps.install` | `xbps-install` for the queue |
 | `io.github.khame.kxbps.remove` | `xbps-remove` for the queue |
+| `io.github.khame.kxbps.hold` | `xbps-pkgdb -m hold` or `unhold` for one package |
 | `io.github.khame.kxbps.mirror` | writes `/etc/xbps.d/00-repository-main.conf` and syncs the indexes |
 | `io.github.khame.kxbps.repo` | adds or removes one `20-kxbps-*.conf` file and syncs the indexes |
 
