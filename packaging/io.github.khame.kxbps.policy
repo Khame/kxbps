@@ -4,10 +4,33 @@
  "http://www.freedesktop.org/standards/PolicyKit/1/policyconfig.dtd">
 <policyconfig>
   <!-- One action per executable: polkit matches a single
-       org.freedesktop.policykit.exec.path per action id. -->
+       org.freedesktop.policykit.exec.path per action id.
+
+       polkit has no gettext for this file: a translated sentence is a second
+       element carrying xml:lang, and polkit picks the one that matches the
+       caller's locale. The element without xml:lang is the default, so a
+       language this file does not carry reads English.
+
+       The languages are the ones `po/` carries, in the order KDE and udisks2
+       list theirs. A new action needs its description and message in every
+       language below, or that action alone falls back to English. -->
   <action id="io.github.khame.kxbps.install">
     <description>Install or update packages with xbps-install</description>
+    <description xml:lang="de">Pakete mit xbps-install installieren oder aktualisieren</description>
+    <description xml:lang="es">Instalar o actualizar paquetes con xbps-install</description>
+    <description xml:lang="fr">Installer ou mettre à jour des paquets avec xbps-install</description>
+    <description xml:lang="it">Installa o aggiorna pacchetti con xbps-install</description>
+    <description xml:lang="nl">Pakketten installeren of bijwerken met xbps-install</description>
+    <description xml:lang="pl">Instalowanie i aktualizacja pakietów przez xbps-install</description>
+    <description xml:lang="pt_BR">Instalar ou atualizar pacotes com xbps-install</description>
     <message>Authentication is required to install or update packages</message>
+    <message xml:lang="de">Legitimierung ist erforderlich, um Pakete zu installieren oder zu aktualisieren</message>
+    <message xml:lang="es">Se requiere autenticación para instalar o actualizar paquetes</message>
+    <message xml:lang="fr">Une authentification est requise pour installer ou mettre à jour des paquets</message>
+    <message xml:lang="it">È richiesto autenticarsi per installare o aggiornare i pacchetti</message>
+    <message xml:lang="nl">Authenticatie is vereist om pakketten te installeren of bij te werken</message>
+    <message xml:lang="pl">Wymagane jest uwierzytelnienie, aby instalować lub aktualizować pakiety</message>
+    <message xml:lang="pt_BR">Autenticação é necessária para instalar ou atualizar pacotes</message>
     <annotate key="org.freedesktop.policykit.exec.path">/usr/bin/xbps-install</annotate>
     <defaults>
       <allow_active>auth_admin</allow_active>
@@ -17,7 +40,21 @@
 
   <action id="io.github.khame.kxbps.remove">
     <description>Remove packages with xbps-remove</description>
+    <description xml:lang="de">Pakete mit xbps-remove entfernen</description>
+    <description xml:lang="es">Eliminar paquetes con xbps-remove</description>
+    <description xml:lang="fr">Supprimer des paquets avec xbps-remove</description>
+    <description xml:lang="it">Rimuovi pacchetti con xbps-remove</description>
+    <description xml:lang="nl">Pakketten verwijderen met xbps-remove</description>
+    <description xml:lang="pl">Usuwanie pakietów przez xbps-remove</description>
+    <description xml:lang="pt_BR">Remover pacotes com xbps-remove</description>
     <message>Authentication is required to remove packages</message>
+    <message xml:lang="de">Legitimierung ist erforderlich, um Pakete zu entfernen</message>
+    <message xml:lang="es">Se requiere autenticación para eliminar paquetes</message>
+    <message xml:lang="fr">Une authentification est requise pour supprimer des paquets</message>
+    <message xml:lang="it">È richiesto autenticarsi per rimuovere i pacchetti</message>
+    <message xml:lang="nl">Authenticatie is vereist om pakketten te verwijderen</message>
+    <message xml:lang="pl">Wymagane jest uwierzytelnienie, aby usuwać pakiety</message>
+    <message xml:lang="pt_BR">Autenticação é necessária para remover pacotes</message>
     <annotate key="org.freedesktop.policykit.exec.path">/usr/bin/xbps-remove</annotate>
     <defaults>
       <allow_active>auth_admin</allow_active>
@@ -30,7 +67,21 @@
        on the install action even though both change the system. -->
   <action id="io.github.khame.kxbps.hold">
     <description>Hold or release a package version</description>
+    <description xml:lang="de">Eine Paketversion zurückhalten oder freigeben</description>
+    <description xml:lang="es">Retener o liberar la versión de un paquete</description>
+    <description xml:lang="fr">Retenir ou libérer la version d'un paquet</description>
+    <description xml:lang="it">Trattieni o rilascia la versione di un pacchetto</description>
+    <description xml:lang="nl">Een pakketversie vasthouden of vrijgeven</description>
+    <description xml:lang="pl">Zablokowanie lub zwolnienie wersji pakietu</description>
+    <description xml:lang="pt_BR">Reter ou liberar a versão de um pacote</description>
     <message>Authentication is required to hold or release a package</message>
+    <message xml:lang="de">Legitimierung ist erforderlich, um eine Paketversion zurückzuhalten oder freizugeben</message>
+    <message xml:lang="es">Se requiere autenticación para retener o liberar la versión de un paquete</message>
+    <message xml:lang="fr">Une authentification est requise pour retenir ou libérer la version d'un paquet</message>
+    <message xml:lang="it">È richiesto autenticarsi per trattenere o rilasciare la versione di un pacchetto</message>
+    <message xml:lang="nl">Authenticatie is vereist om een pakketversie vast te houden of vrij te geven</message>
+    <message xml:lang="pl">Wymagane jest uwierzytelnienie, aby zablokować lub zwolnić wersję pakietu</message>
+    <message xml:lang="pt_BR">Autenticação é necessária para reter ou liberar a versão de um pacote</message>
     <annotate key="org.freedesktop.policykit.exec.path">/usr/bin/xbps-pkgdb</annotate>
     <defaults>
       <allow_active>auth_admin</allow_active>
@@ -41,7 +92,21 @@
   <!-- Repositories: the helper writes or removes one 20-kxbps-*.conf file. -->
   <action id="io.github.khame.kxbps.repo">
     <description>Add or remove a repository configuration</description>
+    <description xml:lang="de">Eine Repository-Konfiguration hinzufügen oder entfernen</description>
+    <description xml:lang="es">Añadir o eliminar la configuración de un repositorio</description>
+    <description xml:lang="fr">Ajouter ou supprimer la configuration d'un dépôt</description>
+    <description xml:lang="it">Aggiungi o rimuovi la configurazione di un repository</description>
+    <description xml:lang="nl">Een repository-configuratie toevoegen of verwijderen</description>
+    <description xml:lang="pl">Dodanie lub usunięcie konfiguracji repozytorium</description>
+    <description xml:lang="pt_BR">Adicionar ou remover a configuração de um repositório</description>
     <message>Authentication is required to change the system repositories</message>
+    <message xml:lang="de">Legitimierung ist erforderlich, um die System-Repositories zu ändern</message>
+    <message xml:lang="es">Se requiere autenticación para cambiar los repositorios del sistema</message>
+    <message xml:lang="fr">Une authentification est requise pour modifier les dépôts du système</message>
+    <message xml:lang="it">È richiesto autenticarsi per modificare i repository di sistema</message>
+    <message xml:lang="nl">Authenticatie is vereist om de systeemrepositories te wijzigen</message>
+    <message xml:lang="pl">Wymagane jest uwierzytelnienie, aby zmienić repozytoria systemowe</message>
+    <message xml:lang="pt_BR">Autenticação é necessária para alterar os repositórios do sistema</message>
     <annotate key="org.freedesktop.policykit.exec.path">/usr/libexec/kxbps-repo-apply</annotate>
     <defaults>
       <allow_active>auth_admin</allow_active>
@@ -53,7 +118,21 @@
        on failure, all under one authorization. -->
   <action id="io.github.khame.kxbps.mirror">
     <description>Apply a repository mirror to the system configuration</description>
+    <description xml:lang="de">Einen Repository-Spiegel auf die Systemkonfiguration anwenden</description>
+    <description xml:lang="es">Aplicar un espejo del repositorio a la configuración del sistema</description>
+    <description xml:lang="fr">Appliquer un miroir du dépôt à la configuration du système</description>
+    <description xml:lang="it">Applica un mirror del repository alla configurazione di sistema</description>
+    <description xml:lang="nl">Een repository-spiegel op de systeemconfiguratie toepassen</description>
+    <description xml:lang="pl">Zastosowanie serwera lustrzanego repozytorium w konfiguracji systemu</description>
+    <description xml:lang="pt_BR">Aplicar um espelho do repositório à configuração do sistema</description>
     <message>Authentication is required to change the system repository</message>
+    <message xml:lang="de">Legitimierung ist erforderlich, um das System-Repository zu ändern</message>
+    <message xml:lang="es">Se requiere autenticación para cambiar el repositorio del sistema</message>
+    <message xml:lang="fr">Une authentification est requise pour modifier le dépôt du système</message>
+    <message xml:lang="it">È richiesto autenticarsi per modificare il repository di sistema</message>
+    <message xml:lang="nl">Authenticatie is vereist om de systeemrepository te wijzigen</message>
+    <message xml:lang="pl">Wymagane jest uwierzytelnienie, aby zmienić repozytorium systemowe</message>
+    <message xml:lang="pt_BR">Autenticação é necessária para alterar o repositório do sistema</message>
     <annotate key="org.freedesktop.policykit.exec.path">/usr/libexec/kxbps-mirror-apply</annotate>
     <defaults>
       <allow_active>auth_admin</allow_active>
