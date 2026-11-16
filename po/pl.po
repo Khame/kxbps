@@ -1364,13 +1364,13 @@ msgstr "Aktualizacje"
 msgid "Updates available"
 msgstr "Dostępne aktualizacje"
 
-#: kxbps-qt/qml/Main.qml:702
+#: kxbps-qt/qml/Main.qml:710
 msgid "Upgradable"
-msgstr "Do aktualizacji"
+msgstr "Aktualizacje"
 
 #: kxbps-qt/qml/views/HelpView.qml:35
 msgid "Upgradable: installed packages with a newer version in the repository."
-msgstr "Do aktualizacji: zainstalowane pakiety, dla których repozytorium ma nowszą wersję."
+msgstr "Aktualizacje: zainstalowane pakiety, dla których repozytorium ma nowszą wersję."
 
 #: kxbps-qt/qml/views/SettingsView.qml:55
 msgid "Use desktop notifications"
