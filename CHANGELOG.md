@@ -3,6 +3,46 @@
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 the project uses semantic versioning.
 
+## [0.12.1] - 2026-11-17
+
+### Fixed
+
+- Apply needed a second click on a queue of updates. xbps names a package it
+  has already taken as a dependency of an earlier argument with
+  ``Package `x' already installed.``, and prints the same package as an
+  `update` row at the same time. The plan read that sentence as "nothing to do"
+  and dropped the entry, so a queue of twenty updates came back as eleven after
+  the first Apply while nothing had been installed. The satisfied list is now
+  the names the plan does not carry, and an aborted transaction is reported
+  instead of being read as an empty plan. The count that the drop moved also
+  cancelled the request the dialog was waiting for, so the answer the plan had
+  just computed was thrown away; the plan marks that change as its own
+  bookkeeping now, and one click runs the transaction.
+- The details pane kept describing a package the list no longer showed. The
+  selection survived a row that left the list, and a filter or search change
+  kept the row number, so the pane followed that number onto whatever package
+  now sat there. The selection clears with the row, and a filter or search
+  change resets the current row and closes the pane.
+- The log drawer set an explicit height inside a column layout, so in a short
+  window the layout could not shrink it: the bar was pushed past the bottom
+  edge and the copy button was cut in half. The drawer reports its height
+  through `implicitHeight` and the bar is as tall as its button plus one
+  padding step above and below.
+- The polkit password dialog showed English in a Polish session. A `.policy`
+  file has no gettext, so each action now carries the seven languages `po/`
+  ships next to the English element that stays the default.
+- `build.rs` watches `qml/`. Cargo stopped running the build script after the
+  first pass, so a QML edit stayed out of the binary and a change could look
+  like it did nothing.
+
+### Changed
+
+- The sidebar entry for the updates page is called "Aktualizacje", the same
+  word the page title uses; the pill in the rows keeps "Do aktualizacji",
+  which names the state of a row.
+- The help page reads as a centred column with a rule between sections and the
+  filter term in bold.
+
 ## [0.12.0] - 2026-11-15
 
 ### Added
