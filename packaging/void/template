@@ -11,8 +11,8 @@ short_desc="Native KDE Plasma front end for the xbps package manager"
 maintainer="Khame <khame.dev@protonmail.com>"
 license="GPL-3.0-or-later"
 homepage="https://github.com/Khame/kxbps"
-distfiles="${homepage}/releases/download/v${version}/kxbps-${version}.tar.gz"
-checksum=8379741eacffd090e69c5f1bf31276e3ba46add12c0069ec219743605b518450
+distfiles="${homepage}/archive/refs/tags/v${version}.tar.gz"
+checksum=ef6b207c0582e5671c38e806928ecb9cb54ca61048269b02661bbe1c35cf93b8
 
 # The default do_install would `cargo install` every binary in the workspace
 # into /usr/bin. The two helpers are only ever started by polkit, and the
