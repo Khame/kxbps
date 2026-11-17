@@ -5,8 +5,8 @@ places.
 
 ## From a package
 
-KXbps is published for x86_64 in Khame's signed repository. Point xbps at it
-once, then install:
+KXbps is published for `x86_64` and `x86_64-musl` in Khame's signed repository.
+Point xbps at the one your system uses, then install:
 
 ```sh
 sudo sh -c 'echo "repository=https://khame.github.io/void-packages/" > /etc/xbps.d/10-khame.conf'
@@ -14,10 +14,17 @@ sudo xbps-install -S      # answer Y to import the repository key
 sudo xbps-install kxbps
 ```
 
-The package is glibc only, because that is the index the repository carries. On
-an `x86_64-musl` system the repository line ends in `/musl`
-(`…/voidlinux.org/current/musl`), Khame's index has no musl build, and KXbps
-comes from a checkout below.
+On an `x86_64-musl` system the same package lives in its own repository, and
+the line names it:
+
+```sh
+sudo sh -c 'echo "repository=https://khame.github.io/void-packages/musl" > /etc/xbps.d/10-khame.conf'
+sudo xbps-install -S      # answer Y to import the repository key
+sudo xbps-install kxbps
+```
+
+xbps reads `<repository>/<arch>-repodata`, so the glibc tree is never used on
+musl and the two indexes never mix. `kxbps` is the only package published there.
 
 On the first sync xbps asks whether to import the signing key. Compare the
 fingerprint before answering:

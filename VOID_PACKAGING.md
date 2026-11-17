@@ -127,16 +127,18 @@ mkdir -p srcpkgs/kxbps
 cp ~/workspace/projects/software/khaxbps/packaging/void/template srcpkgs/kxbps/
 ```
 
-A release build downloads the tarball from the GitHub release. For a local build
-with no release to download from, generate it first and put it in the source
-cache:
+The build downloads the tag archive, so a pushed tag is all it needs. When the
+tag is not on GitHub yet, seed the source cache with a local tarball. `xbps-src`
+names a cached distfile after the basename of its URL, so the file has to be
+`v<version>.tar.gz`; a copy called `kxbps-<version>.tar.gz` sits in the cache
+unused and the build goes to the network instead:
 
 ```sh
 cd ~/workspace/projects/software/khaxbps
 ./packaging/void/prepare-local.py
 mkdir -p ~/workspace/projects/software/void/void-packages/hostdir/sources/kxbps-<version>
 cp kxbps-<version>.tar.gz \
-    ~/workspace/projects/software/void/void-packages/hostdir/sources/kxbps-<version>/
+    ~/workspace/projects/software/void/void-packages/hostdir/sources/kxbps-<version>/v<version>.tar.gz
 
 cd ~/workspace/projects/software/void/void-packages
 ./xbps-src pkg kxbps
@@ -170,15 +172,15 @@ resolves there. For that check, use a throwaway masterdir and hostdir:
 export XBPS_MASTERDIR=/var/tmp/kxbps-clean/masterdir
 export XBPS_HOSTDIR=/var/tmp/kxbps-clean/hostdir
 mkdir -p "$XBPS_HOSTDIR/sources/kxbps-<version>"
-cp kxbps-<version>.tar.gz "$XBPS_HOSTDIR/sources/kxbps-<version>/"
+cp kxbps-<version>.tar.gz "$XBPS_HOSTDIR/sources/kxbps-<version>/v<version>.tar.gz"
 ./xbps-src binary-bootstrap
 ./xbps-src pkg kxbps
 ```
 
-The tarball has to be seeded there, because a release asset does not exist until
-after the build. A clean build with an empty masterdir installs every dependency
-from the repository; it should produce the same package as the shared one, apart
-from the ELF build-id and the table order.
+Seed the cache only while the tag is unpublished; once it is, the build fetches
+the archive by itself. A clean build with an empty masterdir installs every
+dependency from the repository; it should produce the same package as the shared
+one, apart from the ELF build-id and the table order.
 
 `ERROR: Package 'qt6-base-devel-…' already installed` in the log does not mean
 the masterdir is dirty: `qt6-base-devel` sits in both `hostmakedepends` and
@@ -217,9 +219,15 @@ metadata stale in every place you would check later.
 - `xbps-rindex -S` does not replace an existing `.sig2`. It exits 0 without a
   word and leaves the old signature, which then fails to verify. Remove the file
   first, then check the result against the public keys in `/var/db/xbps/keys/`.
-- A tarball in `hostdir/sources` that does not match the release asset makes a
+- A tarball in `hostdir/sources` that does not match the tag archive makes a
   clean build fail somewhere else. The checksum in the template is the only
   thing tying the two together, so regenerate both in the same step.
+- `xbps-rindex -a` refuses a musl package on a glibc host with `index: ignoring
+  …, unmatched arch`. It picks the architecture from `uname`; export
+  `XBPS_ARCH=x86_64-musl` for the musl directory, for `-a` and for `-s` alike.
+- The key-import prompt needs a real stdin. Piping the `sudo` password leaves
+  the prompt at EOF, xbps abandons the import without failing the sync, and the
+  next install dies with `the RSA signature is not valid`. Answer the prompt.
 - `git archive` is not reproducible: the commit id travels in a pax global
   header and the commit time sits in every member header. Dropping
   `pax_global_header` by name is not enough — `tarfile` reads the global records
@@ -252,9 +260,10 @@ The version has to agree in five places at the same time:
 | `CHANGELOG.md` | by hand |
 | `packaging/void/template` (`version`, `checksum`) | by hand, against the tag archive |
 
-`python3 packaging/void/verify-release.py --tarball kxbps-<version>.tar.gz
+`python3 packaging/void/verify-release.py --tarball v<version>.tar.gz
 --void-packages <path>` checks all of them and exits nonzero on the first
-mismatch. Run it before tagging and again after the checksum update.
+mismatch; the tarball is the fetched tag archive, not the local build. Run it
+before tagging and again after the checksum update.
 
 ## Publishing
 
@@ -326,9 +335,9 @@ To publish a new revision:
    done
    ```
 
-8. Commit and push `Khame/void-packages`. Attach the glibc `.xbps`, its `.sig2`
-   and the public key to the release in `Khame/kxbps`; the musl pair is served
-   from the repository only, because a release asset carries no architecture.
+8. Commit and push `Khame/void-packages`. Attach both `.xbps` files with their
+   `.sig2` and the public key to the release in `Khame/kxbps`; the file names
+   carry the architecture, and the repository stays the install path.
    The key is the `.plist` file from `/var/db/xbps/keys/`, not
    `Khame-void-repo.pub`, which is the PEM copy served by the site. GitHub
    replaces the colons in the asset name with dots, so the `install` step in
@@ -338,8 +347,13 @@ To publish a new revision:
 
    ```sh
    xbps-query -M --repository=https://khame.github.io/void-packages/ -p pkgver kxbps
-   xbps-query -M --repository=https://khame.github.io/void-packages/musl -p pkgver kxbps
+   XBPS_ARCH=x86_64-musl \
+       xbps-query -M --repository=https://khame.github.io/void-packages/musl -p pkgver kxbps
    ```
+
+   The second line needs `XBPS_ARCH` on a glibc host: xbps asks for
+   `<arch>-repodata` of the machine it runs on, and without the override it
+   looks for a file the musl tree does not have.
 
    The Pages build for the pushed commit has to report `built` in
    `gh api repos/Khame/void-packages/pages/builds/latest`. On a musl host,

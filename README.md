@@ -110,13 +110,13 @@ with undefined references to `cxx_qt_init_crate_*`.
 
 ## Install
 
-Khame's signed repository carries the package for x86_64: [INSTALL.md](INSTALL.md)
-has the repository line, the key fingerprint and the two commands. There is no
-package in the official Void repository.
+Khame's signed repository carries the package for `x86_64` and `x86_64-musl`:
+[INSTALL.md](INSTALL.md) has the repository line, the key fingerprint and the
+commands. There is no package in the official Void repository.
 
-Nothing in the program is glibc-specific, and the sources build on `x86_64-musl`
-as they are. Khame's repository has no musl index yet, so a musl system installs
-from a checkout.
+The musl tree is a separate repository, `…/void-packages/musl`, with the same
+key and the same package. xbps reads `<repository>/<arch>-repodata`, so the two
+indexes never mix.
 
 It also builds from a checkout; INSTALL.md has the dependencies, the install
 script and what it puts where.
