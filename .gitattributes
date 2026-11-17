@@ -1,3 +1,12 @@
 # Maintainer notes and the packaging helpers are not part of the source tarball.
 VOID_PACKAGING.md export-ignore
 packaging/void/ export-ignore
+
+# The CXX-Qt shims are C++ by construction. Linguist's extension heuristics
+# classify some headers as C, which puts a language in the bar that the tree
+# does not contain.
+*.h linguist-language=C++
+
+# The helper modules under qml/ are JavaScript files imported from QML, so they
+# belong to that slice of the bar rather than to a language of their own.
+kxbps-qt/qml/**/*.js linguist-language=QML
