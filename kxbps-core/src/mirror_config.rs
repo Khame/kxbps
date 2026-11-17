@@ -10,10 +10,13 @@
 //! atomically, with a backup and a revert so a failed refresh leaves the
 //! previous file in place:
 //!
-//! - The file holds a base URL, `repository=https://repo-de.voidlinux.org/`;
-//!   xbps appends `current/…` itself. A value that already ends in `/current`,
-//!   or in a sub-repository such as `/current/multilib`, is not a mirror and is
-//!   refused.
+//! - The file holds a repository URL, `repository=https://repo-de.voidlinux.org/current`.
+//!   The part before `current` is the mirror; the part after it is the system's
+//!   repository tail (`musl` on a musl system, `multilib/nonfree` for a nested
+//!   one, empty on glibc) and belongs to the system, not to the mirror. Writing
+//!   a new mirror keeps the tail, so switching hosts on musl never points the
+//!   system at the glibc repository. A bare base URL without `current` is
+//!   accepted and normalised to `<base>current`.
 //! - The backup goes to `00-repository-main.conf.kxbps-bak`. The hand-made
 //!   `.old` next to it belongs to the human and is never touched.
 //! - The new file is written as a temp file in the same directory, chmod
@@ -114,6 +117,8 @@ pub enum ParseReason {
     PlainHttp,
     /// The value is not an absolute `https://host/` URL.
     NotAUrl,
+    /// The path after `/current` is not a plain repository name.
+    BadTail,
     /// Two active `repository=` lines; only one `current` may exist.
     TooManyValues,
 }
@@ -127,6 +132,7 @@ impl ParseReason {
             Self::EndsWithCurrent => "the value ends in /current; write the base URL instead",
             Self::PlainHttp => "the value uses plain http",
             Self::NotAUrl => "the value is not a https://host/ URL",
+            Self::BadTail => "the path after /current is not a repository name",
             Self::TooManyValues => "more than one repository= line",
         }
     }
@@ -135,19 +141,39 @@ impl ParseReason {
 /// A parsed configuration file.
 ///
 /// `base` always ends in exactly one `/` and never in `/current`, so it
-/// compares equal to the `MIRRORS[i].url` of the same mirror.
-/// `already_adapted` means the file already ends in `/current`, which
-/// `xbps-query -L` shows as the system repository.
+/// compares equal to the `MIRRORS[i].url` of the same mirror. `tail` is the
+/// path after `current` without surrounding slashes: `musl` on a musl system,
+/// `multilib/nonfree` for a nested repository, empty on glibc. `already_adapted`
+/// means the file already names `/current`, which `xbps-query -L` shows as the
+/// system repository.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct SystemConfig {
     pub base: String,
+    pub tail: String,
     pub already_adapted: bool,
 }
 
 impl SystemConfig {
-    /// The URL xbps resolves as `<base>current`.
+    /// The URL xbps resolves, `<base>current[/<tail>]`.
     pub fn current_url(&self) -> String {
-        format!("{}current", self.base)
+        current_url(&self.base, &self.tail)
+    }
+}
+
+/// The URL xbps resolves for a mirror base and a repository tail.
+pub fn current_url(base: &str, tail: &str) -> String {
+    repository_path(base, tail)
+}
+
+/// Joins a base and a tail into `<base>current[/<tail>]`, both without
+/// duplicate slashes.
+fn repository_path(base: &str, tail: &str) -> String {
+    let base = base.trim_end_matches('/');
+    let tail = tail.trim_matches('/');
+    if tail.is_empty() {
+        format!("{base}{CURRENT}")
+    } else {
+        format!("{base}{CURRENT}/{tail}")
     }
 }
 
@@ -193,8 +219,8 @@ impl fmt::Display for SystemConfig {
 ///
 /// Blank lines and lines starting with `#` are ignored. Exactly one active
 /// `repository=` line is required; its value must be an absolute `https://`
-/// URL with a host and a trailing `/`, must not contain `/current`, and must not
-/// be plain HTTP. Anything else is a [`ConfigError::Parse`].
+/// URL with a host, may name `current` and a repository tail after it, and must
+/// not be plain HTTP. Anything else is a [`ConfigError::Parse`].
 ///
 /// # Examples
 ///
@@ -204,6 +230,13 @@ impl fmt::Display for SystemConfig {
 /// let config =
 ///     parse_repository_conf("# host\nrepository=https://repo-default.voidlinux.org/\n").unwrap();
 /// assert_eq!(config.base, "https://repo-default.voidlinux.org/");
+/// assert_eq!(config.tail, "");
+/// assert_eq!(
+///     parse_repository_conf("repository=https://repo-default.voidlinux.org/current/musl\n")
+///         .unwrap()
+///         .tail,
+///     "musl"
+/// );
 /// assert_eq!(
 ///     parse_repository_conf("repository=http://mirror.example/\n").unwrap_err().reason_text(),
 ///     ParseReason::PlainHttp.text()
@@ -232,20 +265,17 @@ pub fn parse_repository_conf(input: &str) -> Result<SystemConfig, ConfigError> {
         found = Some(value.to_owned());
     }
     let value = found.ok_or_else(|| parse_error("", ParseReason::NotFound))?;
-    let (base, already_adapted) = check_repository_value(&value)?;
-    Ok(SystemConfig {
-        base,
-        already_adapted,
-    })
+    check_repository_value(&value)
 }
 
-/// Checks one `repository=` value and returns it with one trailing `/`.
+/// Checks one `repository=` value and splits it into base and tail.
 ///
 /// Refused: plain HTTP, a missing scheme, a missing host, a dot segment in the
-/// path, and anything that is not `https://host[/path]/`. A value that already
-/// names `/current` is returned with the base before it and `already_adapted`,
-/// so the read side can report it and the write side can refuse it.
-pub fn check_repository_value(value: &str) -> Result<(String, bool), ConfigError> {
+/// path, a tail that is not plain repository names, and anything that is not
+/// `https://host[/path][/current[/tail]]`. A value that names `/current` is
+/// returned with the base before it, the tail after it and `already_adapted`,
+/// so the read side can report it and the write side can keep the tail.
+pub fn check_repository_value(value: &str) -> Result<SystemConfig, ConfigError> {
     let line = format!("repository={value}");
     if let Err(ProbeError::PlainHttp) = check_probe_url(value) {
         return Err(parse_error(&line, ParseReason::PlainHttp));
@@ -253,17 +283,9 @@ pub fn check_repository_value(value: &str) -> Result<(String, bool), ConfigError
     let rest = value
         .strip_prefix("https://")
         .ok_or_else(|| parse_error(&line, ParseReason::NotAUrl))?;
-    let already_adapted = rest.ends_with(CURRENT) || rest.contains("/current/");
-    let host_path = if let Some(host) = rest.strip_suffix(CURRENT) {
-        // Accept a file that already names `current` so it can be read and
-        // reported, but never write it back: `check_base_url` refuses it.
-        host
-    } else if let Some(host) = rest.split_once("/current/").map(|(host, _)| host) {
-        // A sub-repository such as `/current/multilib` is not a mirror: the
-        // base before `current` is the only part a mirror has.
-        host
-    } else {
-        rest
+    let (host_path, current) = match split_current(rest) {
+        Some((host, tail)) => (host, Some(tail)),
+        None => (rest, None),
     };
     if host_path.is_empty() || host_path.starts_with('/') {
         return Err(parse_error(&line, ParseReason::NotAUrl));
@@ -278,29 +300,68 @@ pub fn check_repository_value(value: &str) -> Result<(String, bool), ConfigError
     if !valid_host || !valid_path {
         return Err(parse_error(&line, ParseReason::NotAUrl));
     }
+    let tail = match current {
+        None => String::new(),
+        Some(tail) if valid_tail(tail) => tail.to_owned(),
+        Some(_) => return Err(parse_error(&line, ParseReason::BadTail)),
+    };
     let trimmed = format!("https://{}", host_path.trim_end_matches('/'));
-    let base = format!("{trimmed}/");
-    Ok((base, already_adapted))
+    Ok(SystemConfig {
+        base: format!("{trimmed}/"),
+        tail,
+        already_adapted: current.is_some(),
+    })
+}
+
+/// Splits `host[/path]` from `/current[/tail]` at the first `current` segment.
+///
+/// Returns `None` when the value names no `current` segment at all; the tail is
+/// empty for `.../current` and `.../current/`.
+fn split_current(rest: &str) -> Option<(&str, &str)> {
+    let mut from = 0;
+    while let Some(offset) = rest[from..].find(CURRENT) {
+        let start = from + offset;
+        let after = &rest[start + CURRENT.len()..];
+        if after.is_empty() {
+            return Some((&rest[..start], ""));
+        }
+        if let Some(tail) = after.strip_prefix('/') {
+            return Some((&rest[..start], tail));
+        }
+        from = start + CURRENT.len();
+    }
+    None
+}
+
+/// Whether a tail is a plain relative path: no empty or dot segments.
+fn valid_tail(tail: &str) -> bool {
+    tail.is_empty()
+        || tail.split('/').all(|segment| {
+            !segment.is_empty()
+                && !segment.starts_with('.')
+                && segment
+                    .chars()
+                    .all(|c| c.is_ascii_alphanumeric() || matches!(c, '-' | '_' | '.'))
+        })
 }
 
 /// A value the helper is about to write: refuses `/current` in every
 /// spelling, plain HTTP and anything [`check_repository_value`] rejects.
 pub fn check_base_url(url: &str) -> Result<String, ConfigError> {
-    let (base, already_adapted) = check_repository_value(url)?;
-    if already_adapted {
+    let config = check_repository_value(url)?;
+    if config.already_adapted {
         let line = format!("repository={url}");
         return Err(parse_error(&line, ParseReason::EndsWithCurrent));
     }
-    Ok(base)
+    Ok(config.base)
 }
 
-/// The exact bytes [`write_config_atomic`] writes for a base URL.
+/// The exact bytes [`write_config_atomic`] writes for a base and a tail.
 ///
 /// The base must already be normalised by [`check_base_url`]; the content is a
-/// header naming kxbps and one `repository=<base>current` line.
-pub fn render_config(base: &str) -> String {
-    let base = base.trim_end_matches('/');
-    format!("{HEADER}\nrepository={base}{CURRENT}\n")
+/// header naming kxbps and one `repository=<base>current[/<tail>]` line.
+pub fn render_config(base: &str, tail: &str) -> String {
+    format!("{HEADER}\nrepository={}\n", repository_path(base, tail))
 }
 
 fn parse_error(line: &str, reason: ParseReason) -> ConfigError {
@@ -605,6 +666,7 @@ mod tests {
     fn a_current_sub_repository_is_not_a_mirror() {
         let config = parse("repository=https://repo-de.voidlinux.org/current/multilib\n");
         assert_eq!(config.base, "https://repo-de.voidlinux.org/");
+        assert_eq!(config.tail, "multilib");
         assert!(config.already_adapted);
         assert_eq!(
             check_base_url("https://repo-de.voidlinux.org/current/multilib"),
@@ -612,6 +674,63 @@ mod tests {
                 line: String::from("repository=https://repo-de.voidlinux.org/current/multilib"),
                 reason: ParseReason::EndsWithCurrent,
             })
+        );
+    }
+
+    #[test]
+    fn a_musl_value_keeps_the_repository_tail() {
+        let config = parse("repository=https://repo-de.voidlinux.org/current/musl\n");
+        assert_eq!(config.base, "https://repo-de.voidlinux.org/");
+        assert_eq!(config.tail, "musl");
+        assert!(config.already_adapted);
+        assert_eq!(
+            config.current_url(),
+            "https://repo-de.voidlinux.org/current/musl"
+        );
+    }
+
+    #[test]
+    fn a_glibc_value_has_an_empty_tail() {
+        let config = parse(MAIN);
+        assert_eq!(config.tail, "");
+        assert_eq!(
+            config.current_url(),
+            "https://repo-de.voidlinux.org/current"
+        );
+    }
+
+    #[test]
+    fn a_nested_tail_is_kept_and_rendered_back() {
+        let config = parse("repository=https://repo-de.voidlinux.org/current/multilib/nonfree\n");
+        assert_eq!(config.tail, "multilib/nonfree");
+        assert_eq!(
+            render_config(&config.base, &config.tail),
+            format!(
+                "{HEADER}\nrepository=https://repo-de.voidlinux.org/current/multilib/nonfree\n"
+            )
+        );
+    }
+
+    #[test]
+    fn a_tail_with_an_empty_or_dot_segment_is_refused() {
+        for text in [
+            "repository=https://repo-de.voidlinux.org/current//musl\n",
+            "repository=https://repo-de.voidlinux.org/current/../musl\n",
+            "repository=https://repo-de.voidlinux.org/current/musl/.\n",
+        ] {
+            assert_eq!(reason(text), ParseReason::BadTail, "{text:?}");
+        }
+    }
+
+    #[test]
+    fn render_config_writes_the_tail_after_current() {
+        assert_eq!(
+            render_config("https://repo-default.voidlinux.org/", "musl"),
+            format!("{HEADER}\nrepository=https://repo-default.voidlinux.org/current/musl\n")
+        );
+        assert_eq!(
+            render_config("https://repo-default.voidlinux.org/", ""),
+            format!("{HEADER}\nrepository=https://repo-default.voidlinux.org/current\n")
         );
     }
 
@@ -699,7 +818,7 @@ mod tests {
 
     #[test]
     fn the_rendered_file_names_kxbps_and_one_current_repository() {
-        let text = render_config("https://repo-default.voidlinux.org/");
+        let text = render_config("https://repo-default.voidlinux.org/", "");
         assert_eq!(
             text,
             "# Written by kxbps; the backup of the previous file is next to this one.\n\
@@ -754,7 +873,7 @@ mod tests {
         fs::write(&path, MAIN).expect("write fixture");
         let old = fs::read(&path).expect("read fixture");
 
-        let new = render_config("https://repo-default.voidlinux.org/");
+        let new = render_config("https://repo-default.voidlinux.org/", "");
         write_config_atomic(&path, new.as_bytes(), Backup::Keep).expect("writes");
 
         assert_eq!(fs::read(&path).expect("read"), new.as_bytes());
@@ -788,7 +907,7 @@ mod tests {
         fs::write(&old, "repository=https://old.example/current\n").expect("write old");
         write_config_atomic(
             &path,
-            render_config("https://repo-default.voidlinux.org/").as_bytes(),
+            render_config("https://repo-default.voidlinux.org/", "").as_bytes(),
             Backup::Keep,
         )
         .expect("writes");
@@ -807,7 +926,7 @@ mod tests {
         assert_eq!(previous, Previous::Absent { path: path.clone() });
         write_config_atomic(
             &path,
-            render_config("https://repo-default.voidlinux.org/").as_bytes(),
+            render_config("https://repo-default.voidlinux.org/", "").as_bytes(),
             Backup::Keep,
         )
         .expect("writes");
@@ -834,7 +953,7 @@ mod tests {
         let previous = snapshot_previous(&path).expect("snapshot");
         write_config_atomic(
             &path,
-            render_config("https://repo-default.voidlinux.org/").as_bytes(),
+            render_config("https://repo-default.voidlinux.org/", "").as_bytes(),
             Backup::Keep,
         )
         .expect("writes");
@@ -854,7 +973,7 @@ mod tests {
 
         let error = write_config_atomic(
             &link,
-            render_config("https://repo-default.voidlinux.org/").as_bytes(),
+            render_config("https://repo-default.voidlinux.org/", "").as_bytes(),
             Backup::Keep,
         )
         .expect_err("a symlink is refused");

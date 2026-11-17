@@ -8,14 +8,17 @@
 //! 1. **Refuse a bad URL before anything is written.** Only an absolute
 //!    `https://host/` that is not already a `/current` repository qualifies;
 //!    plain HTTP and junk stop here with exit code 2.
-//! 2. **Write** `00-repository-main.conf` with a `.kxbps-bak` backup of the
+//! 2. **Keep the repository tail.** The tail after `current` (`musl` on a musl
+//!    system) is read from the file being replaced, or from the packaged
+//!    default when the file is missing, and written back with the new host.
+//! 3. **Write** `00-repository-main.conf` with a `.kxbps-bak` backup of the
 //!    previous bytes (see [`crate::mirror_config`]). A write failure, including
 //!    a symlinked target, exits 3.
-//! 3. **Verify** with `xbps-query -L`: the new URL must be listed. The count is
+//! 4. **Verify** with `xbps-query -L`: the new URL must be listed. The count is
 //!    not checked: a mirror that was never synced has no local index yet, and
 //!    that is exactly the state a URL change leaves behind. No network command
 //!    runs here.
-//! 4. **Revert** the previous bytes on a failed verification: exit 4 when the
+//! 5. **Revert** the previous bytes on a failed verification: exit 4 when the
 //!    revert worked, exit 5 when it did not.
 //!
 //! A verified configuration is then **synced** with `xbps-install -S`, because
@@ -38,8 +41,8 @@ use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 
 use crate::mirror_config::{
-    Backup, ConfigError, Previous, check_base_url, render_config, revert, snapshot_previous,
-    write_config_atomic,
+    Backup, ConfigError, Previous, check_base_url, current_url, read_config, render_config, revert,
+    snapshot_previous, write_config_atomic,
 };
 use crate::probe::{ProbeError, check_probe_url};
 use crate::xbps::parse_repos;
@@ -134,6 +137,9 @@ pub type SyncFn<'a> = dyn FnMut() -> Result<(), String> + 'a;
 /// hand in a temporary directory and a closure instead of root and xbps.
 pub struct ApplyRequest<'a> {
     pub config_path: PathBuf,
+    /// The packaged default, read only when `config_path` is missing or
+    /// unreadable: it names the repository tail of this system (`musl`).
+    pub system_default_path: PathBuf,
     pub verify: Box<VerifyFn<'a>>,
     pub sync: Box<SyncFn<'a>>,
 }
@@ -177,7 +183,8 @@ pub fn verify_repos(listing: &str, url: &str) -> Result<(), String> {
 /// Applies a mirror: validate, write, verify, revert on failure.
 ///
 /// The URL is checked before any path is touched, so a refusal never leaves a
-/// backup or a temp file behind.
+/// backup or a temp file behind. The repository tail comes from the file being
+/// replaced, or from the packaged default when that file is missing.
 pub fn apply(mut request: ApplyRequest<'_>, url: &str) -> ApplyResult {
     let backup = Backup::path_for(&request.config_path);
     let base = match check_url(url) {
@@ -192,7 +199,8 @@ pub fn apply(mut request: ApplyRequest<'_>, url: &str) -> ApplyResult {
             };
         }
     };
-    let current = format!("{base}current");
+    let tail = repository_tail(&request.config_path, &request.system_default_path);
+    let current = current_url(&base, &tail);
     let previous: Previous = match snapshot_previous(&request.config_path) {
         Ok(previous) => previous,
         Err(error) => {
@@ -205,7 +213,7 @@ pub fn apply(mut request: ApplyRequest<'_>, url: &str) -> ApplyResult {
             };
         }
     };
-    let content = render_config(&base);
+    let content = render_config(&base, &tail);
     if let Err(error) = write_config_atomic(&request.config_path, content.as_bytes(), Backup::Keep)
     {
         // A write that failed halfway leaves nothing behind; a failed backup
@@ -219,7 +227,7 @@ pub fn apply(mut request: ApplyRequest<'_>, url: &str) -> ApplyResult {
         };
     }
 
-    if let Err(detail) = (request.verify)(&format!("{base}current")) {
+    if let Err(detail) = (request.verify)(&current) {
         return finish(previous, current, base, backup, detail);
     }
 
@@ -302,6 +310,7 @@ pub const XBPS_INSTALL: &str = "/usr/bin/xbps-install";
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Cli {
     pub config_path: PathBuf,
+    pub system_default_path: PathBuf,
     pub url: Option<String>,
 }
 
@@ -320,6 +329,7 @@ impl Cli {
             .filter(|_| values.next().is_none());
         Self {
             config_path: PathBuf::from(crate::mirror_config::SYSTEM_CONFIG_PATH),
+            system_default_path: PathBuf::from(SYSTEM_DEFAULT_CONFIG_PATH),
             url,
         }
     }
@@ -341,10 +351,10 @@ impl Cli {
                 detail: String::from("expected exactly one base URL"),
             };
         };
-        let config_path = self.config_path;
         apply(
             ApplyRequest {
-                config_path,
+                config_path: self.config_path,
+                system_default_path: self.system_default_path,
                 verify: Box::new(run_verify),
                 sync: Box::new(sync_indexes),
             },
@@ -414,6 +424,22 @@ pub fn config_path() -> &'static Path {
     Path::new(crate::mirror_config::SYSTEM_CONFIG_PATH)
 }
 
+/// The packaged default repository file, read for the tail only when the
+/// administrator's file is missing or unreadable.
+pub const SYSTEM_DEFAULT_CONFIG_PATH: &str = "/usr/share/xbps.d/00-repository-main.conf";
+
+/// The repository tail this system uses.
+///
+/// The file being replaced is the truth; the packaged default is the fallback
+/// for a system that never had a local override, and it names `musl` on a musl
+/// installation. An unreadable pair means glibc (`""`), the historical shape.
+pub fn repository_tail(config_path: &Path, default_path: &Path) -> String {
+    read_config(config_path)
+        .or_else(|_| read_config(default_path))
+        .map(|config| config.tail)
+        .unwrap_or_default()
+}
+
 /// The production path of an xbps command.
 ///
 /// `KXBPS_XBPS_BIN_DIR` exists so a test can point both commands at the same
@@ -457,6 +483,7 @@ mod tests {
     fn request<'a>(config_path: &Path) -> ApplyRequest<'a> {
         ApplyRequest {
             config_path: config_path.to_path_buf(),
+            system_default_path: default_beside(config_path),
             verify: Box::new(|url| {
                 if url == "https://repo-default.voidlinux.org/current" {
                     Ok(())
@@ -466,6 +493,14 @@ mod tests {
             }),
             sync: Box::new(|| Ok(())),
         }
+    }
+
+    /// A packaged default that does not exist, so the fixture alone decides.
+    fn default_beside(config_path: &Path) -> PathBuf {
+        config_path
+            .parent()
+            .unwrap_or_else(|| Path::new("."))
+            .join("00-repository-main.packaged.conf")
     }
 
     /// Turns the target into a symlink once, so the revert cannot restore it.
@@ -590,7 +625,105 @@ mod tests {
         );
         assert_eq!(
             fs::read_to_string(&path).expect("read"),
-            render_config(GOOD)
+            render_config(GOOD, "")
+        );
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn applying_to_a_musl_config_keeps_the_musl_tail() {
+        let dir = tempdir("musl");
+        let path = dir.join("00-repository-main.conf");
+        fs::write(
+            &path,
+            "repository=https://repo-de.voidlinux.org/current/musl\n",
+        )
+        .expect("fixture");
+        let mut request = request(&path);
+        request.verify = Box::new(|url| {
+            assert_eq!(url, "https://repo-default.voidlinux.org/current/musl");
+            Ok(())
+        });
+
+        let result = apply(request, GOOD);
+        assert_eq!(result.exit, Exit::Ok, "{}", result.detail);
+        assert_eq!(
+            result.url, "https://repo-default.voidlinux.org/current/musl",
+            "the reported URL carries the tail xbps resolves"
+        );
+        assert_eq!(
+            fs::read_to_string(&path).expect("read"),
+            render_config(GOOD, "musl")
+        );
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn a_missing_config_takes_the_tail_from_the_packaged_default() {
+        let dir = tempdir("musl-default");
+        let path = dir.join("00-repository-main.conf");
+        let default = default_beside(&path);
+        fs::write(
+            &default,
+            "repository=https://repo-default.voidlinux.org/current/musl\n",
+        )
+        .expect("packaged default");
+        let mut request = request(&path);
+        request.system_default_path = default;
+        request.verify = Box::new(|url| {
+            assert_eq!(url, "https://repo-default.voidlinux.org/current/musl");
+            Ok(())
+        });
+
+        let result = apply(request, GOOD);
+        assert_eq!(result.exit, Exit::Ok, "{}", result.detail);
+        assert_eq!(
+            fs::read_to_string(&path).expect("read"),
+            render_config(GOOD, "musl")
+        );
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn an_unreadable_config_falls_back_to_the_packaged_tail() {
+        let dir = tempdir("musl-broken");
+        let path = dir.join("00-repository-main.conf");
+        let default = default_beside(&path);
+        fs::write(&path, "repository=http://broken.example/\n").expect("fixture");
+        fs::write(
+            &default,
+            "repository=https://repo-default.voidlinux.org/current/musl\n",
+        )
+        .expect("packaged default");
+        let mut request = request(&path);
+        request.system_default_path = default;
+        request.verify = Box::new(|url| {
+            assert_eq!(url, "https://repo-default.voidlinux.org/current/musl");
+            Ok(())
+        });
+
+        let result = apply(request, GOOD);
+        assert_eq!(result.exit, Exit::Ok, "{}", result.detail);
+        assert_eq!(
+            fs::read_to_string(&path).expect("read"),
+            render_config(GOOD, "musl")
+        );
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn without_any_tail_source_the_written_url_is_glibc() {
+        let dir = tempdir("no-tail-source");
+        let path = dir.join("00-repository-main.conf");
+        let request = request(&path);
+        assert!(!default_beside(&path).exists());
+
+        let result = apply(request, GOOD);
+        assert_eq!(result.exit, Exit::Ok, "{}", result.detail);
+        assert_eq!(result.url, "https://repo-default.voidlinux.org/current");
+        assert_eq!(
+            fs::read_to_string(&path).expect("read"),
+            render_config(GOOD, "")
         );
         let _ = fs::remove_dir_all(&dir);
     }
@@ -805,6 +938,7 @@ mod tests {
     fn cli_over(config_path: &Path, url: Option<&str>) -> Cli {
         Cli {
             config_path: config_path.to_path_buf(),
+            system_default_path: default_beside(config_path),
             url: url.map(str::to_owned),
         }
     }
@@ -830,7 +964,7 @@ mod tests {
         assert_eq!(result.base, GOOD);
         assert_eq!(
             fs::read_to_string(&path).expect("written"),
-            render_config(GOOD)
+            render_config(GOOD, "")
         );
         let _ = fs::remove_dir_all(&dir);
     }
@@ -940,7 +1074,7 @@ mod tests {
             }
             let base = check_url(info.url).unwrap_or_else(|error| panic!("{}: {error}", info.url));
             assert_eq!(base, info.url, "{} keeps its exact spelling", info.url);
-            let text = render_config(&base);
+            let text = render_config(&base, "");
             assert!(
                 text.ends_with(&format!("repository={}current\n", info.url)),
                 "{text}"

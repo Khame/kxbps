@@ -288,6 +288,25 @@ mod tests {
     }
 
     #[test]
+    fn a_musl_config_reports_the_musl_url_and_its_host_is_not_pending() {
+        let state = system_state(
+            Ok(parse("https://repo-de.voidlinux.org/current/musl")),
+            "",
+            &[],
+        );
+        assert_eq!(state.system_mirror, "https://repo-de.voidlinux.org/");
+        assert_eq!(
+            state.current_url,
+            "https://repo-de.voidlinux.org/current/musl"
+        );
+        assert!(
+            !state.pending("https://repo-de.voidlinux.org/"),
+            "the same host is the same mirror, tail or not"
+        );
+        assert!(state.pending("https://repo-default.voidlinux.org/"));
+    }
+
+    #[test]
     fn pending_is_true_when_the_saved_mirror_differs_from_the_system() {
         let ok = |url: &str| system_state(Ok(parse(url)), "", &[]);
         assert!(
