@@ -5,6 +5,19 @@ the project uses semantic versioning.
 
 ## [0.12.2] - 2026-11-17
 
+### Added
+
+- The Mirrors page names the repository xbps resolves, tail included, in one
+  line under the table: `xbps reads https://repo-default.voidlinux.org/current/musl`.
+  The Address column can only show the mirror base, and two systems on the same
+  mirror read a different repository when the tail differs.
+- Settings has a `Minimize to the tray` switch, off by default. With it on, the
+  minimize button hides the window and the tray icon brings it back, maximized
+  if it was maximized. Closing the window already went to the tray whenever a
+  status notifier host exists, so the switch covers the minimize button alone,
+  and without a host the window stays in the task bar rather than disappearing
+  with no way back.
+
 ### Fixed
 
 - Switching mirrors on a musl system wrote a glibc repository. The path after

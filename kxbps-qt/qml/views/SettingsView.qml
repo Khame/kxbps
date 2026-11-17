@@ -1,7 +1,7 @@
 // SPDX-FileCopyrightText: 2026 Łukasz "Khame" Linhard <khame.dev@protonmail.com>
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-// Settings: the four preferences the store keeps, plus the About entry.
+// Settings: the preferences the store keeps, plus the About entry.
 //
 // The switches write through `PrefsBackend`, which owns no store of its own:
 // the installed backend is the only `Store` owner, and `PrefsBackend` forwards
@@ -87,6 +87,26 @@ Item {
                     target: sessionSwitch
                     property: "checked"
                     value: view.prefsBackend !== null && view.prefsBackend.startWithSession
+                    restoreMode: Binding.RestoreNone
+                }
+            }
+
+            QQC2.Switch {
+                id: minimizeSwitch
+                text: i18nd("kxbps", "Minimize to the tray")
+                QQC2.ToolTip.text: i18nd("kxbps", "Closing the window already goes to the tray; this switch adds the minimize button.")
+                QQC2.ToolTip.visible: hovered
+                QQC2.ToolTip.delay: Kirigami.Units.toolTipDelay
+                enabled: view.prefsBackend !== null
+                onToggled: {
+                    if (view.prefsBackend !== null) {
+                        view.prefsBackend.minimizeToTray = checked
+                    }
+                }
+                Binding {
+                    target: minimizeSwitch
+                    property: "checked"
+                    value: view.prefsBackend !== null && view.prefsBackend.minimizeToTray
                     restoreMode: Binding.RestoreNone
                 }
             }

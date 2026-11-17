@@ -502,6 +502,14 @@ msgstr "Não foi possível executar a consulta: %1"
 msgid "Could not save the system state."
 msgstr "Não foi possível salvar o estado do sistema."
 
+#: kxbps-qt/qml/views/SettingsView.qml:97
+msgid ""
+"Closing the window already goes to the tray; this switch adds the "
+"minimize button."
+msgstr ""
+"Fechar a janela já vai para a bandeja; esta opção adiciona o botão de "
+"minimizar."
+
 #: kxbps-qt/qml/views/MirrorsView.qml:410
 msgid "Could not write %1."
 msgstr "Não foi possível gravar %1."
@@ -845,6 +853,20 @@ msgstr "Sem dependências"
 msgid "No mirror matches this filter."
 msgstr "Nenhum espelho corresponde a este filtro."
 
+#: kxbps-qt/qml/views/SettingsView.qml:96
+msgid "Minimize to the tray"
+msgstr "Minimizar para a bandeja"
+
+#: kxbps-qt/qml/views/HelpView.qml:91
+msgid ""
+"Minimize to the tray hides the window on the minimize button. Closing the "
+"window already goes to the tray when one is available, so the switch only "
+"adds the minimize path."
+msgstr ""
+"Minimizar para a bandeja oculta a janela com o botão de minimizar. Fechar "
+"a janela já vai para a bandeja quando ela está disponível, então a opção "
+"apenas adiciona o caminho de minimizar."
+
 #: kxbps-qt/qml/views/MirrorsView.qml:327
 msgid "No mirrors."
 msgstr "Nenhum espelho."
@@ -1177,13 +1199,13 @@ msgstr "Servidor"
 msgid "Settings"
 msgstr "Configurações"
 
-#: kxbps-qt/qml/views/HelpView.qml:81
+#: kxbps-qt/qml/views/HelpView.qml:90
 msgid ""
-"Settings holds the update interval, the startup switch and the two "
+"Settings holds the update interval, the startup switches and the two "
 "notification switches."
 msgstr ""
-"Configurações contém o intervalo de atualização, a chave de inicialização e "
-"as duas chaves de notificação."
+"As configurações contêm o intervalo de atualização, as opções de "
+"inicialização e as duas opções de notificação."
 
 #: kxbps-qt/qml/components/LogDrawer.qml:152
 #: kxbps-qt/qml/views/PackagesView.qml:1013
@@ -1562,6 +1584,10 @@ msgstr "xbps falhou"
 #: kxbps-qt/qml/Main.qml:104
 msgid "xbps failed with exit code %1"
 msgstr "xbps falhou com o código de saída %1"
+
+#: kxbps-qt/qml/views/MirrorsView.qml:366
+msgid "xbps reads %1"
+msgstr "xbps lê %1"
 
 #: kxbps-qt/qml/views/HelpView.qml:89
 msgid "xbps reads its configuration from /etc/xbps.d."

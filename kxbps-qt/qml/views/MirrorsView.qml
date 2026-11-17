@@ -353,6 +353,23 @@ Item {
                 elide: Text.ElideRight
             }
 
+            // What xbps resolves from the configuration, tail included. The
+            // Address column names the mirror base, and two systems with the
+            // same mirror read a different repository when the tail differs
+            // (`musl`, `multilib/nonfree`), so the tail has to be on screen.
+            QQC2.Label {
+                Layout.fillWidth: true
+                Layout.leftMargin: Kirigami.Units.largeSpacing
+                Layout.rightMargin: Kirigami.Units.largeSpacing
+                Layout.bottomMargin: Kirigami.Units.smallSpacing
+                visible: view.mirrorBackend.systemRepository.length > 0
+                text: i18nd("kxbps", "xbps reads %1",
+                            view.mirrorBackend.systemRepository)
+                font: Kirigami.Theme.smallFont
+                color: Kirigami.Theme.disabledTextColor
+                elide: Text.ElideRight
+            }
+
             // A refused selection: the URL is not one the list offers or the
             // helper would take. The backend names the key; it stays untranslated
             // nowhere, so it is mapped here like every other key.

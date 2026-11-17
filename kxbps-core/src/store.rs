@@ -172,6 +172,7 @@ fn default_prefs() -> Prefs {
         desktop: true,
         dismissed: String::new(),
         start_with_session: true,
+        minimize_to_tray: false,
         update_check_minutes: DEFAULT_UPDATE_CHECK_MINUTES,
         last_check_at: 0,
         notified_at: 0,
@@ -389,6 +390,12 @@ impl Store {
     /// Whether the app starts with the session.
     pub fn set_pref_start_with_session(&mut self, on: bool) {
         self.prefs.start_with_session = on;
+        self.dirty = true;
+    }
+
+    /// Whether minimizing the window hands it to the tray.
+    pub fn set_pref_minimize_to_tray(&mut self, on: bool) {
+        self.prefs.minimize_to_tray = on;
         self.dirty = true;
     }
 
@@ -924,6 +931,7 @@ mod tests {
             desktop: true,
             dismissed: "7".to_string(),
             start_with_session: false,
+            minimize_to_tray: false,
             update_check_minutes: 60,
             last_check_at: 0,
             notified_at: 0,
@@ -1565,6 +1573,7 @@ mod tests {
                 desktop: true,
                 dismissed: String::new(),
                 start_with_session: true,
+                minimize_to_tray: false,
                 update_check_minutes: 360,
                 last_check_at: 0,
                 notified_at: 0,

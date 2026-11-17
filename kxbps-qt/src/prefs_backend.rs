@@ -85,6 +85,16 @@ pub mod qobject {
             WRITE = set_start_with_session,
             NOTIFY
         )]
+        // Whether the minimize button hides the window into the tray instead of
+        // leaving it in the task bar. Closing is not affected: that already
+        // goes to the tray whenever a host exists.
+        #[qproperty(
+            bool,
+            minimize_to_tray,
+            READ,
+            WRITE = set_minimize_to_tray,
+            NOTIFY
+        )]
         // How often the app checks for updates, in minutes. The store
         // normalizes it to one of `UPDATE_INTERVALS`, so the combo box always
         // has a matching entry to show.
@@ -107,6 +117,8 @@ pub mod qobject {
 
         fn set_start_with_session(self: Pin<&mut PrefsBackend>, value: bool);
 
+        fn set_minimize_to_tray(self: Pin<&mut PrefsBackend>, value: bool);
+
         fn set_update_check_minutes(self: Pin<&mut PrefsBackend>, value: i32);
 
         // Writes or removes the autostart entry so the file matches the
@@ -114,6 +126,12 @@ pub mod qobject {
         // entry is the user's own file, so this needs no privilege.
         #[qinvokable]
         fn sync_autostart(self: &PrefsBackend);
+
+        // Whether a window the compositor just minimized should be hidden into
+        // the tray. QML asks from the visibility handler, so the rule and the
+        // preference it reads stay in one place.
+        #[qinvokable]
+        fn minimize_goes_to_tray(self: &PrefsBackend, tray_available: bool) -> bool;
     }
 
     impl cxx_qt::Constructor<()> for PrefsBackend {}
@@ -139,6 +157,8 @@ pub mod keys {
     pub const DISMISSED: &str = "dismissed";
     /// Start with the session (the autostart entry).
     pub const START_WITH_SESSION: &str = "startWithSession";
+    /// Minimize the window into the tray.
+    pub const MINIMIZE_TO_TRAY: &str = "minimizeToTray";
     /// How often to check for updates, in minutes.
     pub const UPDATE_CHECK_MINUTES: &str = "updateCheckMinutes";
 }
@@ -150,6 +170,7 @@ pub enum Field {
     Desktop,
     Dismissed,
     StartWithSession,
+    MinimizeToTray,
     UpdateCheckMinutes,
 }
 
@@ -161,6 +182,7 @@ impl Field {
             Self::Desktop => keys::DESKTOP,
             Self::Dismissed => keys::DISMISSED,
             Self::StartWithSession => keys::START_WITH_SESSION,
+            Self::MinimizeToTray => keys::MINIMIZE_TO_TRAY,
             Self::UpdateCheckMinutes => keys::UPDATE_CHECK_MINUTES,
         }
     }
@@ -172,6 +194,7 @@ impl Field {
             Self::Desktop => PrefWrite::Desktop(prefs.desktop),
             Self::Dismissed => PrefWrite::Dismissed(prefs.dismissed.clone()),
             Self::StartWithSession => PrefWrite::StartWithSession(prefs.start_with_session),
+            Self::MinimizeToTray => PrefWrite::MinimizeToTray(prefs.minimize_to_tray),
             Self::UpdateCheckMinutes => PrefWrite::UpdateCheckMinutes(prefs.update_check_minutes),
         }
     }
@@ -188,6 +211,7 @@ pub enum PrefWrite {
     Desktop(bool),
     Dismissed(String),
     StartWithSession(bool),
+    MinimizeToTray(bool),
     /// The update-check interval; already normalized by the store, so a value
     /// off the list never reaches the file.
     UpdateCheckMinutes(u32),
@@ -201,6 +225,7 @@ impl PrefWrite {
             Self::Desktop(_) => Field::Desktop,
             Self::Dismissed(_) => Field::Dismissed,
             Self::StartWithSession(_) => Field::StartWithSession,
+            Self::MinimizeToTray(_) => Field::MinimizeToTray,
             Self::UpdateCheckMinutes(_) => Field::UpdateCheckMinutes,
         }
     }
@@ -222,6 +247,7 @@ impl PrefWrite {
             Self::Desktop(value) => prefs.desktop = *value,
             Self::Dismissed(value) => prefs.dismissed.clone_from(value),
             Self::StartWithSession(value) => prefs.start_with_session = *value,
+            Self::MinimizeToTray(value) => prefs.minimize_to_tray = *value,
             Self::UpdateCheckMinutes(value) => prefs.update_check_minutes = *value,
         }
     }
@@ -233,6 +259,7 @@ impl PrefWrite {
             Self::Desktop(value) => store.set_pref_desktop_notifications(*value),
             Self::Dismissed(value) => store.set_pref_dismissed_version(value),
             Self::StartWithSession(value) => store.set_pref_start_with_session(*value),
+            Self::MinimizeToTray(value) => store.set_pref_minimize_to_tray(*value),
             Self::UpdateCheckMinutes(value) => {
                 store.set_pref_update_check_minutes(*value);
             }
@@ -246,7 +273,10 @@ impl PrefWrite {
         }
         let key = QString::from(self.key());
         match self {
-            Self::NotifyOnStart(value) | Self::Desktop(value) | Self::StartWithSession(value) => {
+            Self::NotifyOnStart(value)
+            | Self::Desktop(value)
+            | Self::StartWithSession(value)
+            | Self::MinimizeToTray(value) => {
                 qobject::installed_set_pref_bool(owner, &key, *value);
             }
             Self::Dismissed(value) => {
@@ -292,12 +322,24 @@ pub fn decide(write: &PrefWrite, cache: &Prefs, store: &Prefs) -> Decision {
     }
 }
 
+/// Whether a window the compositor just minimized should be hidden into the
+/// tray.
+///
+/// Both halves are required. The switch is the user's choice, and without a
+/// status notifier host there is no icon to bring the window back, so hiding it
+/// would leave a running process the user cannot reach. Closing the window is a
+/// separate path: it already goes to the tray whenever a host exists.
+pub fn hides_on_minimize(minimize_to_tray: bool, tray_available: bool) -> bool {
+    minimize_to_tray && tray_available
+}
+
 /// Decodes a bool write, `None` for a key that is not a bool preference.
 pub fn bool_write(key: &str, value: bool) -> Option<PrefWrite> {
     match key {
         keys::NOTIFY_ON_START => Some(PrefWrite::NotifyOnStart(value)),
         keys::DESKTOP => Some(PrefWrite::Desktop(value)),
         keys::START_WITH_SESSION => Some(PrefWrite::StartWithSession(value)),
+        keys::MINIMIZE_TO_TRAY => Some(PrefWrite::MinimizeToTray(value)),
         _ => None,
     }
 }
@@ -355,6 +397,7 @@ pub struct PrefsBackendRust {
     desktop_notifications: bool,
     dismissed_version: QString,
     start_with_session: bool,
+    minimize_to_tray: bool,
     update_check_minutes: i32,
     /// The last check time is only carried through: this backend shows the
     /// interval, and the notifier writes the timestamp, so the cache keeps a
@@ -380,6 +423,7 @@ impl Default for PrefsBackendRust {
             desktop_notifications: true,
             dismissed_version: QString::from(""),
             start_with_session: true,
+            minimize_to_tray: false,
             update_check_minutes: DEFAULT_UPDATE_CHECK_MINUTES as i32,
             last_check_at: 0,
             notified_at: 0,
@@ -397,6 +441,7 @@ impl PrefsBackendRust {
             desktop: self.desktop_notifications,
             dismissed: self.dismissed_version.to_string(),
             start_with_session: self.start_with_session,
+            minimize_to_tray: self.minimize_to_tray,
             update_check_minutes: u32::try_from(self.update_check_minutes)
                 .unwrap_or(DEFAULT_UPDATE_CHECK_MINUTES),
             last_check_at: self.last_check_at,
@@ -413,6 +458,7 @@ impl PrefsBackendRust {
             desktop: self.desktop_notifications != prefs.desktop,
             dismissed: self.dismissed_version.to_string() != prefs.dismissed,
             start_with_session: self.start_with_session != prefs.start_with_session,
+            minimize_to_tray: self.minimize_to_tray != prefs.minimize_to_tray,
             update_check_minutes: self.update_check_minutes != prefs.update_check_minutes as i32,
         };
         self.set_from_prefs(prefs);
@@ -425,6 +471,7 @@ impl PrefsBackendRust {
         self.desktop_notifications = prefs.desktop;
         self.dismissed_version = QString::from(prefs.dismissed.as_str());
         self.start_with_session = prefs.start_with_session;
+        self.minimize_to_tray = prefs.minimize_to_tray;
         self.update_check_minutes = prefs.update_check_minutes as i32;
         self.last_check_at = prefs.last_check_at;
         self.notified_at = prefs.notified_at;
@@ -441,6 +488,7 @@ pub struct Moved {
     desktop: bool,
     dismissed: bool,
     start_with_session: bool,
+    minimize_to_tray: bool,
     update_check_minutes: bool,
 }
 
@@ -489,6 +537,11 @@ impl qobject::PrefsBackend {
         self.write(PrefWrite::StartWithSession(value));
     }
 
+    /// Whether minimizing the window hands it to the tray.
+    fn set_minimize_to_tray(self: Pin<&mut Self>, value: bool) {
+        self.write(PrefWrite::MinimizeToTray(value));
+    }
+
     /// How often to check for updates, in minutes.
     ///
     /// A negative or unknown value is dropped rather than clamped, so a bug in
@@ -512,6 +565,12 @@ impl qobject::PrefsBackend {
         if let Err(err) = crate::autostart::sync(self.start_with_session, &path) {
             eprintln!("kxbps: autostart entry: {err}");
         }
+    }
+
+    /// Whether minimizing should hide the window, for the QML visibility
+    /// handler; see [`hides_on_minimize`].
+    fn minimize_goes_to_tray(&self, tray_available: bool) -> bool {
+        hides_on_minimize(self.minimize_to_tray, tray_available)
     }
 
     /// Persists one write, then notifies the property that owns it.
@@ -562,6 +621,7 @@ impl qobject::PrefsBackend {
             Field::Desktop => self.as_mut().desktop_notifications_changed(),
             Field::Dismissed => self.as_mut().dismissed_version_changed(),
             Field::StartWithSession => self.as_mut().start_with_session_changed(),
+            Field::MinimizeToTray => self.as_mut().minimize_to_tray_changed(),
             Field::UpdateCheckMinutes => self.as_mut().update_check_minutes_changed(),
         }
     }
@@ -588,6 +648,9 @@ impl qobject::PrefsBackend {
         }
         if changed.start_with_session {
             self.as_mut().start_with_session_changed();
+        }
+        if changed.minimize_to_tray {
+            self.as_mut().minimize_to_tray_changed();
         }
         if changed.update_check_minutes {
             self.as_mut().update_check_minutes_changed();
@@ -646,12 +709,34 @@ mod tests {
     }
 
     #[test]
+    fn the_minimize_switch_needs_a_tray_host() {
+        // Off is the default: the task bar keeps the window, as the compositor
+        // asked. On without a host would hide it with no way back.
+        assert!(!hides_on_minimize(false, true));
+        assert!(!hides_on_minimize(true, false));
+        assert!(hides_on_minimize(true, true));
+    }
+
+    #[test]
+    fn the_minimize_key_is_a_bool_preference() {
+        let write = bool_write(keys::MINIMIZE_TO_TRAY, true).expect("known key");
+        assert_eq!(write, PrefWrite::MinimizeToTray(true));
+        assert_eq!(write.field(), Field::MinimizeToTray);
+        let mut prefs = Store::fresh().prefs;
+        assert!(!prefs.minimize_to_tray, "the default is off");
+        write.apply(&mut prefs);
+        assert!(prefs.minimize_to_tray);
+        assert!(write.is_noop(&prefs));
+    }
+
+    #[test]
     fn the_store_json_maps_onto_the_four_properties() {
         let prefs = Prefs {
             notify_on_start: false,
             desktop: true,
             dismissed: "sig-42".to_string(),
             start_with_session: false,
+            minimize_to_tray: true,
             update_check_minutes: 360,
             last_check_at: 0,
             notified_at: 0,
@@ -680,6 +765,7 @@ mod tests {
             desktop: false,
             dismissed: String::new(),
             start_with_session: true,
+            minimize_to_tray: false,
             update_check_minutes: 360,
             last_check_at: 0,
             notified_at: 0,
@@ -707,6 +793,7 @@ mod tests {
             desktop: false,
             dismissed: String::new(),
             start_with_session: true,
+            minimize_to_tray: false,
             update_check_minutes: 360,
             last_check_at: 0,
             notified_at: 0,
@@ -740,6 +827,7 @@ mod tests {
             desktop: false,
             dismissed: String::new(),
             start_with_session: true,
+            minimize_to_tray: false,
             update_check_minutes: 360,
             last_check_at: 0,
             notified_at: 0,
@@ -773,6 +861,7 @@ mod tests {
             desktop,
             dismissed: dismissed.to_string(),
             start_with_session: true,
+            minimize_to_tray: false,
             update_check_minutes: 360,
             last_check_at: 0,
             notified_at: 0,

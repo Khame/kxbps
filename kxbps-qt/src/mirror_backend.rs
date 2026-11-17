@@ -148,6 +148,10 @@ pub mod qobject {
         #[qproperty(QString, current_mirror_error, READ, NOTIFY)]
         /// The base URL `00-repository-main.conf` names; empty when unreadable.
         #[qproperty(QString, system_mirror, READ, NOTIFY)]
+        /// The URL xbps resolves from that file, `<base>current[/<tail>]`, so
+        /// the repository tail (`musl`, `multilib/nonfree`) is visible next to
+        /// a list that only names mirror bases. Empty when unreadable.
+        #[qproperty(QString, system_repository, READ, NOTIFY)]
         /// `errorMirrorConfig*` key when the file is unreadable; empty otherwise.
         #[qproperty(QString, system_mirror_error, READ, NOTIFY)]
         /// The arguments of `systemMirrorError`, in `%1…` order.
@@ -357,6 +361,7 @@ pub struct MirrorBackendRust {
     /// QML copies of [`SystemState`], because a `#[qproperty]` reads a struct
     /// field: `system` stays the single source, these are refreshed from it.
     system_mirror: QString,
+    system_repository: QString,
     system_mirror_error: QString,
     system_mirror_error_args: QStringList,
     system_repos: QString,
@@ -402,6 +407,7 @@ impl Default for MirrorBackendRust {
             cancel: Arc::new(AtomicBool::new(false)),
             system: SystemState::default(),
             system_mirror: QString::from(""),
+            system_repository: QString::from(""),
             system_mirror_error: QString::from(""),
             system_mirror_error_args: QStringList::default(),
             system_repos: QString::from("[]"),
@@ -429,6 +435,7 @@ impl Default for MirrorBackendRust {
 /// signals, so QML never sees a value the store does not have.
 fn adopt_system(data: &mut MirrorBackendRust) {
     data.system_mirror = QString::from(data.system.system_mirror.as_str());
+    data.system_repository = QString::from(data.system.current_url.as_str());
     data.system_mirror_error = QString::from(data.system.error_key);
     data.system_mirror_error_args = data
         .system
@@ -714,6 +721,7 @@ impl qobject::MirrorBackend {
             adopt_system(data);
         }
         self.as_mut().system_mirror_changed();
+        self.as_mut().system_repository_changed();
         self.as_mut().system_mirror_error_changed();
         self.as_mut().system_mirror_error_args_changed();
         self.as_mut().system_repos_changed();

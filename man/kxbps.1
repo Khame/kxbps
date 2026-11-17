@@ -30,6 +30,18 @@ The button on the Updates page is the one read that writes: it runs
 through polkit, which stores the indexes on disk and asks for the password.
 After it, every later read, in this window and in a terminal, sees the same
 packages.
+.PP
+A mirror change rewrites the host of
+.I /etc/xbps.d/00-repository-main.conf
+and keeps the path after
+.BR /current ,
+which names the repository set of the system:
+.B musl
+on a musl install,
+.B multilib/nonfree
+where those are enabled. A system with no local file of its own takes the tail
+from the packaged
+.IR /usr/share/xbps.d/00-repository-main.conf .
 .SH OPTIONS
 .TP
 .B \-\-tray
