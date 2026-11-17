@@ -426,7 +426,7 @@ pub fn config_path() -> &'static Path {
 
 /// The packaged default repository file, read for the tail only when the
 /// administrator's file is missing or unreadable.
-pub const SYSTEM_DEFAULT_CONFIG_PATH: &str = "/usr/share/xbps.d/00-repository-main.conf";
+pub use crate::mirror_config::SYSTEM_DEFAULT_PATH as SYSTEM_DEFAULT_CONFIG_PATH;
 
 /// The repository tail this system uses.
 ///

@@ -10,7 +10,9 @@
 
 use std::path::Path;
 
-use kxbps_core::mirror_config::{ConfigError, SystemConfig, read_config};
+use kxbps_core::mirror_config::{
+    ConfigError, SYSTEM_DEFAULT_PATH, SystemConfig, read_config_with_default,
+};
 use kxbps_core::xbps::{XbpsError, parse_repos};
 use serde::{Deserialize, Serialize};
 
@@ -201,8 +203,20 @@ fn read_repo_listing(invoke: &Invoke) -> String {
 
 /// The production read of the system half: the config file, `xbps-query -L` and
 /// the `.conf` files, all without root.
+///
+/// A missing `/etc` file is not an error: xbps falls back to the packaged
+/// `/usr/share/xbps.d/00-repository-main.conf`, and so does this read.
 pub fn read_system_state(config_path: &Path, invoke: &Invoke) -> SystemState {
-    let config = read_config(config_path);
+    read_system_state_with(config_path, Path::new(SYSTEM_DEFAULT_PATH), invoke)
+}
+
+/// [`read_system_state`] with the packaged default injected, for tests.
+pub fn read_system_state_with(
+    config_path: &Path,
+    default_path: &Path,
+    invoke: &Invoke,
+) -> SystemState {
+    let config = read_config_with_default(config_path, default_path);
     let listing = read_repo_listing(invoke);
     let files = read_config_files(CONFIG_DIRS);
     system_state(config, &listing, &files)
@@ -273,7 +287,8 @@ mod tests {
     fn an_unreadable_config_is_a_key_and_pending() {
         let dir = tempdir("missing");
         let path = dir.join("00-repository-main.conf");
-        let state = read_system_state(&path, &|_, _| {
+        let default = dir.join("00-repository-main.packaged.conf");
+        let state = read_system_state_with(&path, &default, &|_, _| {
             String::from(r#"{"exitCode":1,"stdout":"","stderr":"","timedOut":false}"#)
         });
         assert_eq!(state.system_mirror, "");
@@ -284,6 +299,28 @@ mod tests {
             state.pending("https://repo-default.voidlinux.org/"),
             "an unreadable config offers the apply"
         );
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn a_missing_local_config_falls_back_to_the_packaged_default() {
+        let dir = tempdir("fallback");
+        let path = dir.join("00-repository-main.conf");
+        let default = dir.join("00-repository-main.packaged.conf");
+        std::fs::write(
+            &default,
+            "repository=https://repo-de.voidlinux.org/current/musl\n",
+        )
+        .expect("packaged default");
+        let state = read_system_state_with(&path, &default, &|_, _| {
+            String::from(r#"{"exitCode":0,"stdout":"","stderr":"","timedOut":false}"#)
+        });
+        assert_eq!(state.system_mirror, "https://repo-de.voidlinux.org/");
+        assert_eq!(
+            state.current_url,
+            "https://repo-de.voidlinux.org/current/musl"
+        );
+        assert_eq!(state.error_key, "", "a packaged default is not an error");
         let _ = std::fs::remove_dir_all(&dir);
     }
 

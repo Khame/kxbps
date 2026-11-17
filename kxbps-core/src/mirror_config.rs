@@ -48,6 +48,9 @@ use crate::probe::{ProbeError, check_probe_url};
 /// so the helper writes exactly this path.
 pub const SYSTEM_CONFIG_PATH: &str = "/etc/xbps.d/00-repository-main.conf";
 
+/// The packaged default xbps reads when the administrator's file is absent.
+pub const SYSTEM_DEFAULT_PATH: &str = "/usr/share/xbps.d/00-repository-main.conf";
+
 /// Suffix of the backup [`write_config_atomic`] leaves behind.
 pub const BACKUP_SUFFIX: &str = ".kxbps-bak";
 
@@ -412,6 +415,23 @@ pub fn read_config(path: &Path) -> Result<SystemConfig, ConfigError> {
     }
     let text = fs::read_to_string(path).map_err(|error| read_error(path, &error))?;
     parse_repository_conf(&text)
+}
+
+/// Reads the administrator's file, falling back to the packaged default.
+///
+/// xbps merges `/etc/xbps.d` over `/usr/share/xbps.d`, so a missing local
+/// `00-repository-main.conf` is not an error: the packaged one is what xbps
+/// uses. Any other failure, a broken file included, is still reported: a
+/// configuration that exists but cannot be read must not be hidden.
+pub fn read_config_with_default(path: &Path, default: &Path) -> Result<SystemConfig, ConfigError> {
+    match read_config(path) {
+        Err(error @ ConfigError::Missing { .. }) => match read_config(default) {
+            // Both missing: report the path the administrator would edit.
+            Err(ConfigError::Missing { .. }) => Err(error),
+            other => other,
+        },
+        other => other,
+    }
 }
 
 /// The previous bytes of a target, as a revert needs them.
