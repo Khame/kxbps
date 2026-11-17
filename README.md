@@ -157,6 +157,10 @@ finish. `/usr/libexec/kxbps-repo-apply` and the policy file have to be on disk.
 The interface follows the system locale (`LANGUAGE`, `LC_*`). There is no
 language switch inside the application.
 
+The polkit password dialog follows the same locale. A `.policy` file has no
+gettext catalog, so every action carries its description and message for each
+language below next to the English element that stays the default.
+
 | Language | Catalog |
 | --- | --- |
 | German | `po/de.po` |

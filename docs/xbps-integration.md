@@ -91,6 +91,15 @@ and nothing else; it does not sync the repository index, because the URL is the
 only thing a mirror change decides. `00-repository-main.conf` is the only file
 KXbps ever writes outside its own state directory.
 
+One dry-run line is not what it looks like. xbps names a package it has already
+taken as a dependency of an earlier argument with ``Package `x' already
+installed.`` on stderr, and prints the same package as an `update` row at the
+same time. KXbps treats that sentence as satisfied only for the names the table
+does not carry, so the entry stays in the queue. A non-zero exit counts as a
+notice only when every line on stderr is that sentence; an aborted transaction
+carries the same sentence, and reading it as "nothing to do" would hide the
+failure and drop the entry it named.
+
 ## Exit codes
 
 Read commands:

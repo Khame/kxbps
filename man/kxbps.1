@@ -82,6 +82,10 @@ only when the user confirms a change.
 Choose the interface language, in the usual gettext way. The catalogs ship in
 the German, Spanish, French, Italian, Dutch, Polish and Brazilian Portuguese
 translations.
+.PP
+The polkit password dialog follows the same locale: the action descriptions in
+the policy file carry one element per language, because polkit reads no gettext
+catalog.
 .SH "EXIT STATUS"
 .B 0
 on success, non-zero when the program could not start.
