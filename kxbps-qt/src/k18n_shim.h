@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: GPL-2.0-or-later
+// SPDX-License-Identifier: GPL-3.0-or-later
 //
 // Declaration for the KI18n QML glue in `k18n_shim.cpp`. The CXX bridge in
 // `src/lib.rs` includes this header (`include!("k18n_shim.h")`) so the code cxx

@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: GPL-2.0-or-later
+// SPDX-License-Identifier: GPL-3.0-or-later
 //
 // Declaration for the style proxy in `style_shim.cpp`. The CXX bridge in
 // `src/lib.rs` includes this header so the code cxx generates has the
