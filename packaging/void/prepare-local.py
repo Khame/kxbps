@@ -6,8 +6,8 @@
 
 The tarball is what the `xbps-src` template downloads, so it has to contain
 exactly the tracked files of a commit: `git archive` writes those and nothing
-else, which keeps `target/`, `screenshots/` and the rest of the
-working tree out of the release.
+else, which keeps `target/`, `screenshots/` and the rest of the working tree out
+of the release.
 
 usage: prepare-local.py [--output DIR]
 

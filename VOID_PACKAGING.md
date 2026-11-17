@@ -66,13 +66,16 @@ into `hostdir/sources/kxbps-<version>/` when the tag is not there yet:
 ./packaging/void/prepare-local.py
 ```
 
-Nothing from the working tree can leak in, because it is not tracked:
-`target/` and `screenshots/` are ignored. Check anyway before a release:
+Nothing from the working tree can leak in, because the archive holds the
+tracked files of a commit and nothing else. Check it anyway before a release:
+every entry has to be a file `git ls-files` names.
 
 ```sh
-tar tzf kxbps-<version>.tar.gz |
-    grep -iE "screenshots|target/|VOID_PACKAGING"
+tar tzf kxbps-<version>.tar.gz | grep -v '/$' | sed 's|^kxbps-<version>/||' |
+    sort | comm -23 - <(git ls-files | sort)
 ```
+
+An empty answer is what a clean release looks like.
 
 The template does not use `FILESDIR`.
 
