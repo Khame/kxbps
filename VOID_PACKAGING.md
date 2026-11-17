@@ -34,38 +34,47 @@ neither reaches the source tarball.
 
 ## The source tarball
 
-`prepare-local.py` writes the tarball the template downloads. It refuses a dirty
-working tree, uses `git archive` so only tracked files are inside, and prints
-the digest the template needs:
+The template downloads the tag archive from the repository:
+
+```
+distfiles="${homepage}/archive/refs/tags/v${version}.tar.gz"
+```
+
+GitHub builds that file from the tagged commit, so it holds exactly the tracked
+files of the release and nothing from a working tree. The digest comes from the
+URL, never from a local copy:
+
+```sh
+curl -fsSL https://github.com/Khame/kxbps/archive/refs/tags/v0.12.2.tar.gz |
+    sha256sum
+```
+
+Two consequences. The checksum cannot be written before the tag exists on
+GitHub, so it is the one line that changes in the commit after the push. And
+GitHub's own tar metadata differs from a locally built archive, so a digest from
+`prepare-local.py` never matches: that script is for local builds and for
+checking what the archive contains.
+
+`prepare-local.py` writes `kxbps-<version>.tar.gz` from the current commit, and
+refuses a dirty working tree. The file has one top-level directory,
+`kxbps-<version>`, holding the two crates, `Cargo.toml`, `Cargo.lock`,
+`.cargo/config.toml`, `.gitattributes`, `man/`, `po/`, `packaging/` (without
+`void/`), `scripts/`, the docs and the license. It is what a local build seeds
+into `hostdir/sources/kxbps-<version>/` when the tag is not there yet:
 
 ```sh
 ./packaging/void/prepare-local.py
 ```
 
-The file is `kxbps-<version>.tar.gz`, with one top-level directory,
-`kxbps-<version>`, holding 151 files: the two crates, `Cargo.toml`,
-`Cargo.lock`, `.cargo/config.toml`, `.gitattributes`, `man/`, `po/`,
-`packaging/` (without `void/`), `scripts/`, the docs and the license.
-
-The archive is reproducible. `git archive` writes a pax global header carrying
-the commit id and stamps every member with the commit time, so the same tree
-produced a different digest after every commit and the checksum in the template
-went stale in the commit that wrote it. The script drops that header, pins the
-timestamps to zero and gzips with a fixed mtime. Two runs on the same tree print
-the same digest, and a commit that touches only `packaging/void/` or this note
-leaves it alone.
-
 Nothing from the working tree can leak in, because it is not tracked:
-`target/` and `screenshots/` are ignored. Check anyway before uploading:
+`target/` and `screenshots/` are ignored. Check anyway before a release:
 
 ```sh
 tar tzf kxbps-<version>.tar.gz |
     grep -iE "screenshots|target/|VOID_PACKAGING"
 ```
 
-The tarball is attached to the `v<version>` release in
-[Khame/kxbps](https://github.com/Khame/kxbps). The template does not use
-`FILESDIR`.
+The template does not use `FILESDIR`.
 
 ## About the template
 
@@ -241,7 +250,7 @@ The version has to agree in five places at the same time:
 | `man/kxbps.1` (`.TH` line) | `version_guard::the_manual_page_header_carries_the_version` |
 | `packaging/io.github.khame.kxbps.metainfo.xml` | `version_guard::the_metainfo_lists_the_version` |
 | `CHANGELOG.md` | by hand |
-| `packaging/void/template` (`version`, `checksum`) | by hand, against the tarball |
+| `packaging/void/template` (`version`, `checksum`) | by hand, against the tag archive |
 
 `python3 packaging/void/verify-release.py --tarball kxbps-<version>.tar.gz
 --void-packages <path>` checks all of them and exits nonzero on the first
@@ -249,9 +258,17 @@ mismatch. Run it before tagging and again after the checksum update.
 
 ## Publishing
 
-Packages are published for x86_64 in `Khame/void-packages` under `docs/`, served
-at `https://khame.github.io/void-packages/`. Install documentation and release
-notes live in this repository.
+Two repositories live in `Khame/void-packages`, both under `docs/` and both
+served from `https://khame.github.io/void-packages/`:
+
+| Path | Architecture | Repository line |
+|---|---|---|
+| `docs/` | `x86_64` (glibc) | `https://khame.github.io/void-packages/` |
+| `docs/musl/` | `x86_64-musl` | `https://khame.github.io/void-packages/musl` |
+
+xbps reads `<repository>/<arch>-repodata`, so the two indexes never mix and a
+musl host cannot be offered a glibc package. Each directory carries its own
+packages, its own `.sig2` files and its own index.
 
 To publish a new revision:
 
@@ -259,32 +276,78 @@ To publish a new revision:
    `CHANGELOG.md`, and set `revision=1` in the template. Run
    `cargo test --workspace`: the guard tests fail on a mismatch. For a rebuild,
    bump `revision` only.
-2. Create the source tarball with `./packaging/void/prepare-local.py` and note
-   its SHA-256.
-3. Create or update the `v<version>` release in `Khame/kxbps` and upload the
-   tarball as an asset.
-4. Put the checksum in `packaging/void/template` and run
-   `verify-release.py --tarball … --void-packages <path>`.
-5. Copy the template into `srcpkgs/kxbps/template` in `Khame/void-packages`.
-6. Build and sign as above.
-7. Remove the previous `kxbps` package and signature from `docs/`, copy the new
-   `.xbps` and `.sig2` in, then rebuild and sign the index:
-   `xbps-rindex -c docs`, `xbps-rindex -a docs/*.xbps`,
-   `xbps-rindex -s --privkey=… --signedby=… docs`.
-8. Commit and push `Khame/void-packages`, and attach the same `.xbps`, `.sig2`
-   and the public key to the release in `Khame/kxbps`. The key is the `.plist`
-   file from `/var/db/xbps/keys/`, not `Khame-void-repo.pub`, which is the PEM
-   copy served by the site. GitHub replaces the colons in the asset name with
-   dots, so the `install` step in `INSTALL.md` renames the file back to the
-   fingerprint.
-9. Verify the published result:
-   `xbps-query -M --repository=https://khame.github.io/void-packages/ -p pkgver kxbps`
-   has to answer the new version. Without `-M` the query can answer from a
-   cached index and look stale. The Pages build for the pushed commit has to
-   report `built` in `gh api repos/Khame/void-packages/pages/builds/latest`.
+2. Commit, tag `v<version>`, and push the tag. The template downloads the tag
+   archive, so a tree that is only local cannot be built by anyone else.
+3. Take the checksum from that archive, put it in `packaging/void/template`, run
+   `verify-release.py --void-packages <path>` and commit the result:
 
-Only x86_64 is published. Never push to `void-linux/void-packages` or to an
-upstream project.
+   ```sh
+   curl -fsSL https://github.com/Khame/kxbps/archive/refs/tags/v<version>.tar.gz |
+       sha256sum
+   ```
+
+4. Copy the template into `srcpkgs/kxbps/template` in `Khame/void-packages`.
+5. Build and test both architectures. Each has its own masterdir, so the musl
+   build cannot reuse a glibc object:
+
+   ```sh
+   ./xbps-src -A x86_64-musl binary-bootstrap     # once per checkout
+   ./xbps-src pkg kxbps
+   ./xbps-src -Q pkg kxbps
+   ./xbps-src -A x86_64-musl pkg kxbps
+   ./xbps-src -Q -A x86_64-musl pkg kxbps
+   ```
+
+6. Sign both packages. `xbps-rindex -S` leaves an existing `.sig2` alone and
+   exits 0, so remove it first:
+
+   ```sh
+   for pkg in hostdir/binpkgs/kxbps-<version>_<revision>.x86_64*.xbps; do
+       rm -f "$pkg.sig2"
+       xbps-rindex -S --privkey="$HOME/.config/Khame-void-repo-private.pem" \
+           --signedby="Khame <khame.dev@protonmail.com>" "$pkg"
+   done
+   ```
+
+7. Replace the previous package in each directory and rebuild both indexes.
+   `xbps-rindex -a` adds to an index, it does not remove what left the tree, so
+   the old `.xbps` and `.sig2` have to go first:
+
+   ```sh
+   cd <Khame/void-packages>
+   rm -f docs/kxbps-*.x86_64.xbps* docs/musl/kxbps-*.x86_64-musl.xbps*
+   cp <void-packages>/hostdir/binpkgs/kxbps-<version>_<revision>.x86_64.xbps* docs/
+   cp <void-packages>/hostdir/binpkgs/kxbps-<version>_<revision>.x86_64-musl.xbps* docs/musl/
+   for dir in docs docs/musl; do
+       xbps-rindex -c "$dir"
+       xbps-rindex -a "$dir"/*.xbps
+       xbps-rindex -s --privkey="$HOME/.config/Khame-void-repo-private.pem" \
+           --signedby="Khame <khame.dev@protonmail.com>" "$dir"
+   done
+   ```
+
+8. Commit and push `Khame/void-packages`. Attach the glibc `.xbps`, its `.sig2`
+   and the public key to the release in `Khame/kxbps`; the musl pair is served
+   from the repository only, because a release asset carries no architecture.
+   The key is the `.plist` file from `/var/db/xbps/keys/`, not
+   `Khame-void-repo.pub`, which is the PEM copy served by the site. GitHub
+   replaces the colons in the asset name with dots, so the `install` step in
+   `INSTALL.md` renames the file back to the fingerprint.
+9. Verify both indexes, and remember `-M`: without it a query answers from a
+   cached index and looks stale.
+
+   ```sh
+   xbps-query -M --repository=https://khame.github.io/void-packages/ -p pkgver kxbps
+   xbps-query -M --repository=https://khame.github.io/void-packages/musl -p pkgver kxbps
+   ```
+
+   The Pages build for the pushed commit has to report `built` in
+   `gh api repos/Khame/void-packages/pages/builds/latest`. On a musl host,
+   `xbps-install -Su` has to offer the new version.
+
+Both architectures or no release: a version that exists for one of them leaves
+the other one stale while `xbps-install -Su` reports nothing to do. Never push
+to `void-linux/void-packages` or to an upstream project.
 
 ## Author and license
 
