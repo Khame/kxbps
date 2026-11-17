@@ -109,6 +109,10 @@ fn main() {
         builder.cc_builder(move |cc| {
             cc.include("/usr/include/KF6/KI18n");
             cc.include("/usr/include/KF6/KStatusNotifierItem");
+            // `KLocalizedQmlContext` includes `qqmlintegration.h`, which lives in
+            // Qt's integration module: `pkg-config Qt6Qml` adds this path, the
+            // include list CXX-Qt assembles does not.
+            cc.include("/usr/include/qt6/QtQmlIntegration");
             cc.include(format!("{manifest_dir}/src"));
         })
     };

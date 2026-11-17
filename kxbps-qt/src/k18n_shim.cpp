@@ -1,38 +1,33 @@
-// SPDX-License-Identifier: GPL-2.0-or-later
+// SPDX-License-Identifier: GPL-3.0-or-later
 //
 // KI18n glue for QML.
 //
 // `import org.kde.ki18n` only registers the QML plugin; it does not define the
-// `i18n*`/`i18nd*` functions. Those are `Q_INVOKABLE` members of the
-// `KLocalizedContext` object, so they only become global functions in QML once
-// that object is installed as the engine's root context object.
+// `i18n*`/`i18nd*` functions. Those are members of the localized context
+// object, so they only become available in QML once that object is installed in
+// the engine's root context.
+//
+// `KLocalizedContext` did that until KI18n 6.8 deprecated it in favour of
+// `KLocalization::setupLocalizedContext()`, which creates a
+// `KLocalizedQmlContext` and installs it. It also re-evaluates bindings when the
+// application language changes, which the old object did not.
 //
 // Declared in the CXX bridge (`src/lib.rs`) as
 //     fn setup_i18n(engine: Pin<&mut QQmlEngine>);
 // which cxx lowers to the `QQmlEngine &` parameter below.
 
-#include <QQmlContext>
 #include <QQmlEngine>
 
 #include <QFont>
 #include <QGuiApplication>
 
-#include <KLocalizedContext>
+#include <KLocalizedQmlContext>
 #include <KLocalizedString>
-
-// `KLocalizedContext` is deprecated since KI18n 6.8 in favour of
-// `KLocalization::setupLocalizedContext()`. It still ships and still provides
-// `i18nd()`, which is what the QML layer calls; keep the deprecation note out of
-// the build log until the i18n task moves to the newer context object.
-#if defined(__GNUC__) || defined(__clang__)
-#pragma GCC diagnostic push
-#pragma GCC diagnostic ignored "-Wdeprecated-declarations"
-#endif
 
 void kxbps_setup_i18n(QQmlEngine &engine)
 {
     KLocalizedString::setApplicationDomain("kxbps");
-    engine.rootContext()->setContextObject(new KLocalizedContext(&engine));
+    KLocalization::setupLocalizedContext(&engine);
 }
 
 void kxbps_set_compact_font()
@@ -43,7 +38,3 @@ void kxbps_set_compact_font()
         QGuiApplication::setFont(font);
     }
 }
-
-#if defined(__GNUC__) || defined(__clang__)
-#pragma GCC diagnostic pop
-#endif
