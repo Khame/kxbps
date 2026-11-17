@@ -141,3 +141,9 @@ one means the installation did not finish.
 Polkit asks for the password of an administrative user. If `pkexec` is not
 installed, no privileged action can start, and the job reports that instead of
 running anything.
+
+A checkout install with `PREFIX=~/.local` leaves a catalog and the icons in
+`~/.local/share`, and both shadow the package: `~/.local/share/locale` is read
+before `/usr/share/locale`, so an older `kxbps.mo` keeps a string added later in
+English while the rest of the window is translated. Remove the copies, or
+install the checkout with `PREFIX=/usr`, before comparing the two.
