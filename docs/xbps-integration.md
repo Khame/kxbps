@@ -91,6 +91,15 @@ and nothing else; it does not sync the repository index, because the URL is the
 only thing a mirror change decides. `00-repository-main.conf` is the only file
 KXbps ever writes outside its own state directory.
 
+That file carries one line, `repository=<mirror>/current<tail>`. The tail after
+`/current` names the repository set of the system rather than of the mirror:
+`musl` on a musl install, `multilib/nonfree` where those are enabled, nothing on
+plain glibc. A mirror switch rewrites the host and keeps the tail, read from the
+file it replaces or from `/usr/share/xbps.d/00-repository-main.conf` when `/etc`
+has none. A tail that is not a plain path is refused before any write. The read
+side follows the same merge rule: `/etc/xbps.d` wins over `/usr/share/xbps.d`,
+and the packaged file answers when the local one is absent.
+
 One dry-run line is not what it looks like. xbps names a package it has already
 taken as a dependency of an earlier argument with ``Package `x' already
 installed.`` on stderr, and prints the same package as an `update` row at the

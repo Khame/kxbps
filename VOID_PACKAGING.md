@@ -82,10 +82,13 @@ tarball, and the build reads it from there.
 
 `depends` carries what the automatic scan cannot see: `xbps` for the tools,
 `polkit` for `pkexec`, `kf6-kirigami` and `kf6-kstatusnotifieritem` for the QML
-modules and the tray, and `qt6-svg`. The last one is easy to miss: the icons are
-SVG, the shlib scan sees no dependency, and `QT_DEBUG_PLUGINS=1` is what shows
-the window loading `libqsvgicon.so`. Without the package every icon the window
-draws comes out blank.
+modules and the tray, `kf6-qqc2-desktop-style` for the style Kirigami asks for,
+`kf6-sonnet` for the spell-check module the text fields load, and `qt6-svg`. The
+last one is easy to miss: the icons are SVG, the shlib scan sees no dependency,
+and `QT_DEBUG_PLUGINS=1` is what shows the window loading `libqsvgicon.so`.
+Without the package every icon the window draws comes out blank. The two KF6
+QML modules fail the same quiet way: the window starts and a binding logs a
+missing import instead of the package being reported.
 
 There is no `vlicense`: the Manual requires the license file in the package for
 AGPL, MIT, BSD, ISC, X11 and custom licenses, and this one is
@@ -133,6 +136,18 @@ xlint srcpkgs/kxbps/template
 
 Run `xbps-src` as a regular user; it needs no root, and it creates `masterdir/`
 and `hostdir/` inside the checkout. The package ends up in `hostdir/binpkgs/`.
+
+The musl variant comes from the same template, with its own masterdir:
+
+```sh
+./xbps-src -A x86_64-musl binary-bootstrap
+./xbps-src -A x86_64-musl pkg kxbps
+./xbps-src -Q -A x86_64-musl pkg kxbps    # test suite inside the chroot
+```
+
+It writes `hostdir/binpkgs/kxbps-<version>_<revision>.x86_64-musl.xbps`. Plain
+`./xbps-src pkg kxbps` is the glibc build; `-Q` runs the tests the same way for
+either architecture.
 
 When the tarball changes but the version does not, run `./xbps-src clean kxbps`
 first: `masterdir/builddir/kxbps-<version>` is reused when it exists, and with an

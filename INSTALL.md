@@ -14,6 +14,11 @@ sudo xbps-install -S      # answer Y to import the repository key
 sudo xbps-install kxbps
 ```
 
+The package is glibc only, because that is the index the repository carries. On
+an `x86_64-musl` system the repository line ends in `/musl`
+(`…/voidlinux.org/current/musl`), Khame's index has no musl build, and KXbps
+comes from a checkout below.
+
 On the first sync xbps asks whether to import the signing key. Compare the
 fingerprint before answering:
 
@@ -38,7 +43,7 @@ Install the build dependencies first:
 
 ```sh
 sudo xbps-install rust cargo lld qt6-base-devel qt6-declarative-devel \
-    kf6-kirigami-devel kf6-ki18n-devel
+    kf6-kirigami-devel kf6-ki18n-devel kf6-kstatusnotifieritem-devel
 ```
 
 Build once as your user, then install the result:
@@ -76,9 +81,11 @@ install.
 
 ### Runtime dependencies
 
-`qt6-base`, `qt6-declarative`, `kf6-kirigami`, `kf6-ki18n`, `polkit` (for
-`pkexec`), `xbps` (for the tools the window runs). Build dependencies: the
-`xbps-install` line above.
+`qt6-base`, `qt6-declarative`, `kf6-kirigami`, `kf6-ki18n`,
+`kf6-qqc2-desktop-style` (the style Kirigami asks for), `kf6-sonnet` (the
+spell-check module the text fields load), `kf6-kstatusnotifieritem` (the tray),
+`polkit` (for `pkexec`), `xbps` (for the tools the window runs). Build
+dependencies: the `xbps-install` line above.
 
 ## Checking the install
 

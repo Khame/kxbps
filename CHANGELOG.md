@@ -3,6 +3,23 @@
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 the project uses semantic versioning.
 
+## [0.12.2] - 2026-11-17
+
+### Fixed
+
+- Switching mirrors on a musl system wrote a glibc repository. The path after
+  `/current` names the architecture and the repository set (`musl`,
+  `multilib/nonfree`), and the helper rebuilt the URL from the mirror alone, so
+  a musl host was pointed at the glibc tree. The helper now keeps that tail from
+  the file it replaces, and reads it from
+  `/usr/share/xbps.d/00-repository-main.conf` when there is no local file yet. A
+  tail that is not a plain path is refused before anything is written.
+- The Mirrors page reported a missing `/etc/xbps.d/00-repository-main.conf` on a
+  fresh install. xbps merges `/etc/xbps.d` over `/usr/share/xbps.d`, so a system
+  that never had its mirror switched runs on the packaged file. The page reads
+  that file when the local one does not exist, and still reports a file that
+  exists but cannot be read.
+
 ## [0.12.1] - 2026-11-17
 
 ### Fixed

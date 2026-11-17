@@ -26,6 +26,12 @@ The tools below the filters open their own pages: Mirrors (the mirror list and
 the system mirror), Repositories (the files under `/etc/xbps.d`), Help and
 Settings.
 
+The mirror page writes one line, `repository=<mirror>/current<tail>`. The part
+after `/current` belongs to the system rather than to the mirror: `musl` on a
+musl install, `multilib/nonfree` when those repositories are in use. A mirror
+switch keeps it, taken from the file it replaces or from the packaged
+`/usr/share/xbps.d/00-repository-main.conf` when the local file does not exist.
+
 A row adds a package to the queue or takes it out. The bar at the bottom of the
 window carries the queue size, the Apply button and the state of the last job.
 The `Log` button opens the raw output of the running or last transaction and of
@@ -89,7 +95,9 @@ starts them; there is nothing to run by hand.
 
 ## Requirements
 
-Runtime: Qt 6 base and declarative, KF6 Kirigami and KI18n, polkit, xbps.
+Runtime: Qt 6 base and declarative, KF6 Kirigami, KI18n, Sonnet and the desktop
+style for Qt Quick Controls, the StatusNotifierItem module for the tray, polkit,
+xbps.
 
 Build: Rust 1.99 or newer, and `lld`. cxx-qt asks the linker to use lld, and GNU
 ld drops the initializers the generated C++ needs, so without lld the link fails
@@ -100,6 +108,10 @@ with undefined references to `cxx_qt_init_crate_*`.
 Khame's signed repository carries the package for x86_64: [INSTALL.md](INSTALL.md)
 has the repository line, the key fingerprint and the two commands. There is no
 package in the official Void repository.
+
+Nothing in the program is glibc-specific, and the sources build on `x86_64-musl`
+as they are. Khame's repository has no musl index yet, so a musl system installs
+from a checkout.
 
 It also builds from a checkout; INSTALL.md has the dependencies, the install
 script and what it puts where.
