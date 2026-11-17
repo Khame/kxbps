@@ -1,3 +1,6 @@
+// SPDX-FileCopyrightText: 2026 Łukasz "Khame" Linhard <khame.dev@protonmail.com>
+// SPDX-License-Identifier: GPL-3.0-or-later
+
 // The repositories xbps reads, and the two edits this tool owns.
 //
 // The list is the system's: `/etc/xbps.d` plus `xbps-query -L`, read through the

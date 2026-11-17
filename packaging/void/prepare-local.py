@@ -1,4 +1,7 @@
 #!/usr/bin/env python3
+# SPDX-FileCopyrightText: 2026 Łukasz "Khame" Linhard <khame.dev@protonmail.com>
+# SPDX-License-Identifier: GPL-3.0-or-later
+
 """Create the source tarball for a KXbps release and print its SHA-256.
 
 The tarball is what the `xbps-src` template downloads, so it has to contain

@@ -1,3 +1,6 @@
+// SPDX-FileCopyrightText: 2026 Łukasz "Khame" Linhard <khame.dev@protonmail.com>
+// SPDX-License-Identifier: GPL-3.0-or-later
+
 //! Read-only `QAbstractItemModel` over the installed records xbps reports.
 //!
 //! The model holds the records `xbps-query -l` answered plus the installed map

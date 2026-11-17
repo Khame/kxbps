@@ -1,3 +1,6 @@
+// SPDX-FileCopyrightText: 2026 Łukasz "Khame" Linhard <khame.dev@protonmail.com>
+// SPDX-License-Identifier: GPL-3.0-or-later
+
 //! `kxbps-repo-apply`: the privileged helper behind the Repositories page.
 //!
 //! polkit runs this binary as root through the `io.github.khame.kxbps.repo`

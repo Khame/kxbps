@@ -1,3 +1,6 @@
+// SPDX-FileCopyrightText: 2026 Łukasz "Khame" Linhard <khame.dev@protonmail.com>
+// SPDX-License-Identifier: GPL-3.0-or-later
+
 //! QML-facing bridge for KXbps.
 //!
 //! The QML module `org.kde.kxbps` is declared in `build.rs`; every `#[qml_element]`

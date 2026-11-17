@@ -1,3 +1,6 @@
+// SPDX-FileCopyrightText: 2026 Łukasz "Khame" Linhard <khame.dev@protonmail.com>
+// SPDX-License-Identifier: GPL-3.0-or-later
+
 // The list of files one package owns.
 //
 // `xbps-query -f` answers from the installed database and `-R -f` from the

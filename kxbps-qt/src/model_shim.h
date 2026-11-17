@@ -1,3 +1,6 @@
+// SPDX-FileCopyrightText: 2026 Łukasz "Khame" Linhard <khame.dev@protonmail.com>
+// SPDX-License-Identifier: GPL-3.0-or-later
+
 // C++ helpers the CXX-Qt bridge cannot express on its own.
 //
 // Three things are missing from `cxx-qt-lib` 0.10 and are provided here:

@@ -1,3 +1,6 @@
+// SPDX-FileCopyrightText: 2026 Łukasz "Khame" Linhard <khame.dev@protonmail.com>
+// SPDX-License-Identifier: GPL-3.0-or-later
+
 //! The privileged transaction: one `pkexec` run of `xbps-install`/`xbps-remove`.
 //!
 //! The GUI thread never waits. `start` runs on it, claims the

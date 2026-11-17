@@ -1,3 +1,6 @@
+// SPDX-FileCopyrightText: 2026 Łukasz "Khame" Linhard <khame.dev@protonmail.com>
+// SPDX-License-Identifier: GPL-3.0-or-later
+
 //! Persistent desktop state: the installed database, the transaction queue,
 //! the selected mirror and the user preferences.
 //!

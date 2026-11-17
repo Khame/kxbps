@@ -1,3 +1,6 @@
+// SPDX-FileCopyrightText: 2026 Łukasz "Khame" Linhard <khame.dev@protonmail.com>
+// SPDX-License-Identifier: GPL-3.0-or-later
+
 // The confirmation surface for a resolved transaction plan.
 //
 // The plan is a C++-parented child of `InstalledBackend`: this dialog owns the

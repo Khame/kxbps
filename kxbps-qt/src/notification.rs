@@ -1,3 +1,6 @@
+// SPDX-FileCopyrightText: 2026 Łukasz "Khame" Linhard <khame.dev@protonmail.com>
+// SPDX-License-Identifier: GPL-3.0-or-later
+
 //! Whether updates are announced, decided without Qt.
 //!
 //! The desktop popup itself lives in `Notifier.qml`, which needs the

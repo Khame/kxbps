@@ -1,3 +1,6 @@
+// SPDX-FileCopyrightText: 2026 Łukasz "Khame" Linhard <khame.dev@protonmail.com>
+// SPDX-License-Identifier: GPL-3.0-or-later
+
 //! The mirror list as a flat `QAbstractItemModel`.
 //!
 //! CXX-Qt 0.10 has no `QAbstractListModel` wrapper, so this follows the same

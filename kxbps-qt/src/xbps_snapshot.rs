@@ -1,3 +1,6 @@
+// SPDX-FileCopyrightText: 2026 Łukasz "Khame" Linhard <khame.dev@protonmail.com>
+// SPDX-License-Identifier: GPL-3.0-or-later
+
 //! One consistent take of the system state, read through the xbps runner.
 //!
 //! Five read-only commands answer in one go — `xbps-query -l` (installed

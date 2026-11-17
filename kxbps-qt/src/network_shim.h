@@ -1,3 +1,6 @@
+// SPDX-FileCopyrightText: 2026 Łukasz "Khame" Linhard <khame.dev@protonmail.com>
+// SPDX-License-Identifier: GPL-3.0-or-later
+
 // Network reachability, as `QNetworkInformation` reports it.
 //
 // The update check has to tell "the repositories answered and there is nothing

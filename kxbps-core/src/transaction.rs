@@ -1,3 +1,6 @@
+// SPDX-FileCopyrightText: 2026 Łukasz "Khame" Linhard <khame.dev@protonmail.com>
+// SPDX-License-Identifier: GPL-3.0-or-later
+
 //! The privileged transaction: what to run and what its exit code means.
 //!
 //! One transaction is a sequence of `pkexec /usr/bin/xbps-install -S -y <pkgver>…`

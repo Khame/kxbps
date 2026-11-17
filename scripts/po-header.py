@@ -1,3 +1,4 @@
+# SPDX-FileCopyrightText: 2026 Łukasz "Khame" Linhard <khame.dev@protonmail.com>
 # SPDX-License-Identifier: GPL-3.0-or-later
 """Make po/pl.po ready to commit after msgmerge.
 

@@ -1,3 +1,6 @@
+// SPDX-FileCopyrightText: 2026 Łukasz "Khame" Linhard <khame.dev@protonmail.com>
+// SPDX-License-Identifier: GPL-3.0-or-later
+
 //! The system repository configuration xbps actually reads.
 //!
 //! The mirror list in [`crate::mirrors`] is a catalog; xbps uses whatever the

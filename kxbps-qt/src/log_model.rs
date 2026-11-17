@@ -1,3 +1,6 @@
+// SPDX-FileCopyrightText: 2026 Łukasz "Khame" Linhard <khame.dev@protonmail.com>
+// SPDX-License-Identifier: GPL-3.0-or-later
+
 //! Append-only log lines for the job dialog.
 //!
 //! One role, `line`, plus a `count` property for the header. Rows are appended

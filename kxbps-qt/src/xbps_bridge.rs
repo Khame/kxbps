@@ -1,3 +1,6 @@
+// SPDX-FileCopyrightText: 2026 Łukasz "Khame" Linhard <khame.dev@protonmail.com>
+// SPDX-License-Identifier: GPL-3.0-or-later
+
 //! Bridge to the C++ `QProcess` runner in `src/xbps_shim.cpp`.
 //!
 //! The shim is one synchronous call: JSON argv in, JSON reply out, with a hard

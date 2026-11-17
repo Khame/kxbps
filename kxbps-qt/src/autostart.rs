@@ -1,3 +1,6 @@
+// SPDX-FileCopyrightText: 2026 Łukasz "Khame" Linhard <khame.dev@protonmail.com>
+// SPDX-License-Identifier: GPL-3.0-or-later
+
 //! The per-user autostart entry: `~/.config/autostart/io.github.khame.kxbps.desktop`.
 //!
 //! Starting with the session is a file the desktop reads, not a daemon, so this

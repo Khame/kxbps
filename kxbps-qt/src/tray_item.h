@@ -1,3 +1,4 @@
+// SPDX-FileCopyrightText: 2026 Łukasz "Khame" Linhard <khame.dev@protonmail.com>
 // SPDX-License-Identifier: GPL-3.0-or-later
 //
 // The tray QObject itself. moc runs over this header (it is listed in

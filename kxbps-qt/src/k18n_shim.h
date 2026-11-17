@@ -1,3 +1,4 @@
+// SPDX-FileCopyrightText: 2026 Łukasz "Khame" Linhard <khame.dev@protonmail.com>
 // SPDX-License-Identifier: GPL-3.0-or-later
 //
 // Declaration for the KI18n QML glue in `k18n_shim.cpp`. The CXX bridge in

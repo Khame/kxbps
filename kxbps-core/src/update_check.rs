@@ -1,3 +1,6 @@
+// SPDX-FileCopyrightText: 2026 Łukasz "Khame" Linhard <khame.dev@protonmail.com>
+// SPDX-License-Identifier: GPL-3.0-or-later
+
 //! When to ask the repositories for updates, and how to word the answer.
 //!
 //! `xbps-install -un` reads the local index only, so the list it prints is as

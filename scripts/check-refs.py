@@ -1,3 +1,4 @@
+# SPDX-FileCopyrightText: 2026 Łukasz "Khame" Linhard <khame.dev@protonmail.com>
 # SPDX-License-Identifier: GPL-3.0-or-later
 """Every i18nd* msgid in QML must reach the template from the same file.
 

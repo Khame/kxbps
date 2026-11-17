@@ -1,3 +1,6 @@
+// SPDX-FileCopyrightText: 2026 Łukasz "Khame" Linhard <khame.dev@protonmail.com>
+// SPDX-License-Identifier: GPL-3.0-or-later
+
 //! Synchronous runner for the xbps commands the read layer calls.
 //!
 //! `src/xbps_shim.cpp` starts one process with an explicit argv list (never a

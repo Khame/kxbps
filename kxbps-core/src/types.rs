@@ -1,3 +1,6 @@
+// SPDX-FileCopyrightText: 2026 Łukasz "Khame" Linhard <khame.dev@protonmail.com>
+// SPDX-License-Identifier: GPL-3.0-or-later
+
 //! Domain types shared by every KXbps layer.
 //!
 //! These mirror `qxbps/src/lib/xbps/types.ts` one-to-one, including the JSON

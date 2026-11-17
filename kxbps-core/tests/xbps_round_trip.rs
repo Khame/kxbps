@@ -1,3 +1,4 @@
+// SPDX-FileCopyrightText: 2026 Łukasz "Khame" Linhard <khame.dev@protonmail.com>
 // SPDX-License-Identifier: GPL-3.0-or-later
 //! What the window shows, driven end to end from captured xbps output.
 //!

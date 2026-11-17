@@ -1,3 +1,6 @@
+// SPDX-FileCopyrightText: 2026 Łukasz "Khame" Linhard <khame.dev@protonmail.com>
+// SPDX-License-Identifier: GPL-3.0-or-later
+
 // The system half of the mirror view: what xbps actually uses.
 //
 // Everything here is a plain function over values — the config file's text, the

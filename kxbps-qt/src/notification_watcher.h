@@ -1,3 +1,6 @@
+// SPDX-FileCopyrightText: 2026 Łukasz "Khame" Linhard <khame.dev@protonmail.com>
+// SPDX-License-Identifier: GPL-3.0-or-later
+
 // A click on the notification popup, delivered to the backend that sent it.
 //
 // The notification server reports a click as the `ActionInvoked(uint, QString)`

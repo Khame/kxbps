@@ -1,3 +1,6 @@
+// SPDX-FileCopyrightText: 2026 Łukasz "Khame" Linhard <khame.dev@protonmail.com>
+// SPDX-License-Identifier: GPL-3.0-or-later
+
 //! Adding and removing one repository file under `/etc/xbps.d`.
 //!
 //! The engine behind `kxbps-repo-apply`, the second privileged helper. It is

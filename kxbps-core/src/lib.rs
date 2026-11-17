@@ -1,3 +1,6 @@
+// SPDX-FileCopyrightText: 2026 Łukasz "Khame" Linhard <khame.dev@protonmail.com>
+// SPDX-License-Identifier: GPL-3.0-or-later
+
 //! Core logic for KXbps: xbps interaction, models and data types.
 //!
 //! This crate is free of any Qt dependency so it can be tested and reused

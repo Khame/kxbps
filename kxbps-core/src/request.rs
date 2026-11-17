@@ -1,3 +1,6 @@
+// SPDX-FileCopyrightText: 2026 Łukasz "Khame" Linhard <khame.dev@protonmail.com>
+// SPDX-License-Identifier: GPL-3.0-or-later
+
 //! What should be planned, as one dry run asks for it.
 //!
 //! The Qt layer builds a [`PlanRequest`], runs it and parses the answer; the

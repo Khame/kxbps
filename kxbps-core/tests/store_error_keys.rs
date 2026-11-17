@@ -1,3 +1,4 @@
+// SPDX-FileCopyrightText: 2026 Łukasz "Khame" Linhard <khame.dev@protonmail.com>
 // SPDX-License-Identifier: GPL-3.0-or-later
 //! A failed save reaches the window as a translation key, not as English.
 //!

@@ -1,4 +1,7 @@
 #!/usr/bin/env python3
+# SPDX-FileCopyrightText: 2026 Łukasz "Khame" Linhard <khame.dev@protonmail.com>
+# SPDX-License-Identifier: GPL-3.0-or-later
+
 """Check that the version and the source checksum agree everywhere.
 
 The same release fact is written in five places: the workspace manifest, the

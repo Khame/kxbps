@@ -1,3 +1,6 @@
+// SPDX-FileCopyrightText: 2026 Łukasz "Khame" Linhard <khame.dev@protonmail.com>
+// SPDX-License-Identifier: GPL-3.0-or-later
+
 // The mirror list and the repository state.
 //
 // Mirrors are the embedded 34-entry snapshot; refreshing the list from

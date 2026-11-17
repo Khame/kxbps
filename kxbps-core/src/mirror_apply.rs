@@ -1,3 +1,6 @@
+// SPDX-FileCopyrightText: 2026 Łukasz "Khame" Linhard <khame.dev@protonmail.com>
+// SPDX-License-Identifier: GPL-3.0-or-later
+
 //! The engine behind `kxbps-mirror-apply`: validate, write, verify or revert.
 //!
 //! One helper process does the whole thing under one authorization:

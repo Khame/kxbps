@@ -1,3 +1,6 @@
+// SPDX-FileCopyrightText: 2026 Łukasz "Khame" Linhard <khame.dev@protonmail.com>
+// SPDX-License-Identifier: GPL-3.0-or-later
+
 //! Bridge to `QNetworkInformation` through `src/network_shim.cpp`.
 //!
 //! The update check has to know whether a failed `xbps-install -M -un` means

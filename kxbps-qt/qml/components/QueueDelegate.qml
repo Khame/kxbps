@@ -1,3 +1,6 @@
+// SPDX-FileCopyrightText: 2026 Łukasz "Khame" Linhard <khame.dev@protonmail.com>
+// SPDX-License-Identifier: GPL-3.0-or-later
+
 // One row of the queue: what Apply will do to one package.
 //
 // The row states the action, the version and the size it moves, so the queue

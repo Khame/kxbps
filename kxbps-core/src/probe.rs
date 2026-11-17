@@ -1,3 +1,6 @@
+// SPDX-FileCopyrightText: 2026 Łukasz "Khame" Linhard <khame.dev@protonmail.com>
+// SPDX-License-Identifier: GPL-3.0-or-later
+
 //! Rules for mirror latency probing.
 //!
 //! The web app's `probe.ts` does two things: it refuses a plain-HTTP URL before

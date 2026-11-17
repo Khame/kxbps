@@ -1,3 +1,4 @@
+// SPDX-FileCopyrightText: 2026 Łukasz "Khame" Linhard <khame.dev@protonmail.com>
 // SPDX-License-Identifier: GPL-3.0-or-later
 //
 // Creates the tray declared in `tray_item.h` and hands it to QML.

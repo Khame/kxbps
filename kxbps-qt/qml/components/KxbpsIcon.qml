@@ -1,3 +1,6 @@
+// SPDX-FileCopyrightText: 2026 Łukasz "Khame" Linhard <khame.dev@protonmail.com>
+// SPDX-License-Identifier: GPL-3.0-or-later
+
 // One glyph from the KXbps symbolic set.
 //
 // The set is drawn as a mask: every shape uses `currentColor`, so the colour

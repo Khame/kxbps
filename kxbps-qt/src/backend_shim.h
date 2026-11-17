@@ -1,3 +1,6 @@
+// SPDX-FileCopyrightText: 2026 Łukasz "Khame" Linhard <khame.dev@protonmail.com>
+// SPDX-License-Identifier: GPL-3.0-or-later
+
 // C++ factories and forwarding helpers for the installed backend.
 //
 // CXX-Qt 0.10 cannot construct a QObject from Rust and cannot call a generated

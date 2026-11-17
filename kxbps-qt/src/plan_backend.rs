@@ -1,3 +1,6 @@
+// SPDX-FileCopyrightText: 2026 Łukasz "Khame" Linhard <khame.dev@protonmail.com>
+// SPDX-License-Identifier: GPL-3.0-or-later
+
 //! A resolved transaction plan, ready for the confirm dialog.
 //!
 //! The plan is built by [`crate::installed_backend`] with the core's planners and

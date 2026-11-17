@@ -1,3 +1,6 @@
+// SPDX-FileCopyrightText: 2026 Łukasz "Khame" Linhard <khame.dev@protonmail.com>
+// SPDX-License-Identifier: GPL-3.0-or-later
+
 // The details of the selected package, under the table.
 //
 // The page reads `catalogBackend.get(pkgver)` instead of the model row, because

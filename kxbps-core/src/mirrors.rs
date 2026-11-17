@@ -1,3 +1,6 @@
+// SPDX-FileCopyrightText: 2026 Łukasz "Khame" Linhard <khame.dev@protonmail.com>
+// SPDX-License-Identifier: GPL-3.0-or-later
+
 //! The mirror list the user picks from, and its regions.
 //!
 //! Ported from the web app's `mirrors.ts` (`MIRRORS`, `DEFAULT_MIRROR`,

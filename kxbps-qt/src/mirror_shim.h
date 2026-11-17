@@ -1,3 +1,6 @@
+// SPDX-FileCopyrightText: 2026 Łukasz "Khame" Linhard <khame.dev@protonmail.com>
+// SPDX-License-Identifier: GPL-3.0-or-later
+
 // C++ side of the mirror view: the model factory and the latency transport.
 //
 // `cxx-qt-lib` 0.10 ships no binding for `QNetworkAccessManager`, `QNetworkRequest`

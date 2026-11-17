@@ -1,3 +1,6 @@
+// SPDX-FileCopyrightText: 2026 Łukasz "Khame" Linhard <khame.dev@protonmail.com>
+// SPDX-License-Identifier: GPL-3.0-or-later
+
 // One entry of the navigation sidebar.
 //
 // A plain `QQC2.ItemDelegate`: Kirigami 6.11 no longer ships

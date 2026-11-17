@@ -1,3 +1,6 @@
+// SPDX-FileCopyrightText: 2026 Łukasz "Khame" Linhard <khame.dev@protonmail.com>
+// SPDX-License-Identifier: GPL-3.0-or-later
+
 // One mirror: the selection dot, server and country, region, latency and state.
 //
 // The row itself is the "Use" control: there is one source of truth for the

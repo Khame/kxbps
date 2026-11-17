@@ -1,4 +1,7 @@
 #!/usr/bin/env python3
+# SPDX-FileCopyrightText: 2026 Łukasz "Khame" Linhard <khame.dev@protonmail.com>
+# SPDX-License-Identifier: GPL-3.0-or-later
+
 """Print a GitHub release body from CHANGELOG.md.
 
 The changelog is the only source: the file in the tree and the text on the

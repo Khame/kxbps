@@ -1,3 +1,6 @@
+// SPDX-FileCopyrightText: 2026 Łukasz "Khame" Linhard <khame.dev@protonmail.com>
+// SPDX-License-Identifier: GPL-3.0-or-later
+
 // What this application is, in one screen and without a marketing page.
 //
 // The version comes from `AppBackend.version()` in Rust; Qt, KDE Frameworks

@@ -1,3 +1,6 @@
+// SPDX-FileCopyrightText: 2026 Łukasz "Khame" Linhard <khame.dev@protonmail.com>
+// SPDX-License-Identifier: GPL-3.0-or-later
+
 // Settings: the four preferences the store keeps, plus the About entry.
 //
 // The switches write through `PrefsBackend`, which owns no store of its own:

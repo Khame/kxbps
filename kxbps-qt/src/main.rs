@@ -1,3 +1,6 @@
+// SPDX-FileCopyrightText: 2026 Łukasz "Khame" Linhard <khame.dev@protonmail.com>
+// SPDX-License-Identifier: GPL-3.0-or-later
+
 use cxx_qt_lib::{QQmlApplicationEngine, QQuickStyle, QString, QUrl};
 use cxx_qt_lib_extras::QApplication;
 use std::env;

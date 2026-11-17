@@ -1,3 +1,6 @@
+// SPDX-FileCopyrightText: 2026 Łukasz "Khame" Linhard <khame.dev@protonmail.com>
+// SPDX-License-Identifier: GPL-3.0-or-later
+
 // The one desktop notification KXbps sends.
 //
 // The decision of *whether* to announce, and the bookkeeping that makes it one

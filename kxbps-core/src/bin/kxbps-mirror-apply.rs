@@ -1,3 +1,6 @@
+// SPDX-FileCopyrightText: 2026 Łukasz "Khame" Linhard <khame.dev@protonmail.com>
+// SPDX-License-Identifier: GPL-3.0-or-later
+
 //! `kxbps-mirror-apply`: the one privileged helper behind "Apply to system".
 //!
 //! polkit runs this binary as root through the `io.github.khame.kxbps.mirror`

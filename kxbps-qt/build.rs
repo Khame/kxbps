@@ -1,3 +1,6 @@
+// SPDX-FileCopyrightText: 2026 Łukasz "Khame" Linhard <khame.dev@protonmail.com>
+// SPDX-License-Identifier: GPL-3.0-or-later
+
 fn main() {
     // `qrc` only watches the `.qrc` itself; without these lines a replaced icon
     // would not trigger a rebuild.

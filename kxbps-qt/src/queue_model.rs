@@ -1,3 +1,6 @@
+// SPDX-FileCopyrightText: 2026 Łukasz "Khame" Linhard <khame.dev@protonmail.com>
+// SPDX-License-Identifier: GPL-3.0-or-later
+
 //! Pending transactions as a `QAbstractListModel`-shaped item model.
 //!
 //! CXX-Qt 0.10 has no `QAbstractListModel` wrapper, so this uses the same

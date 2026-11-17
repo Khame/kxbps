@@ -1,3 +1,6 @@
+// SPDX-FileCopyrightText: 2026 Łukasz "Khame" Linhard <khame.dev@protonmail.com>
+// SPDX-License-Identifier: GPL-3.0-or-later
+
 // The package table and the controls that narrow it.
 //
 // Installed, Upgradable, Explicit, Orphans, On hold and Marked are the same

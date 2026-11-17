@@ -1,3 +1,6 @@
+// SPDX-FileCopyrightText: 2026 Łukasz "Khame" Linhard <khame.dev@protonmail.com>
+// SPDX-License-Identifier: GPL-3.0-or-later
+
 //! Plans read from xbps dry runs.
 //!
 //! The Plan dialog shows what `xbps-install -n <names>`, `xbps-install -n -Su`

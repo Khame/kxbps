@@ -1,3 +1,6 @@
+// SPDX-FileCopyrightText: 2026 Łukasz "Khame" Linhard <khame.dev@protonmail.com>
+// SPDX-License-Identifier: GPL-3.0-or-later
+
 // The thin bar at the bottom: what the tool is doing, and the way into the
 // xbps log. Counts live in the page footer, where the table that produced them
 // is, so this bar answers one question only.

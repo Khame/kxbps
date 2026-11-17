@@ -1,3 +1,6 @@
+// SPDX-FileCopyrightText: 2026 Łukasz "Khame" Linhard <khame.dev@protonmail.com>
+// SPDX-License-Identifier: GPL-3.0-or-later
+
 //! The Settings preferences: three values that survive a restart.
 //!
 //! The store is the only owner of `prefs.json`, and

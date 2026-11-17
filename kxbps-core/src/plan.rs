@@ -1,3 +1,6 @@
+// SPDX-FileCopyrightText: 2026 Łukasz "Khame" Linhard <khame.dev@protonmail.com>
+// SPDX-License-Identifier: GPL-3.0-or-later
+
 //! What a `-n` dry run reported, turned into plan steps.
 //!
 //! xbps already resolves the whole transaction: `xbps-install -n` and

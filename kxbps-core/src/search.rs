@@ -1,3 +1,6 @@
+// SPDX-FileCopyrightText: 2026 Łukasz "Khame" Linhard <khame.dev@protonmail.com>
+// SPDX-License-Identifier: GPL-3.0-or-later
+
 //! Ordering of a repository search answer.
 //!
 //! `xbps-query -Rs <pattern>` prints its hits in the repository index order,

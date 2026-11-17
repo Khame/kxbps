@@ -1,3 +1,6 @@
+// SPDX-FileCopyrightText: 2026 Łukasz "Khame" Linhard <khame.dev@protonmail.com>
+// SPDX-License-Identifier: GPL-3.0-or-later
+
 //! Parsers for the xbps command output the read layer consumes.
 //!
 //! Every format here was captured from xbps 0.60.7 on Void Linux and is listed
