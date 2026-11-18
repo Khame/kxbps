@@ -494,14 +494,6 @@ msgstr "Nie udało się wykonać zapytania: %1"
 msgid "Could not save the system state."
 msgstr "Nie udało się zapisać stanu systemu."
 
-#: kxbps-qt/qml/views/SettingsView.qml:97
-msgid ""
-"Closing the window already goes to the tray; this switch adds the "
-"minimize button."
-msgstr ""
-"Zamknięcie okna już trafia do zasobnika; ten przełącznik dodaje przycisk "
-"minimalizacji."
-
 #: kxbps-qt/qml/views/MirrorsView.qml:410
 msgid "Could not write %1."
 msgstr "Nie udało się zapisać %1."
@@ -810,20 +802,6 @@ msgstr "Brak zależności"
 #: kxbps-qt/qml/views/MirrorsView.qml:328
 msgid "No mirror matches this filter."
 msgstr "Żaden serwer lustrzany nie pasuje do filtra."
-
-#: kxbps-qt/qml/views/SettingsView.qml:96
-msgid "Minimize to the tray"
-msgstr "Minimalizuj do zasobnika"
-
-#: kxbps-qt/qml/views/HelpView.qml:91
-msgid ""
-"Minimize to the tray hides the window on the minimize button. Closing the "
-"window already goes to the tray when one is available, so the switch only "
-"adds the minimize path."
-msgstr ""
-"Minimalizuj do zasobnika ukrywa okno przyciskiem minimalizacji. "
-"Zamknięcie okna już trafia do zasobnika, gdy jest dostępny, więc "
-"przełącznik dodaje tylko tę drogę."
 
 #: kxbps-qt/qml/views/MirrorsView.qml:327
 msgid "No mirrors."
@@ -1149,12 +1127,8 @@ msgid "Settings"
 msgstr "Ustawienia"
 
 #: kxbps-qt/qml/views/HelpView.qml:90
-msgid ""
-"Settings holds the update interval, the startup switches and the two "
-"notification switches."
-msgstr ""
-"Ustawienia zawierają interwał aktualizacji, przełączniki startu i dwa "
-"przełączniki powiadomień."
+msgid "Settings holds the update interval, the startup switch and the two notification switches."
+msgstr "Ustawienia zawierają interwał aktualizacji, przełącznik startu i dwa przełączniki powiadomień."
 
 #: kxbps-qt/qml/components/LogDrawer.qml:152
 #: kxbps-qt/qml/views/PackagesView.qml:1013

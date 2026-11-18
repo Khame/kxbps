@@ -503,14 +503,6 @@ msgstr "Impossibile eseguire la query: %1"
 msgid "Could not save the system state."
 msgstr "Impossibile salvare lo stato del sistema."
 
-#: kxbps-qt/qml/views/SettingsView.qml:97
-msgid ""
-"Closing the window already goes to the tray; this switch adds the "
-"minimize button."
-msgstr ""
-"Chiudere la finestra la porta già nella barra delle applicazioni; questo "
-"interruttore aggiunge il pulsante di riduzione."
-
 #: kxbps-qt/qml/views/MirrorsView.qml:410
 msgid "Could not write %1."
 msgstr "Impossibile scrivere %1."
@@ -857,21 +849,6 @@ msgstr "Nessuna dipendenza"
 msgid "No mirror matches this filter."
 msgstr "Nessun mirror corrisponde a questo filtro."
 
-#: kxbps-qt/qml/views/SettingsView.qml:96
-msgid "Minimize to the tray"
-msgstr "Riduci nella barra delle applicazioni"
-
-#: kxbps-qt/qml/views/HelpView.qml:91
-msgid ""
-"Minimize to the tray hides the window on the minimize button. Closing the "
-"window already goes to the tray when one is available, so the switch only "
-"adds the minimize path."
-msgstr ""
-"Riduci nella barra delle applicazioni nasconde la finestra con il "
-"pulsante di riduzione. Chiudere la finestra la porta già nella barra "
-"delle applicazioni quando è disponibile, quindi l'interruttore aggiunge "
-"solo il percorso di riduzione."
-
 #: kxbps-qt/qml/views/MirrorsView.qml:327
 msgid "No mirrors."
 msgstr "Nessun mirror."
@@ -1206,12 +1183,8 @@ msgid "Settings"
 msgstr "Impostazioni"
 
 #: kxbps-qt/qml/views/HelpView.qml:90
-msgid ""
-"Settings holds the update interval, the startup switches and the two "
-"notification switches."
-msgstr ""
-"Le impostazioni contengono l'intervallo di aggiornamento, gli "
-"interruttori di avvio e i due interruttori delle notifiche."
+msgid "Settings holds the update interval, the startup switch and the two notification switches."
+msgstr "Le impostazioni contengono l'intervallo di aggiornamento, l'interruttore di avvio e i due interruttori delle notifiche."
 
 #: kxbps-qt/qml/components/LogDrawer.qml:152
 #: kxbps-qt/qml/views/PackagesView.qml:1013

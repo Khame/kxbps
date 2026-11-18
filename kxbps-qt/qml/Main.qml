@@ -269,19 +269,15 @@ Kirigami.ApplicationWindow {
     // Quit, so the closing handler knows which is which.
     property bool quitting: false
 
-    // Whether the window was maximized the last time it was on screen. The
-    // minimize path hides the window, and a restore has to put it back the way
-    // the user left it; `Window.Minimized` no longer says which state it came
-    // from.
+    // Whether the window was maximized the last time it was on screen, so the
+    // tray brings it back the way the user left it instead of plain windowed.
     property bool maximizedBeforeTray: false
 
     // One entry point for the tray icon and the notification: bring the window
     // back, raise it, switch to what the user was told about. The filter
     // switches before activation so focus lands on the list.
     function showUpdates() {
-        // A window the tray took while minimized comes back the way it was
-        // left. `showNormal` is also what clears a minimized state the
-        // compositor kept after the window was hidden.
+        // A window the tray took comes back in the state the user left it in.
         if (!root.visible) {
             if (root.maximizedBeforeTray) {
                 root.showMaximized()
@@ -307,18 +303,13 @@ Kirigami.ApplicationWindow {
         }
     }
 
-    // The minimize button, when the user asked for it: the compositor minimizes
-    // first, then the window leaves the task bar and the tray icon is the way
-    // back. `minimizeGoesToTray` keeps the rule in Rust, where it is tested;
-    // without a tray host the window stays minimized rather than vanishing.
+    // The close path is the only way the window leaves the screen, so the
+    // visibility tracker only remembers whether it was maximized.
     onVisibilityChanged: function(visibility) {
         if (visibility === Window.Maximized) {
             root.maximizedBeforeTray = true
         } else if (visibility === Window.Windowed) {
             root.maximizedBeforeTray = false
-        } else if (visibility === Window.Minimized && !root.quitting
-                   && prefsBackend.minimizeGoesToTray(root.trayAvailable)) {
-            root.visible = false
         }
     }
 

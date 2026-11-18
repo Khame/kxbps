@@ -1,6 +1,6 @@
 # Template file for 'kxbps'
 pkgname=kxbps
-version=0.12.2
+version=0.12.3
 revision=1
 build_style=cargo
 hostmakedepends="gettext lld qt6-base-devel"

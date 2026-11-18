@@ -65,10 +65,8 @@ The tray icon is a theme name, `kxbps-tray` or `kxbps-tray-updates`, so Plasma
 recolours it for the panel; the update variant adds an arrow and the tooltip
 carries the count. The icon is there whether the window is open or not.
 
-Minimize to the tray (Settings, off by default) hides the window when the
-minimize button is used, and the tray icon brings it back in the state it was
-left in. Closing the window already goes to the tray whenever a host exists, so
-the switch adds that path to the minimize button and nothing else.
+Closing the window hides it into the tray when a status notifier host exists,
+and the icon brings it back in the state it was left in.
 
 One desktop notification announces a set of updates. A single reminder follows
 after three hours, and after that only the icon keeps reporting. Clicking the

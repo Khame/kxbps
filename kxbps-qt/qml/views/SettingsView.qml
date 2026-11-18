@@ -91,26 +91,6 @@ Item {
                 }
             }
 
-            QQC2.Switch {
-                id: minimizeSwitch
-                text: i18nd("kxbps", "Minimize to the tray")
-                QQC2.ToolTip.text: i18nd("kxbps", "Closing the window already goes to the tray; this switch adds the minimize button.")
-                QQC2.ToolTip.visible: hovered
-                QQC2.ToolTip.delay: Kirigami.Units.toolTipDelay
-                enabled: view.prefsBackend !== null
-                onToggled: {
-                    if (view.prefsBackend !== null) {
-                        view.prefsBackend.minimizeToTray = checked
-                    }
-                }
-                Binding {
-                    target: minimizeSwitch
-                    property: "checked"
-                    value: view.prefsBackend !== null && view.prefsBackend.minimizeToTray
-                    restoreMode: Binding.RestoreNone
-                }
-            }
-
             QQC2.ComboBox {
                 id: intervalCombo
                 Kirigami.FormData.label: i18nd("kxbps", "Check for updates:")

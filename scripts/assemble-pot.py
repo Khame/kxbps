@@ -63,6 +63,9 @@ for block in entries:
 now = datetime.datetime.now(datetime.timezone.utc).strftime("%Y-%m-%d %H:%M+0000")
 
 out = [
+    "# SPDX-FileCopyrightText: 2026 Łukasz \"Khame\" Linhard <khame.dev@protonmail.com>",
+    "# SPDX-License-Identifier: GPL-3.0-or-later",
+    "",
     "# Translation template for KXbps.",
     "# Copyright (C) 2026 KXbps contributors",
     "# This file is distributed under the same license as the KXbps package.",

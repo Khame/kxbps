@@ -172,7 +172,6 @@ fn default_prefs() -> Prefs {
         desktop: true,
         dismissed: String::new(),
         start_with_session: true,
-        minimize_to_tray: false,
         update_check_minutes: DEFAULT_UPDATE_CHECK_MINUTES,
         last_check_at: 0,
         notified_at: 0,
@@ -390,12 +389,6 @@ impl Store {
     /// Whether the app starts with the session.
     pub fn set_pref_start_with_session(&mut self, on: bool) {
         self.prefs.start_with_session = on;
-        self.dirty = true;
-    }
-
-    /// Whether minimizing the window hands it to the tray.
-    pub fn set_pref_minimize_to_tray(&mut self, on: bool) {
-        self.prefs.minimize_to_tray = on;
         self.dirty = true;
     }
 
@@ -931,7 +924,6 @@ mod tests {
             desktop: true,
             dismissed: "7".to_string(),
             start_with_session: false,
-            minimize_to_tray: false,
             update_check_minutes: 60,
             last_check_at: 0,
             notified_at: 0,
@@ -987,6 +979,28 @@ mod tests {
             "the update announcement defaults to on"
         );
         assert_eq!(store.prefs.schema, 5);
+    }
+
+    #[test]
+    fn a_prefs_file_with_the_removed_minimize_switch_still_loads() {
+        // 0.12.2 wrote `minimizeToTray`; 0.12.3 drops the field. A file the
+        // previous version left behind must still load, keep the switches the
+        // user set, and lose the retired key on the next write.
+        let (dir, mut store, path) = load_seeded(
+            "prefs-no-minimize",
+            br#"{"schema":5,"notifyOnStart":false,"desktop":true,"dismissed":"kept","startWithSession":false,"minimizeToTray":true,"updateCheckMinutes":60}"#,
+        );
+        assert!(!store.prefs.notify_on_start);
+        assert!(!store.prefs.start_with_session);
+        assert_eq!(store.prefs.update_check_minutes, 60);
+        assert_eq!(store.prefs.dismissed, "kept");
+
+        store.save_at(dir.path()).expect("save");
+        let saved = fs::read_to_string(&path).expect("read prefs");
+        assert!(
+            !saved.contains("minimizeToTray"),
+            "the retired key is not written again: {saved}"
+        );
     }
 
     /// Seeds `prefs.json` with `json` and returns the directory plus the loaded
@@ -1573,7 +1587,6 @@ mod tests {
                 desktop: true,
                 dismissed: String::new(),
                 start_with_session: true,
-                minimize_to_tray: false,
                 update_check_minutes: 360,
                 last_check_at: 0,
                 notified_at: 0,

@@ -161,13 +161,6 @@ pub struct Prefs {
     /// the filesystem.
     #[serde(default = "default_start_with_session")]
     pub start_with_session: bool,
-    /// Whether the minimize button sends the window to the tray instead of the
-    /// task bar. Defaults to `false`: minimizing is what the compositor does,
-    /// and a window that vanishes on the first click is a surprise unless the
-    /// user asked for it. Closing the window is a separate behaviour, driven by
-    /// whether a tray host exists, not by this switch.
-    #[serde(default)]
-    pub minimize_to_tray: bool,
     /// How often the app checks for updates, in minutes. Always one of
     /// [`UPDATE_INTERVALS`]; a hand-edited file goes through
     /// [`normalize_interval`] on the way in, so the timer can never be armed
@@ -289,7 +282,6 @@ mod tests {
             desktop: false,
             dismissed: String::new(),
             start_with_session: false,
-            minimize_to_tray: false,
             update_check_minutes: 180,
             last_check_at: 1_700_000_000_000,
             notified_at: 1_700_000_100_000,
@@ -322,7 +314,6 @@ mod tests {
             desktop: false,
             dismissed: String::new(),
             start_with_session: false,
-            minimize_to_tray: false,
             update_check_minutes: 360,
             last_check_at: 0,
             notified_at: 0,

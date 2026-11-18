@@ -507,14 +507,6 @@ msgstr "Die Abfrage konnte nicht ausgeführt werden: %1"
 msgid "Could not save the system state."
 msgstr "Der Systemzustand konnte nicht gespeichert werden."
 
-#: kxbps-qt/qml/views/SettingsView.qml:97
-msgid ""
-"Closing the window already goes to the tray; this switch adds the "
-"minimize button."
-msgstr ""
-"Das Schließen des Fensters geht bereits in den Infobereich; dieser "
-"Schalter ergänzt die Schaltfläche zum Minimieren."
-
 #: kxbps-qt/qml/views/MirrorsView.qml:410
 msgid "Could not write %1."
 msgstr "%1 konnte nicht geschrieben werden."
@@ -864,21 +856,6 @@ msgstr "Keine Abhängigkeiten"
 msgid "No mirror matches this filter."
 msgstr "Kein Spiegel entspricht diesem Filter."
 
-#: kxbps-qt/qml/views/SettingsView.qml:96
-msgid "Minimize to the tray"
-msgstr "In den Infobereich minimieren"
-
-#: kxbps-qt/qml/views/HelpView.qml:91
-msgid ""
-"Minimize to the tray hides the window on the minimize button. Closing the "
-"window already goes to the tray when one is available, so the switch only "
-"adds the minimize path."
-msgstr ""
-"In den Infobereich minimieren blendet das Fenster über die Schaltfläche "
-"zum Minimieren aus. Das Schließen des Fensters geht bereits in den "
-"Infobereich, wenn einer verfügbar ist; der Schalter ergänzt also nur den "
-"Weg über das Minimieren."
-
 #: kxbps-qt/qml/views/MirrorsView.qml:327
 msgid "No mirrors."
 msgstr "Keine Spiegel."
@@ -1214,12 +1191,8 @@ msgid "Settings"
 msgstr "Einstellungen"
 
 #: kxbps-qt/qml/views/HelpView.qml:90
-msgid ""
-"Settings holds the update interval, the startup switches and the two "
-"notification switches."
-msgstr ""
-"Die Einstellungen enthalten das Aktualisierungsintervall, die "
-"Startschalter und die beiden Benachrichtigungsschalter."
+msgid "Settings holds the update interval, the startup switch and the two notification switches."
+msgstr "Die Einstellungen enthalten das Aktualisierungsintervall, den Startschalter und die beiden Benachrichtigungsschalter."
 
 #: kxbps-qt/qml/components/LogDrawer.qml:152
 #: kxbps-qt/qml/views/PackagesView.qml:1013

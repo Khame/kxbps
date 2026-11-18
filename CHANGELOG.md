@@ -3,6 +3,19 @@
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 the project uses semantic versioning.
 
+## [0.12.3] - 2026-11-18
+
+### Removed
+
+- The `Minimize to the tray` switch. KWin on Wayland does not notify the client
+  of a compositor minimize, so the switch had no effect there. Closing the
+  window still hands it to the tray, and the icon brings it back.
+
+### Notes
+
+- A `prefs.json` written by 0.12.2 still loads. The retired `minimizeToTray` key
+  is ignored and dropped the next time the file is saved.
+
 ## [0.12.2] - 2026-11-17
 
 ### Added

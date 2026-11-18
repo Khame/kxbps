@@ -87,8 +87,7 @@ Item {
         {
             heading: i18nd("kxbps", "Settings"),
             paragraphs: [
-                i18nd("kxbps", "Settings holds the update interval, the startup switches and the two notification switches."),
-                i18nd("kxbps", "Minimize to the tray hides the window on the minimize button. Closing the window already goes to the tray when one is available, so the switch only adds the minimize path."),
+                i18nd("kxbps", "Settings holds the update interval, the startup switch and the two notification switches."),
                 i18nd("kxbps", "Start with the session writes an autostart entry. The other switches and the chosen mirror are saved in the state directory.")
             ]
         },

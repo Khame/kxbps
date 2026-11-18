@@ -501,14 +501,6 @@ msgstr "Kan de zoekopdracht niet uitvoeren: %1"
 msgid "Could not save the system state."
 msgstr "Kan de systeemtoestand niet opslaan."
 
-#: kxbps-qt/qml/views/SettingsView.qml:97
-msgid ""
-"Closing the window already goes to the tray; this switch adds the "
-"minimize button."
-msgstr ""
-"Het sluiten van het venster gaat al naar het systeemvak; deze schakelaar "
-"voegt de knop minimaliseren toe."
-
 #: kxbps-qt/qml/views/MirrorsView.qml:410
 msgid "Could not write %1."
 msgstr "Kan %1 niet schrijven."
@@ -855,21 +847,6 @@ msgstr "Geen afhankelijkheden"
 msgid "No mirror matches this filter."
 msgstr "Geen spiegel voldoet aan dit filter."
 
-#: kxbps-qt/qml/views/SettingsView.qml:96
-msgid "Minimize to the tray"
-msgstr "Minimaliseren naar het systeemvak"
-
-#: kxbps-qt/qml/views/HelpView.qml:91
-msgid ""
-"Minimize to the tray hides the window on the minimize button. Closing the "
-"window already goes to the tray when one is available, so the switch only "
-"adds the minimize path."
-msgstr ""
-"Minimaliseren naar het systeemvak verbergt het venster met de knop "
-"minimaliseren. Het sluiten van het venster gaat al naar het systeemvak "
-"als dat beschikbaar is, dus de schakelaar voegt alleen het minimaliseren "
-"toe."
-
 #: kxbps-qt/qml/views/MirrorsView.qml:327
 msgid "No mirrors."
 msgstr "Geen spiegels."
@@ -1205,12 +1182,8 @@ msgid "Settings"
 msgstr "Instellingen"
 
 #: kxbps-qt/qml/views/HelpView.qml:90
-msgid ""
-"Settings holds the update interval, the startup switches and the two "
-"notification switches."
-msgstr ""
-"Instellingen bevatten het update-interval, de opstartschakelaars en de "
-"twee meldingsschakelaars."
+msgid "Settings holds the update interval, the startup switch and the two notification switches."
+msgstr "Instellingen bevatten het update-interval, de opstartschakelaar en de twee meldingsschakelaars."
 
 #: kxbps-qt/qml/components/LogDrawer.qml:152
 #: kxbps-qt/qml/views/PackagesView.qml:1013
