@@ -8,6 +8,8 @@ catalog: a fresh install starts with an empty store, and every list is read from
 xbps when a screen asks for it. The one cache is the installed map from the last
 `xbps-query -l`.
 
+![KXbps showing the installed packages, three queued for update](https://github.com/Khame/kxbps/releases/download/v0.12.3/en-dark-queue.png)
+
 ## What the window has
 
 The sidebar filters the package table:
