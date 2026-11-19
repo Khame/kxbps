@@ -27,6 +27,7 @@ Kirigami.Dialog {
 
     readonly property string licenseName: "GPL-3.0-or-later"
     readonly property string licenseUrl: "https://www.gnu.org/licenses/gpl-3.0.html"
+    readonly property string websiteUrl: "https://kxbps.khame.dev/"
     readonly property string projectUrl: "https://github.com/Khame/kxbps"
     readonly property string issuesUrl: "https://github.com/Khame/kxbps/issues"
     readonly property string donateUrl: "https://buymeacoffee.com/khame"
@@ -138,6 +139,12 @@ Kirigami.Dialog {
                             onLinkActivated: (link) => Qt.openUrlExternally(link)
                         }
                     }
+                }
+
+                AboutActionRow {
+                    iconSource: "globe"
+                    label: i18nd("kxbps", "Website")
+                    target: dialog.websiteUrl
                 }
 
                 AboutActionRow {

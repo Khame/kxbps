@@ -1500,6 +1500,10 @@ msgstr "Versión %1"
 msgid "Waiting for authentication…"
 msgstr "Esperando la autenticación…"
 
+#: kxbps-qt/qml/components/AboutDialog.qml:146
+msgid "Website"
+msgstr "Sitio web"
+
 #: kxbps-qt/qml/views/HelpView.qml:22
 msgid "What KXbps does"
 msgstr "Qué hace KXbps"
