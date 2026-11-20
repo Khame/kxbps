@@ -59,6 +59,13 @@ Item {
     readonly property bool queueMode: view.packages !== null
                                       && view.packages.filter === "queued"
                                       && view.packages.search.length === 0
+    // A read is in flight and the table has nothing to show yet. Without this
+    // the list says "nothing here" for the moment before the answer lands.
+    readonly property bool listLoading: view.packages !== null
+                                        && view.packages.count === 0
+                                        && (installedBackend.loading
+                                            || view.packages.searchLoading
+                                            || view.catalogBackend.listSearchChecking)
     // The header row's height. The bars sit on it, so both read one number.
     readonly property real headerHeight: Kirigami.Units.gridUnit * 2
     // The thresholds are the window sizes the acceptance test names, carried
@@ -890,15 +897,45 @@ Item {
                     }
 
                     // The empty state stays centred in the list's own area, under the
-                    // header: a sentence, not an illustration.
-                    QQC2.Label {
+                    // header: a sentence, not an illustration. While a read is in
+                    // flight the indicator turns instead, so the list does not claim
+                    // there is nothing before it knows.
+                    ColumnLayout {
                         anchors.centerIn: parent
                         width: parent.width - Kirigami.Units.largeSpacing * 2
                         visible: view.packages.count === 0
-                        text: view.emptyText()
-                        color: Kirigami.Theme.disabledTextColor
-                        horizontalAlignment: Text.AlignHCenter
-                        wrapMode: Text.WordWrap
+                        spacing: Kirigami.Units.smallSpacing
+
+                        Kirigami.Icon {
+                            source: "settings"
+                            isMask: true
+                            color: Kirigami.Theme.disabledTextColor
+                            implicitWidth: Kirigami.Units.iconSizes.medium
+                            implicitHeight: Kirigami.Units.iconSizes.medium
+                            Layout.alignment: Qt.AlignHCenter
+                            visible: view.listLoading
+                            Accessible.ignored: true
+
+                            RotationAnimator on rotation {
+                                running: parent.visible
+                                from: 0
+                                to: 360
+                                duration: 2500
+                                loops: Animation.Infinite
+                            }
+                        }
+
+                        QQC2.Label {
+                            Layout.fillWidth: true
+                            horizontalAlignment: Text.AlignHCenter
+                            wrapMode: Text.WordWrap
+                            color: Kirigami.Theme.disabledTextColor
+                            text: view.listLoading
+                                  ? (view.packages.search.length > 0
+                                     ? i18nd("kxbps", "Searching the repositories…")
+                                     : i18nd("kxbps", "Loading the package list…"))
+                                  : view.emptyText()
+                        }
                     }
                 }
 
