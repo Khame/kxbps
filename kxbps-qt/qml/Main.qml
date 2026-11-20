@@ -603,6 +603,21 @@ Kirigami.ApplicationWindow {
         }
     }
 
+    // The orphans have no notify signal of their own, so the count is read
+    // against `stateRevision`: every store refresh bumps it.
+    readonly property int orphansCount: {
+        installedBackend.stateRevision
+        return installedBackend.orphansCount()
+    }
+
+    // How many orphans are still unmarked; the bulk button turns off when the
+    // queue already holds them all.
+    readonly property int orphansToQueue: {
+        installedBackend.stateRevision
+        installedBackend.queueCount
+        return installedBackend.orphansToQueue()
+    }
+
     // The request id waiting for its plan; 0 means nothing is pending.
     property real planPending: 0
     // True while a plan is only being computed so it can be applied at once.
@@ -902,7 +917,9 @@ Kirigami.ApplicationWindow {
                             badgeText: modelData.token === "updates" && installedBackend.updatesCount > 0
                                        ? String(installedBackend.updatesCount)
                                        : (modelData.token === "queued" && installedBackend.queueCount > 0
-                                          ? String(installedBackend.queueCount) : "")
+                                          ? String(installedBackend.queueCount)
+                                          : (modelData.token === "orphans" && root.orphansCount > 0
+                                             ? String(root.orphansCount) : ""))
                             badgeAlert: modelData.alert === true
                             highlighted: root.section === Sections.packages
                                          && installedBackend.packages.filter === modelData.token
@@ -1091,6 +1108,24 @@ Kirigami.ApplicationWindow {
                             // icons and drop the words, so the toolbar stays one
                             // row without losing an action.
                             DenseButton {
+                                // Orphans get their own bulk gesture: marking
+                                // them queues a removal, not an update.
+                                visible: installedBackend.packages !== null
+                                         && installedBackend.packages.filter === "orphans"
+                                text: i18nd("kxbps", "Mark all for removal")
+                                display: root.narrow ? QQC2.AbstractButton.IconOnly
+                                                     : QQC2.AbstractButton.TextBesideIcon
+                                Accessible.name: i18nd("kxbps", "Mark all for removal")
+                                icon.name: "checkmark"
+                                enabled: root.orphansToQueue > 0
+                                onClicked: installedBackend.queueAllOrphans()
+                            }
+
+                            DenseButton {
+                                // Updates is the page this gesture belongs to;
+                                // the other filters get their own bulk action.
+                                visible: installedBackend.packages !== null
+                                         && installedBackend.packages.filter === "updates"
                                 text: i18nd("kxbps", "Mark all upgrades")
                                 display: root.narrow ? QQC2.AbstractButton.IconOnly
                                                      : QQC2.AbstractButton.TextBesideIcon

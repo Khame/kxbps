@@ -196,6 +196,11 @@ pub mod qobject {
         #[qinvokable]
         fn queue_all_updates(self: Pin<&mut InstalledBackend>);
 
+        /// Marks every orphaned package for removal, leaving the rest of the
+        /// queue alone; the marking is idempotent.
+        #[qinvokable]
+        fn queue_all_orphans(self: Pin<&mut InstalledBackend>);
+
         #[qinvokable]
         /// Pins or releases one package through `pkexec xbps-pkgdb`, and
         /// returns the job so the window shows the password prompt, the log
@@ -227,6 +232,17 @@ pub mod qobject {
         /// removal choice only when there is one.
         #[qinvokable]
         fn queue_remove_count(&self) -> i32;
+
+        /// How many packages the last snapshot called orphaned. QML reads it
+        /// with `stateRevision` as its dependency, the pattern for values that
+        /// have no notify signal of their own.
+        #[qinvokable]
+        fn orphans_count(&self) -> i32;
+
+        /// How many orphans the queue does not hold yet; the bulk button turns
+        /// off once there is nothing left to mark.
+        #[qinvokable]
+        fn orphans_to_queue(&self) -> i32;
 
         /// Plans the system upgrade (`xbps-install -n -Su`).
         #[qinvokable]
@@ -563,6 +579,37 @@ impl InstalledBackendRust {
     /// Idempotent: a second call over the same pending updates adds nothing, and
     /// a package that is already queued keeps its entry instead of being queued
     /// twice.
+    /// Queues every orphaned package for removal. A name the queue already
+    /// holds keeps its action, so a queued install is not turned into a
+    /// removal.
+    fn mark_orphans(&mut self) {
+        let orphans: Vec<String> = self
+            .snapshot
+            .as_ref()
+            .map(|snapshot| snapshot.orphans.clone())
+            .unwrap_or_default();
+        for name in orphans {
+            let queued = self.store.queue.iter().any(|item| item.name == name);
+            if !queued {
+                self.store.queue.push(QueueItem {
+                    name,
+                    action: QueueAction::Remove,
+                });
+            }
+        }
+    }
+
+    fn orphans_to_queue(&self) -> i32 {
+        let count = self.snapshot.as_ref().map_or(0, |snapshot| {
+            snapshot
+                .orphans
+                .iter()
+                .filter(|name| !self.store.queue.iter().any(|item| &item.name == *name))
+                .count()
+        });
+        i32::try_from(count).unwrap_or(i32::MAX)
+    }
+
     fn mark_pending_updates(&mut self) {
         let pending: Vec<String> = self
             .snapshot
@@ -772,6 +819,17 @@ impl qobject::InstalledBackend {
         refresh_store(self.as_mut());
     }
 
+    /// Marks every orphaned package for removal, leaving the rest of the queue
+    /// alone; the marking is idempotent.
+    fn queue_all_orphans(mut self: Pin<&mut Self>) {
+        {
+            let data = Pin::get_mut(self.as_mut().rust_mut());
+            data.mark_orphans();
+        }
+        save_store(self.as_mut());
+        refresh_store(self.as_mut());
+    }
+
     fn toggle_hold(&self, name: &cxx_qt_lib::QString) -> QObjectMutPtr {
         let name = name.to_string();
         // The target state comes from the snapshot, which `xbps-query -H`
@@ -825,6 +883,18 @@ impl qobject::InstalledBackend {
             .filter(|item| item.action == QueueAction::Remove)
             .count();
         i32::try_from(count).unwrap_or(i32::MAX)
+    }
+
+    fn orphans_count(&self) -> i32 {
+        let count = self
+            .snapshot
+            .as_ref()
+            .map_or(0, |snapshot| snapshot.orphans.len());
+        i32::try_from(count).unwrap_or(i32::MAX)
+    }
+
+    fn orphans_to_queue(&self) -> i32 {
+        InstalledBackendRust::orphans_to_queue(self)
     }
 
     /// Plans the system upgrade on a worker thread.
@@ -3152,6 +3222,85 @@ mod tests {
             backend.store.queue.len(),
             2,
             "a second call over the same updates adds nothing"
+        );
+    }
+
+    #[test]
+    fn queue_all_orphans_marks_every_orphan_for_removal() {
+        let installed = installed_set();
+        let mut snapshot = store_snapshot(&installed);
+        snapshot.orphans = vec!["p8-platform".to_owned(), "qt-sudo".to_owned()];
+        let mut backend = InstalledBackendRust {
+            store: store_with(&installed, Vec::new()),
+            snapshot: Some(snapshot),
+            ..Default::default()
+        };
+
+        backend.mark_orphans();
+        let queued = &backend.store.queue;
+        assert_eq!(queued.len(), 2, "both orphans are queued");
+        assert_eq!(queued[0].name, "p8-platform");
+        assert_eq!(queued[0].action, QueueAction::Remove);
+        assert_eq!(queued[1].name, "qt-sudo");
+        assert_eq!(queued[1].action, QueueAction::Remove);
+
+        backend.mark_orphans();
+        assert_eq!(
+            backend.store.queue.len(),
+            2,
+            "a second call over the same orphans adds nothing"
+        );
+    }
+
+    #[test]
+    fn orphans_to_queue_drops_marks_already_in_the_queue() {
+        let installed = installed_set();
+        let mut snapshot = store_snapshot(&installed);
+        snapshot.orphans = vec!["p8-platform".to_owned(), "qt-sudo".to_owned()];
+        let backend = InstalledBackendRust {
+            store: store_with(&installed, queue("p8-platform", QueueAction::Remove)),
+            snapshot: Some(snapshot.clone()),
+            ..Default::default()
+        };
+        assert_eq!(backend.orphans_to_queue(), 1, "one orphan is still free");
+
+        let backend = InstalledBackendRust {
+            store: store_with(
+                &installed,
+                vec![
+                    QueueItem {
+                        name: "p8-platform".to_owned(),
+                        action: QueueAction::Remove,
+                    },
+                    QueueItem {
+                        name: "qt-sudo".to_owned(),
+                        action: QueueAction::Remove,
+                    },
+                ],
+            ),
+            snapshot: Some(snapshot),
+            ..Default::default()
+        };
+        assert_eq!(backend.orphans_to_queue(), 0, "everything is marked");
+    }
+
+    #[test]
+    fn queue_all_orphans_keeps_a_queued_action() {
+        let installed = installed_set();
+        let mut snapshot = store_snapshot(&installed);
+        snapshot.orphans = vec!["p8-platform".to_owned()];
+        let mut backend = InstalledBackendRust {
+            store: store_with(&installed, queue("p8-platform", QueueAction::Install)),
+            snapshot: Some(snapshot),
+            ..Default::default()
+        };
+
+        backend.mark_orphans();
+        assert_eq!(backend.store.queue.len(), 1, "the entry is not duplicated");
+        assert_eq!(
+            backend.store.queue[0].action,
+            QueueAction::Install,
+            "the action the user picked stays"
         );
     }
 
