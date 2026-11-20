@@ -1129,6 +1129,42 @@ impl PackageModelRust {
     #[cfg(test)]
     fn refresh_search_rows(&mut self) {}
 
+    /// Answers `pattern` from the listing in memory, under the current filter.
+    ///
+    /// Returns `false` when no listing was read, the pattern carries regex
+    /// syntax, or every hit is one the filter would hide. The caller then asks
+    /// the repositories, whose answer is filtered by the same rule.
+    fn apply_local_search(&mut self, pattern: &str) -> bool {
+        if !is_plain_pattern(pattern) {
+            return false;
+        }
+        let hits = match self.listing.as_ref() {
+            Some(listing) => local_search(listing, pattern),
+            None => return false,
+        };
+        let hits: Vec<SearchRow> = hits
+            .into_iter()
+            .filter(|hit| self.hit_visible(hit))
+            .collect();
+        if hits.is_empty() {
+            // Nothing the filter shows, but the repositories may still answer:
+            // the read is the only thing that knows what a wildcard or a
+            // description match would find.
+            return false;
+        }
+        self.active_search = Some(ActiveSearch {
+            pattern: pattern.to_owned(),
+            hits,
+            error_key: String::new(),
+        });
+        self.count = self.visible_count();
+        self.searching = true;
+        self.search_loading = false;
+        self.search_error = QString::from("");
+        self.search_error_args = QStringList::default();
+        true
+    }
+
     /// Whether one repository hit the search returned takes a row now, under
     /// the filter the list currently shows.
     fn hit_visible(&self, hit: &SearchRow) -> bool {
@@ -1368,34 +1404,12 @@ impl qobject::PackageModel {
     /// substring match would answer a different question. The caller then asks
     /// the repositories.
     fn show_local_search(mut self: Pin<&mut Self>, pattern: &str) -> bool {
-        if !is_plain_pattern(pattern) {
-            return false;
-        }
-        let hits = {
+        let applied = {
             let data = Pin::get_mut(self.as_mut().rust_mut());
-            match data.listing.as_ref() {
-                Some(listing) => local_search(listing, pattern),
-                None => return false,
-            }
+            data.apply_local_search(pattern)
         };
-        if hits.is_empty() {
-            // Nothing here, but the repositories may still answer: the read is
-            // the only thing that knows what a wildcard or a description match
-            // would find. The rows on screen are left alone until it lands.
+        if !applied {
             return false;
-        }
-        {
-            let data = Pin::get_mut(self.as_mut().rust_mut());
-            data.active_search = Some(ActiveSearch {
-                pattern: pattern.to_owned(),
-                hits,
-                error_key: String::new(),
-            });
-            data.count = data.visible_count();
-            data.searching = true;
-            data.search_loading = false;
-            data.search_error = QString::from("");
-            data.search_error_args = QStringList::default();
         }
         qobject::model_begin_reset(base(self.as_mut()));
         qobject::model_end_reset(base(self.as_mut()));
@@ -2967,6 +2981,26 @@ mod tests {
         );
         model.refresh_search_rows();
         assert_eq!(model.search_row_actions(), vec!["install".to_owned()]);
+    }
+
+    #[test]
+    fn a_local_search_answer_respects_the_filter() {
+        // The listing read on Available is in memory, and answering from it is
+        // the same question as a repository read: the filter still applies.
+        // Without that, typing on Installed surfaced repository-only packages.
+        let mut model = model();
+        set_filter(&mut model, "installed");
+        model.listing = Some(vec![
+            SearchRow::of(&search_hit("gimp", "3.2.8_2", false)),
+            SearchRow::of(&search_hit("vim", "9.2.1031_1", true)),
+        ]);
+        assert!(
+            !model.apply_local_search("gimp"),
+            "a hit the filter hides must not answer"
+        );
+        assert!(model.active_search.is_none());
+        assert!(model.apply_local_search("vim"));
+        assert_eq!(model.visible_names(), vec!["vim"]);
     }
 
     #[test]
