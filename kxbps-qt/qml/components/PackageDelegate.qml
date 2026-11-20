@@ -73,13 +73,12 @@ QQC2.ItemDelegate {
     readonly property bool installed: model.installedVersion !== ""
     readonly property bool isUpdate: model.isUpdate === true
     readonly property bool queued: model.queuedAction !== ""
-    // What the checkbox sends when it is checked. An update outranks
-    // "installed": queueing an update as an install would pin the old version.
-    // An installed package with no update has nothing to queue — xbps would
-    // answer "already installed" and still ask for the password — so its
-    // checkbox stays disabled and removal is the details pane's `Remove`.
+    // What the checkbox sends when it is checked: the row's own action. An
+    // update outranks "installed" (queueing an update as an install would pin
+    // the old version); an installed package with no update is a removal; a
+    // package the machine does not hold is an install.
     readonly property string actionToken: delegate.isUpdate ? "update"
-                                          : (delegate.installed ? "" : "install")
+                                          : (delegate.installed ? "remove" : "install")
     readonly property bool canQueue: delegate.actionToken.length > 0
     // The action the queue will run for this row, in the row's own words: a
     // bare "Marked" never said whether Apply would install or remove.
@@ -188,8 +187,8 @@ QQC2.ItemDelegate {
                     if (delegate.queued) {
                         return i18nd("kxbps", "Unmark %1", model.name)
                     }
-                    if (!delegate.canQueue) {
-                        return i18nd("kxbps", "%1 is installed; nothing to queue", model.name)
+                    if (delegate.actionToken === "remove") {
+                        return i18nd("kxbps", "Mark %1 for removal", model.name)
                     }
                     return delegate.isUpdate
                             ? i18nd("kxbps", "Mark %1 for the update", model.name)
