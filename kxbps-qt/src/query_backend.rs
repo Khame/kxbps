@@ -621,6 +621,9 @@ impl QueryBackendRust {
             text("repo", &facts.repository),
             text("depends", &facts.depends.join(", ")),
             text("requiredBy", &facts.required_by.join(", ")),
+            text("maintainer", &facts.maintainer),
+            text("architecture", &facts.architecture),
+            text("installDate", &facts.install_date),
         ] {
             map.insert_clone(&key, &value);
         }
@@ -1030,6 +1033,13 @@ mod tests {
             filename_size: "1735KB".to_owned(),
             depends: vec!["glibc>=2.41_1".to_owned()],
             required_by: vec!["base-system-0.114_2".to_owned()],
+            maintainer: "Void Team <team@example.org>".to_owned(),
+            architecture: "x86_64".to_owned(),
+            install_date: if installed {
+                "2026-01-02 03:04 UTC".to_owned()
+            } else {
+                String::new()
+            },
         }
     }
 
@@ -1327,6 +1337,9 @@ mod tests {
         assert_eq!(text_of(&map, "download"), "1735KB");
         assert_eq!(text_of(&map, "depends"), "glibc>=2.41_1");
         assert_eq!(text_of(&map, "requiredBy"), "base-system-0.114_2");
+        assert_eq!(text_of(&map, "maintainer"), "Void Team <team@example.org>");
+        assert_eq!(text_of(&map, "architecture"), "x86_64");
+        assert_eq!(text_of(&map, "installDate"), "2026-01-02 03:04 UTC");
         assert_eq!(text_of(&map, "queuedAction"), "");
         assert!(flag_of(&map, "installed"));
         assert!(!flag_of(&map, "isUpdate"));
@@ -1341,6 +1354,11 @@ mod tests {
         assert_eq!(text_of(&map, "installedVersion"), "");
         assert_eq!(text_of(&map, "size"), "");
         assert_eq!(text_of(&map, "download"), "1735KB");
+        assert_eq!(
+            text_of(&map, "installDate"),
+            "",
+            "a package the system does not hold has no install date"
+        );
         assert!(!flag_of(&map, "held"));
         assert!(!flag_of(&map, "explicit"));
     }

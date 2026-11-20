@@ -559,6 +559,12 @@ const FACT_PROPERTIES: &[&str] = &[
     // the system. Without it the pane has nothing to show when the repository
     // index does not know that version (a local build, a removed repository).
     "filename-size",
+    "maintainer",
+    "architecture",
+    // Only an installed package has one: xbps omits the line for a package the
+    // system does not hold, and a take that answers with fewer lines is a
+    // format error, so this property cannot ride in the repository take.
+    "install-date",
 ];
 
 /// The property list of the repository-mode answer, which also carries the
@@ -575,6 +581,8 @@ const DOWNLOAD_PROPERTIES: &[&str] = &[
     "installed_size",
     "filename-size",
     "repository",
+    "maintainer",
+    "architecture",
 ];
 
 /// What one package reports, from the `-p` takes and the two dependency
@@ -600,6 +608,13 @@ pub struct PackageFacts {
     pub depends: Vec<String>,
     /// The reverse dependencies, as the `-X` lines.
     pub required_by: Vec<String>,
+    /// The package's maintainer, as xbps prints it: `Name <address>`.
+    pub maintainer: String,
+    /// The architecture the package was built for.
+    pub architecture: String,
+    /// When the package was installed, in xbps' own wording. Empty for a
+    /// package the system does not hold.
+    pub install_date: String,
 }
 
 impl PackageFacts {
@@ -688,6 +703,9 @@ pub fn read_package(
         }
         .to_owned(),
         filename_size: preferred(&plain, &download, "filename-size"),
+        maintainer: preferred(&plain, &download, "maintainer"),
+        architecture: preferred(&plain, &download, "architecture"),
+        install_date: value_of(&plain, "install-date"),
         depends,
         required_by,
     })
@@ -1468,13 +1486,13 @@ mod tests {
             (
                 "-p",
                 ok_reply(
-                    "vim-9.2.1031_1\nVim editor (vi clone)\nhttps://www.vim.org\nVim\n2125KB\nhttps://repo-de.voidlinux.org/current\ninstalled\n1700KB\n",
+                    "vim-9.2.1031_1\nVim editor (vi clone)\nhttps://www.vim.org\nVim\n2125KB\nhttps://repo-de.voidlinux.org/current\ninstalled\n1700KB\nVoid Team <team@example.org>\nx86_64\n2026-01-02 03:04 UTC\n",
                 ),
             ),
             (
                 "-R -p",
                 ok_reply(
-                    "vim-9.2.1031_1\nVim editor (vi clone)\nhttps://www.vim.org\nVim\n4851KB\n1735KB\nhttps://repo-de.voidlinux.org/current\n",
+                    "vim-9.2.1031_1\nVim editor (vi clone)\nhttps://www.vim.org\nVim\n4851KB\n1735KB\nhttps://repo-de.voidlinux.org/current\nVoid Team <team@example.org>\nx86_64\n",
                 ),
             ),
             ("-x", ok_reply("glibc>=2.41_1\n")),
@@ -1500,6 +1518,9 @@ mod tests {
             assert_eq!(facts.repository, "https://repo-de.voidlinux.org/current");
             assert_eq!(facts.state, "installed");
             assert_eq!(facts.filename_size, "1700KB");
+            assert_eq!(facts.maintainer, "Void Team <team@example.org>");
+            assert_eq!(facts.architecture, "x86_64");
+            assert_eq!(facts.install_date, "2026-01-02 03:04 UTC");
             assert_eq!(facts.depends, vec!["glibc>=2.41_1".to_owned()]);
             assert_eq!(facts.required_by, vec!["base-system".to_owned()]);
             assert_eq!(facts.version(), "9.2.1031_1");
@@ -1510,14 +1531,14 @@ mod tests {
                 vec![
                     "xbps-query",
                     "-p",
-                    "pkgver,short_desc,homepage,license,installed_size,repository,state,filename-size",
+                    "pkgver,short_desc,homepage,license,installed_size,repository,state,filename-size,maintainer,architecture,install-date",
                     "vim-9.2.1031_1",
                 ],
                 vec![
                     "xbps-query",
                     "-R",
                     "-p",
-                    "pkgver,short_desc,homepage,license,installed_size,filename-size,repository",
+                    "pkgver,short_desc,homepage,license,installed_size,filename-size,repository,maintainer,architecture",
                     "vim-9.2.1031_1",
                 ],
                 vec!["xbps-query", "-x", "vim"],
@@ -1542,7 +1563,7 @@ mod tests {
             (
                 "-R -p",
                 ok_reply(
-                    "zramen-1.0.1_1\nManage zram swap space\nhttps://github.com/atweiden/zramen\nUnlicense\n2307B\n5505B\nhttps://repo-de.voidlinux.org/current\n",
+                    "zramen-1.0.1_1\nManage zram swap space\nhttps://github.com/atweiden/zramen\nUnlicense\n2307B\n5505B\nhttps://repo-de.voidlinux.org/current\nVoid Team <team@example.org>\nx86_64\n",
                 ),
             ),
             (
@@ -1573,6 +1594,15 @@ mod tests {
             "xbps cannot list dependencies of a package that is not installed"
         );
         assert!(facts.required_by.is_empty());
+        assert_eq!(
+            facts.maintainer, "Void Team <team@example.org>",
+            "the repository take carries the maintainer"
+        );
+        assert_eq!(facts.architecture, "x86_64");
+        assert_eq!(
+            facts.install_date, "",
+            "xbps omits the install date of a package it does not hold"
+        );
     }
 
     #[test]
@@ -1583,13 +1613,13 @@ mod tests {
             (
                 "-p",
                 ok_reply(
-                    "vim-9.2.1031_1\nVim editor (vi clone)\nhttps://www.vim.org\nVim\n2125KB\nhttps://repo-de.voidlinux.org/current\ninstalled\n1900KB\n",
+                    "vim-9.2.1031_1\nVim editor (vi clone)\nhttps://www.vim.org\nVim\n2125KB\nhttps://repo-de.voidlinux.org/current\ninstalled\n1900KB\nVoid Team <team@example.org>\nx86_64\n2026-01-02 03:04 UTC\n",
                 ),
             ),
             (
                 "-R -p",
                 ok_reply(
-                    "vim-9.2.2000_1\nVim editor (vi clone)\nhttps://www.vim.org\nVim\n5000KB\n1800KB\nhttps://repo-de.voidlinux.org/current\n",
+                    "vim-9.2.2000_1\nVim editor (vi clone)\nhttps://www.vim.org\nVim\n5000KB\n1800KB\nhttps://repo-de.voidlinux.org/current\nVoid Team <team@example.org>\nx86_64\n",
                 ),
             ),
             ("-x", ok_reply("glibc>=2.41_1\n")),
@@ -1621,7 +1651,7 @@ mod tests {
             (
                 "-p",
                 ok_reply(
-                    "asusctl-1_1\nDaemon\nhttps://example.org\nMPL-2.0\n44MB\n/home/khame/hostdir/binpkgs\ninstalled\n14MB\n",
+                    "asusctl-1_1\nDaemon\nhttps://example.org\nMPL-2.0\n44MB\n/home/khame/hostdir/binpkgs\ninstalled\n14MB\nVoid Team <team@example.org>\nx86_64\n2026-01-02 03:04 UTC\n",
                 ),
             ),
             (
@@ -1655,7 +1685,7 @@ mod tests {
             (
                 "-R -p",
                 ok_reply(
-                    "nope-1_1\nNot here\nhttps://example.org\nMIT\n4321B\n1234B\nhttps://repo-de.voidlinux.org/current\n",
+                    "nope-1_1\nNot here\nhttps://example.org\nMIT\n4321B\n1234B\nhttps://repo-de.voidlinux.org/current\nVoid Team <team@example.org>\nx86_64\n",
                 ),
             ),
             // `-x`/`-X` are not in the table: a call to them panics the fake.

@@ -182,6 +182,8 @@ Item {
         property string label
         property string value
         property bool mono: false
+        // A URL is also a control: clicking it opens the page in the browser.
+        property bool link: false
         // A version reads from the right (`1.2.3_1`), a URL from both ends:
         // the host alone does not say which repository it is.
         property int elideMode: Text.ElideLeft
@@ -207,7 +209,15 @@ Item {
             Layout.minimumWidth: 0
             text: fact.value
             font.family: fact.mono ? "monospace" : Kirigami.Theme.defaultFont.family
+            color: fact.link ? Kirigami.Theme.linkColor : Kirigami.Theme.textColor
             elide: fact.elideMode
+
+            MouseArea {
+                anchors.fill: parent
+                enabled: fact.link
+                cursorShape: Qt.PointingHandCursor
+                onClicked: Qt.openUrlExternally(fact.value)
+            }
         }
     }
 
@@ -279,6 +289,36 @@ Item {
         Fact {
             label: i18nd("kxbps", "License")
             value: pane.info.license !== undefined ? pane.info.license : ""
+        }
+
+        Fact {
+            label: i18nd("kxbps", "Homepage")
+            value: pane.info.homepage !== undefined && pane.info.homepage.length > 0
+                   ? pane.info.homepage : "—"
+            link: pane.info.homepage !== undefined && pane.info.homepage.length > 0
+            mono: true
+            elideMode: Text.ElideMiddle
+        }
+
+        Fact {
+            label: i18nd("kxbps", "Maintainer")
+            value: pane.info.maintainer !== undefined && pane.info.maintainer.length > 0
+                   ? pane.info.maintainer : "—"
+        }
+
+        Fact {
+            label: i18nd("kxbps", "Architecture")
+            value: pane.info.architecture !== undefined && pane.info.architecture.length > 0
+                   ? pane.info.architecture : "—"
+            mono: true
+        }
+
+        Fact {
+            label: i18nd("kxbps", "Installed on")
+            visible: pane.installed
+            value: pane.info.installDate !== undefined && pane.info.installDate.length > 0
+                   ? pane.info.installDate : "—"
+            mono: true
         }
 
         Fact {
