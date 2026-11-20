@@ -1602,3 +1602,15 @@ msgstr "Rimuovi anche le dipendenze non necessarie"
 #: kxbps-qt/qml/components/PlanDialog.qml:100
 msgid "Reading the plan…"
 msgstr "Lettura del piano…"
+
+#: kxbps-qt/qml/views/PackagesView.qml:936
+msgid "Loading the package list…"
+msgstr "Caricamento dell'elenco dei pacchetti…"
+
+#: kxbps-qt/qml/Main.qml:1093
+msgid "Mark all for removal"
+msgstr "Contrassegna tutti per la rimozione"
+
+#: kxbps-qt/qml/components/PackageDelegate.qml:196
+msgid "Mark %1 for removal"
+msgstr "Contrassegna %1 per la rimozione"

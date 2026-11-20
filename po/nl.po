@@ -1597,3 +1597,15 @@ msgstr "Verwijder ook overbodige afhankelijkheden"
 #: kxbps-qt/qml/components/PlanDialog.qml:100
 msgid "Reading the plan…"
 msgstr "Plan wordt gelezen…"
+
+#: kxbps-qt/qml/views/PackagesView.qml:936
+msgid "Loading the package list…"
+msgstr "Pakketlijst wordt geladen…"
+
+#: kxbps-qt/qml/Main.qml:1093
+msgid "Mark all for removal"
+msgstr "Alles markeren voor verwijdering"
+
+#: kxbps-qt/qml/components/PackageDelegate.qml:196
+msgid "Mark %1 for removal"
+msgstr "%1 markeren voor verwijdering"
