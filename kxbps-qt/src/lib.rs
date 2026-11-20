@@ -29,6 +29,7 @@ pub mod notification;
 pub mod package_model;
 pub mod plan_backend;
 pub mod prefs_backend;
+pub mod qml_stamp;
 pub mod query_backend;
 pub mod queue_model;
 pub mod xbps_bridge;
@@ -40,6 +41,29 @@ pub mod xbps_snapshot;
 /// header of the manual page. It comes from `Cargo.toml`, and the test below
 /// pins the files that cannot read it at build time.
 pub const VERSION: &str = env!("CARGO_PKG_VERSION");
+
+/// A one-line warning when this binary embeds a QML tree older than the files
+/// on disk.
+///
+/// `cargo clippy` and `cargo test` re-run `build.rs`, which re-runs `rcc`, but
+/// they never link the binary: `./target/debug/kxbps` then keeps the previous
+/// QML while the tree shows the new one, and a fixed error comes back with the
+/// old line number. Release builds skip the check — the source tree is not on
+/// the machine and the QML is fixed at package time.
+pub fn stale_qml_hint() -> Option<String> {
+    if !cfg!(debug_assertions) {
+        return None;
+    }
+    let dir = std::path::Path::new(option_env!("KXBPS_QML_DIR")?);
+    let expected: u64 = option_env!("KXBPS_QML_HASH")?.parse().ok()?;
+    let (actual, files) = qml_stamp::qml_tree_hash(dir)?;
+    if actual == expected {
+        return None;
+    }
+    Some(format!(
+        "kxbps: the QML on disk changed after this binary was built ({files} files); run `cargo build` to embed it again"
+    ))
+}
 
 /// The text the About page reports about this build.
 ///

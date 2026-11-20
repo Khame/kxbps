@@ -22,6 +22,12 @@ fn main() {
         kxbps_qt::cli::Cli::Run => {}
     }
 
+    // A rebuild that only ran `clippy` or `test` leaves the previous QML in the
+    // binary; say it instead of letting the old layout look like the new one.
+    if let Some(hint) = kxbps_qt::stale_qml_hint() {
+        eprintln!("{hint}");
+    }
+
     // `QApplication`, not `QGuiApplication`: `Qt.labs.platform`'s
     // `SystemTrayIcon` is backed by `QSystemTrayIcon` from Qt Widgets, and
     // without a `QApplication` it aborts the process with
