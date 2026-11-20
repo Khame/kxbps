@@ -629,6 +629,11 @@ Kirigami.ApplicationWindow {
         installedBackend: installedBackend
         onJobStarted: (started) => root.startJob(started)
         onBlockedRequested: (blockedPlan) => blockedDialog.showPlan(blockedPlan)
+        onReplanRequested: (names, cascade, recursive, queue) => {
+            root.planPending = queue
+                ? installedBackend.openQueuePlan(recursive)
+                : installedBackend.openRemoveNames(names, cascade, recursive)
+        }
     }
 
     // A probe writes its requests into the log, so the drawer opens when one
@@ -759,8 +764,10 @@ Kirigami.ApplicationWindow {
             return
         }
         root.stripMessage = ""
-        root.applyDirectly = true
-        root.planPending = installedBackend.openQueuePlan()
+        // A removal is destructive and its plan carries the `-R` choice, so it
+        // goes through the dialog; everything else applies from the queue.
+        root.applyDirectly = installedBackend.queueRemoveCount() === 0
+        root.planPending = installedBackend.openQueuePlan(true)
     }
 
     // A dry run that ends without a transaction still has to say why. The

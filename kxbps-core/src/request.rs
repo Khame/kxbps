@@ -39,6 +39,9 @@ pub struct PlanRequest {
     pub system: bool,
     /// Remove `names`.
     pub remove: bool,
+    /// Remove unneeded dependencies too (`xbps-remove -R`). The dry run and
+    /// the transaction must use the same value, or they name different sets.
+    pub recursive: bool,
 }
 
 impl PlanRequest {
@@ -59,11 +62,18 @@ impl PlanRequest {
         }
     }
 
-    /// `xbps-remove -n <names>`.
+    /// `xbps-remove -R -n <names>`. Recursive by default; leftover
+    /// dependencies are what fills the Orphans filter.
     pub fn remove(names: Vec<String>) -> Self {
+        Self::remove_with(names, true)
+    }
+
+    /// `xbps-remove -n <names>`, with `-R` when `recursive`.
+    pub fn remove_with(names: Vec<String>, recursive: bool) -> Self {
         Self {
             names,
             remove: true,
+            recursive,
             ..Self::default()
         }
     }
@@ -181,6 +191,18 @@ mod tests {
         assert_eq!(PlanRequest::default().dry_run(), None);
         assert!(PlanRequest::install(Vec::new()).is_empty());
         assert!(!PlanRequest::system().is_empty());
+    }
+
+    /// A removal is recursive unless it says otherwise.
+    #[test]
+    fn a_removal_is_recursive_unless_it_says_otherwise() {
+        let names = vec!["vim".to_owned()];
+        assert!(PlanRequest::remove(names.clone()).recursive);
+        assert!(!PlanRequest::remove_with(names.clone(), false).recursive);
+        assert_eq!(
+            PlanRequest::remove_with(names, false).dry_run(),
+            Some(DryRun::Remove)
+        );
     }
 
     #[test]

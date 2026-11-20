@@ -58,6 +58,7 @@ pub mod qobject {
         #[qproperty(QString, notice_key, READ, CONSTANT)]
         #[qproperty(bool, is_blocked, READ, CONSTANT)]
         #[qproperty(QString, items_json, READ, CONSTANT)]
+        #[qproperty(bool, recursive, READ, CONSTANT)]
         type PlanBackend = super::PlanBackendRust;
     }
 
@@ -120,6 +121,8 @@ pub struct PlanPayload {
     /// them has nothing left to do, so the backend drops it from the queue
     /// instead of leaving a row that changes nothing.
     pub satisfied: Vec<String>,
+    /// The removal runs with `-R`; `applyPlan` replays it.
+    pub recursive: bool,
 }
 
 impl PlanPayload {
@@ -150,6 +153,7 @@ impl PlanPayload {
         title_key: &str,
         title_args: Vec<String>,
         names: Vec<String>,
+        recursive: bool,
     ) -> Self {
         Self {
             title_key: title_key.to_string(),
@@ -157,6 +161,7 @@ impl PlanPayload {
             names,
             items: plan.items,
             blocked: plan.blocked,
+            recursive,
             ..Self::default()
         }
     }
@@ -182,6 +187,7 @@ pub struct PlanBackendRust {
     notice_key: QString,
     is_blocked: bool,
     items_json: QString,
+    recursive: bool,
 }
 
 impl PlanBackendRust {
@@ -219,6 +225,7 @@ impl PlanBackendRust {
             error_args: string_list(&payload.error_args),
             notice_key: QString::from(payload.notice_key.as_str()),
             is_blocked: !payload.blocked.is_empty(),
+            recursive: payload.recursive,
             items_json: QString::from(
                 serde_json::to_string(&payload.items)
                     .unwrap_or_else(|_| String::from("[]"))
@@ -354,6 +361,7 @@ mod tests {
             keys::PLAN_QUEUE,
             Vec::new(),
             vec!["vim".into()],
+            false,
         ));
         assert_eq!(backend.count, 2);
         assert_eq!(backend.download_total, 1_468_006);
@@ -373,10 +381,32 @@ mod tests {
             keys::PLAN_QUEUE,
             Vec::new(),
             Vec::new(),
+            false,
         ));
         let items: Vec<PlanItem> =
             serde_json::from_str(&backend.items_json.to_string()).expect("items json");
         assert_eq!(items, plan().items);
+    }
+
+    /// The flag the dialog shows is the one `applyPlan` replays.
+    #[test]
+    fn the_recursive_flag_survives_the_payload() {
+        let backend = PlanBackendRust::from_payload(&PlanPayload::from_plan(
+            plan(),
+            keys::PLAN_REMOVE,
+            Vec::new(),
+            Vec::new(),
+            true,
+        ));
+        assert!(backend.recursive);
+        let plain = PlanBackendRust::from_payload(&PlanPayload::from_plan(
+            plan(),
+            keys::PLAN_REMOVE,
+            Vec::new(),
+            Vec::new(),
+            false,
+        ));
+        assert!(!plain.recursive);
     }
 
     #[test]
@@ -405,6 +435,7 @@ mod tests {
             keys::PLAN_REMOVE,
             vec!["glibc".into()],
             vec!["glibc".into()],
+            true,
         ));
         assert!(backend.is_blocked);
         assert_eq!(backend.count, 0);

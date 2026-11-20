@@ -108,6 +108,9 @@ pub mod qobject {
         #[cxx_name = "kxbps_object_string_property"]
         fn object_string_property(object: QObjectMutPtr, name: &QString) -> QString;
 
+        #[cxx_name = "kxbps_object_bool_property"]
+        fn object_bool_property(object: QObjectMutPtr, name: &QString) -> bool;
+
         #[cxx_name = "kxbps_query_backend_set_state"]
         fn query_backend_set_state(
             backend: QObjectMutPtr,
@@ -218,7 +221,12 @@ pub mod qobject {
         // started is dropped before it reaches QML.
         /// Plans the transaction queue; answers with the request id.
         #[qinvokable]
-        fn open_queue_plan(self: Pin<&mut InstalledBackend>) -> u64;
+        fn open_queue_plan(self: Pin<&mut InstalledBackend>, recursive: bool) -> u64;
+
+        /// How many queued entries remove a package; the strip shows the
+        /// removal choice only when there is one.
+        #[qinvokable]
+        fn queue_remove_count(&self) -> i32;
 
         /// Plans the system upgrade (`xbps-install -n -Su`).
         #[qinvokable]
@@ -232,10 +240,15 @@ pub mod qobject {
             title_key: &QString,
         ) -> u64;
 
-        /// Plans removing `name` (and, with `cascade`, whatever else the call
-        /// asked for).
+        /// Plans removing `name`. `cascade` only changes the title; `recursive`
+        /// adds `-R`.
         #[qinvokable]
-        fn open_remove(self: Pin<&mut InstalledBackend>, name: &QString, cascade: bool) -> u64;
+        fn open_remove(
+            self: Pin<&mut InstalledBackend>,
+            name: &QString,
+            cascade: bool,
+            recursive: bool,
+        ) -> u64;
 
         /// Plans removing `names`, the list the Blocked dialog approved.
         #[qinvokable]
@@ -243,6 +256,7 @@ pub mod qobject {
             self: Pin<&mut InstalledBackend>,
             names: &QStringList,
             cascade: bool,
+            recursive: bool,
         ) -> u64;
 
         /// Hands the package list the repository answer of its search field.
@@ -795,12 +809,22 @@ impl qobject::InstalledBackend {
     }
 
     /// Plans the transaction queue on a worker thread.
-    fn open_queue_plan(mut self: Pin<&mut Self>) -> u64 {
+    fn open_queue_plan(mut self: Pin<&mut Self>, recursive: bool) -> u64 {
         let task = {
             let data = &*self;
-            PlanTask::queue(&data.store)
+            PlanTask::queue(&data.store, recursive)
         };
         self.as_mut().start_plan(task)
+    }
+
+    fn queue_remove_count(&self) -> i32 {
+        let count = self
+            .store
+            .queue
+            .iter()
+            .filter(|item| item.action == QueueAction::Remove)
+            .count();
+        i32::try_from(count).unwrap_or(i32::MAX)
     }
 
     /// Plans the system upgrade on a worker thread.
@@ -825,9 +849,14 @@ impl qobject::InstalledBackend {
     }
 
     /// Plans removing `name` on a worker thread.
-    fn open_remove(mut self: Pin<&mut Self>, name: &cxx_qt_lib::QString, cascade: bool) -> u64 {
+    fn open_remove(
+        mut self: Pin<&mut Self>,
+        name: &cxx_qt_lib::QString,
+        cascade: bool,
+        recursive: bool,
+    ) -> u64 {
         self.as_mut()
-            .open_remove_names(&cxx_qt_lib::QStringList::from(name), cascade)
+            .open_remove_names(&cxx_qt_lib::QStringList::from(name), cascade, recursive)
     }
 
     /// Plans removing `names` on a worker thread.
@@ -835,9 +864,10 @@ impl qobject::InstalledBackend {
         mut self: Pin<&mut Self>,
         names: &cxx_qt_lib::QStringList,
         cascade: bool,
+        recursive: bool,
     ) -> u64 {
         self.as_mut()
-            .start_plan(PlanTask::remove(strings_of(names), cascade))
+            .start_plan(PlanTask::remove(strings_of(names), cascade, recursive))
     }
 
     /// Hands the package list the repository answer of its search field.
@@ -955,8 +985,11 @@ impl qobject::InstalledBackend {
         if items.is_empty() {
             return unsafe { QObjectMutPtr::from_raw(std::ptr::null_mut()) };
         }
+        // Run the same removal the dry run described.
+        let recursive = qobject::object_bool_property(plan, &QString::from("recursive"));
         let payload = JobPayload {
             items,
+            recursive,
             ..JobPayload::default()
         };
         let json = serde_json::to_string(&payload).unwrap_or_else(|_| String::from("{}"));
@@ -1486,7 +1519,10 @@ type CheckAnswer = (Result<Vec<UpdateEntry>, SnapshotError>, Vec<String>);
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum PlanTask {
     /// Installs and updates first, then removals, as the queue asks.
-    Queue(Vec<QueueItem>),
+    Queue {
+        items: Vec<QueueItem>,
+        recursive: bool,
+    },
     /// `xbps-install -n -Su`.
     System,
     /// `xbps-install -n <names>` under the caller's dialog title.
@@ -1494,14 +1530,22 @@ pub enum PlanTask {
         names: Vec<String>,
         title_key: String,
     },
-    /// `xbps-remove -n <names>`; `cascade` only changes the dialog title.
-    Remove { names: Vec<String>, cascade: bool },
+    /// `xbps-remove -n <names>`; `cascade` only changes the title,
+    /// `recursive` adds `-R`.
+    Remove {
+        names: Vec<String>,
+        cascade: bool,
+        recursive: bool,
+    },
 }
 
 impl PlanTask {
     /// The task of `openQueuePlan`.
-    pub fn queue(store: &Store) -> Self {
-        Self::Queue(store.queue.clone())
+    pub fn queue(store: &Store, recursive: bool) -> Self {
+        Self::Queue {
+            items: store.queue.clone(),
+            recursive,
+        }
     }
 
     /// The task of `openSystemPlan`.
@@ -1515,8 +1559,12 @@ impl PlanTask {
     }
 
     /// The task of `openRemoveNames`.
-    pub fn remove(names: Vec<String>, cascade: bool) -> Self {
-        Self::Remove { names, cascade }
+    pub fn remove(names: Vec<String>, cascade: bool, recursive: bool) -> Self {
+        Self::Remove {
+            names,
+            cascade,
+            recursive,
+        }
     }
 
     /// Runs the task's dry runs and returns the payload the dialog shows.
@@ -1531,10 +1579,12 @@ impl PlanTask {
         match self {
             Self::System => xbps_plan::system_payload(installed, invoke),
             Self::Named { names, title_key } => named_payload(installed, names, title_key, invoke),
-            Self::Remove { names, cascade } => {
-                xbps_plan::remove_payload(installed, names, *cascade, invoke)
-            }
-            Self::Queue(queue) => queue_payload(installed, queue, invoke),
+            Self::Remove {
+                names,
+                cascade,
+                recursive,
+            } => xbps_plan::remove_payload(installed, names, *cascade, *recursive, invoke),
+            Self::Queue { items, recursive } => queue_payload(installed, items, *recursive, invoke),
         }
     }
 }
@@ -1556,6 +1606,7 @@ pub struct PlanMeta {
 pub fn queue_payload(
     installed: &InstalledMap,
     queue: &[QueueItem],
+    recursive: bool,
     invoke: &crate::xbps_snapshot::Invoke,
 ) -> PlanPayload {
     if queue.is_empty() {
@@ -1573,7 +1624,7 @@ pub fn queue_payload(
     if queue.is_empty() {
         return PlanPayload::notice(plan_keys::NOTICE_EMPTY_QUEUE);
     }
-    let payload = xbps_plan::queue_payload(installed, &queue, invoke);
+    let payload = xbps_plan::queue_payload(installed, &queue, recursive, invoke);
     let mut payload = payload;
     // The held note concerns the packages the queue actually updates; xbps
     // neither holds nor reports them, so it is added here.
@@ -2169,7 +2220,12 @@ mod tests {
             "mesa-25.2_1 update x86_64 https://r/current 4194304 1468006\n\
              ark-25.08.0_1 install x86_64 https://r/current 2097152 524288\n",
         ));
-        let payload = queue_payload(&installed, &queue("ark", QueueAction::Install), &*invoke);
+        let payload = queue_payload(
+            &installed,
+            &queue("ark", QueueAction::Install),
+            true,
+            &*invoke,
+        );
         assert_eq!(payload.title_key, "planQueue");
         assert!(payload.error_key.is_empty());
         assert!(payload.notice_key.is_empty());
@@ -2188,7 +2244,12 @@ mod tests {
     fn a_queue_with_nothing_to_do_is_a_notice() {
         let installed = installed_set();
         let (invoke, _) = one_answer(&ok_reply(""));
-        let payload = queue_payload(&installed, &queue("ark", QueueAction::Install), &*invoke);
+        let payload = queue_payload(
+            &installed,
+            &queue("ark", QueueAction::Install),
+            true,
+            &*invoke,
+        );
         assert_eq!(payload.notice_key, "emptyQueue");
         assert!(payload.items.is_empty());
     }
@@ -2210,7 +2271,12 @@ mod tests {
             })
             .to_string(),
         );
-        let payload = queue_payload(&installed, &queue("ark", QueueAction::Update), &*invoke);
+        let payload = queue_payload(
+            &installed,
+            &queue("ark", QueueAction::Update),
+            true,
+            &*invoke,
+        );
         assert_eq!(payload.notice_key, "emptyQueue");
         assert_eq!(payload.satisfied, ["ark", "vim"]);
     }
@@ -2232,7 +2298,12 @@ mod tests {
         ];
         for (reply, expected) in cases {
             let (invoke, _) = one_answer(&reply);
-            let payload = queue_payload(&installed, &queue("nope", QueueAction::Install), &*invoke);
+            let payload = queue_payload(
+                &installed,
+                &queue("nope", QueueAction::Install),
+                true,
+                &*invoke,
+            );
             assert!(payload.items.is_empty(), "{expected} carries no steps");
             let key = if payload.notice_key.is_empty() {
                 &payload.error_key
@@ -2247,7 +2318,12 @@ mod tests {
     fn an_install_of_an_installed_package_is_a_notice_when_nothing_is_newer() {
         let installed = installed_set();
         let (invoke, seen) = one_answer(&ok_reply(""));
-        let payload = queue_payload(&installed, &queue("vim", QueueAction::Install), &*invoke);
+        let payload = queue_payload(
+            &installed,
+            &queue("vim", QueueAction::Install),
+            true,
+            &*invoke,
+        );
         assert_eq!(payload.notice_key, "emptyQueue");
         assert!(payload.items.is_empty());
         assert_eq!(
@@ -2263,7 +2339,12 @@ mod tests {
         let (invoke, _) = one_answer(&ok_reply(
             "vim-9.2.1032_1 update x86_64 https://r/current 4194304 1468006\n",
         ));
-        let payload = queue_payload(&installed, &queue("vim", QueueAction::Install), &*invoke);
+        let payload = queue_payload(
+            &installed,
+            &queue("vim", QueueAction::Install),
+            true,
+            &*invoke,
+        );
         assert_eq!(payload.items.len(), 1);
         assert_eq!(payload.items[0].name, "vim");
         assert_eq!(
@@ -2277,7 +2358,12 @@ mod tests {
     fn an_update_of_a_package_that_is_not_installed_never_runs_xbps() {
         let installed = installed_set();
         let (invoke, seen) = one_answer(&ok_reply(""));
-        let payload = queue_payload(&installed, &queue("ghost", QueueAction::Update), &*invoke);
+        let payload = queue_payload(
+            &installed,
+            &queue("ghost", QueueAction::Update),
+            true,
+            &*invoke,
+        );
         assert_eq!(payload.error_key, "errorNotInstalled");
         assert!(seen.lock().map(|seen| seen.is_empty()).unwrap());
     }
@@ -2422,7 +2508,12 @@ mod tests {
         let (invoke, _) = one_answer(&ok_reply(
             "ark-25.08.0_1 install x86_64 https://r/current 2097152 524288\n",
         ));
-        let payload = queue_payload(&installed, &queue("ark", QueueAction::Install), &*invoke);
+        let payload = queue_payload(
+            &installed,
+            &queue("ark", QueueAction::Install),
+            true,
+            &*invoke,
+        );
         let mut store = Store::fresh();
         store.installed = installed.clone();
         store.queue = queue("ark", QueueAction::Install);
@@ -2451,7 +2542,12 @@ mod tests {
         let (invoke, _) = one_answer(&ok_reply(
             "vim-9.2.1031_1 reinstall x86_64 https://r/current 4194304 1468006\n",
         ));
-        let payload = queue_payload(&installed, &queue("vim", QueueAction::Install), &*invoke);
+        let payload = queue_payload(
+            &installed,
+            &queue("vim", QueueAction::Install),
+            true,
+            &*invoke,
+        );
         assert_eq!(payload.items.len(), 1);
         assert_eq!(payload.items[0].action, PlanAction::Reinstall);
 
@@ -2502,7 +2598,7 @@ mod tests {
              ERROR: Transaction aborted due to unresolved dependencies.\n",
         ));
         let names = vec!["acpid".to_string()];
-        let payload = crate::xbps_plan::remove_payload(&installed, &names, false, &*invoke);
+        let payload = crate::xbps_plan::remove_payload(&installed, &names, false, false, &*invoke);
         assert!(payload.items.is_empty(), "a blocked plan has no steps");
         assert_eq!(payload.blocked.len(), 1);
         assert_eq!(payload.blocked[0].name, "acpid");
@@ -2526,7 +2622,7 @@ mod tests {
              bash-5.2_1 remove x86_64 https://r/current 8100000 0\n",
         ));
         let names = vec!["glibc".to_string(), "bash".to_string()];
-        let payload = crate::xbps_plan::remove_payload(&installed, &names, true, &*invoke);
+        let payload = crate::xbps_plan::remove_payload(&installed, &names, true, true, &*invoke);
         assert!(payload.blocked.is_empty());
         assert!(
             payload
@@ -2536,6 +2632,23 @@ mod tests {
             "a cascade only removes"
         );
         assert_eq!(payload.title_key, "planCascade");
+    }
+
+    /// A recursive plan carries the flag and asks with `-R`.
+    #[test]
+    fn a_recursive_removal_plan_carries_the_flag_and_asks_with_r() {
+        let installed = installed_set();
+        let (invoke, seen) = one_answer(&ok_reply(
+            "glibc-2.41_1 remove x86_64 https://r/current 0 848\n\
+             tzdata-2025.1_1 remove x86_64 https://r/current 0 4096\n",
+        ));
+        let names = vec!["glibc".to_string()];
+        let payload = crate::xbps_plan::remove_payload(&installed, &names, false, true, &*invoke);
+        assert!(payload.recursive);
+        assert_eq!(
+            seen.lock().map(|seen| seen[0].clone()).unwrap(),
+            ["xbps-remove", "-R", "-n", "glibc"]
+        );
     }
 
     #[test]
@@ -2550,6 +2663,7 @@ mod tests {
             &installed,
             &["nonexistent".to_string()],
             false,
+            true,
             &*invoke,
         );
         assert_eq!(payload.notice_key, "emptyRemove");
@@ -2584,7 +2698,7 @@ mod tests {
     fn empty_queue_is_a_notice_not_a_plan() {
         let installed = installed_set();
         let (invoke, _) = one_answer(&ok_reply(""));
-        let payload = queue_payload(&installed, &[], &*invoke);
+        let payload = queue_payload(&installed, &[], true, &*invoke);
         assert_eq!(payload.notice_key, "emptyQueue");
         assert!(payload.items.is_empty());
     }
@@ -2622,7 +2736,7 @@ mod tests {
         assert_eq!(install_argv(&["vim".to_string()])[1..3], ["-M", "-n"]);
         assert_eq!(system_argv(), ["xbps-install", "-M", "-n", "-Su"]);
         assert_eq!(
-            remove_argv(&["vim".to_string()]),
+            remove_argv(&["vim".to_string()], false),
             ["xbps-remove", "-n", "vim"]
         );
     }
@@ -2642,7 +2756,8 @@ mod tests {
         let (invoke, _) = one_answer(&ok_reply(
             "glibc-2.41_1 remove x86_64 https://r/current 0 848\n",
         ));
-        let payload = PlanTask::remove(vec!["glibc".to_string()], true).run(&installed, &*invoke);
+        let payload =
+            PlanTask::remove(vec!["glibc".to_string()], true, true).run(&installed, &*invoke);
         assert_eq!(payload.title_key, "planCascade");
         assert_eq!(payload.title_args, vec!["glibc".to_string()]);
     }

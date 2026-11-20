@@ -365,6 +365,10 @@ pub mod keys {
 pub struct JobPayload {
     #[serde(default)]
     pub items: Vec<PlanItem>,
+    /// `true` when a removal runs with `-R`. An older payload without the
+    /// field keeps the old behaviour.
+    #[serde(default)]
+    pub recursive: bool,
     /// The base URL of `kxbps-mirror-apply`; `None` for a package transaction.
     #[serde(default)]
     pub mirror: Option<String>,
@@ -406,7 +410,7 @@ impl JobPayload {
     /// `pkexec /usr/libexec/kxbps-mirror-apply <base>`, with the URL as a
     /// single argv element. A payload with neither runs nothing.
     pub fn commands(&self) -> Vec<Vec<String>> {
-        if let Some(plan) = TransactionPlan::for_items(&self.items) {
+        if let Some(plan) = TransactionPlan::for_items(&self.items, self.recursive) {
             return plan.commands();
         }
         if let Some(repo) = self
@@ -447,7 +451,7 @@ impl JobPayload {
     }
 
     pub fn is_mirror(&self) -> bool {
-        TransactionPlan::for_items(&self.items).is_none()
+        TransactionPlan::for_items(&self.items, self.recursive).is_none()
             && self.mirror.as_deref().is_some_and(|base| !base.is_empty())
     }
 }
@@ -456,6 +460,7 @@ impl JobPayload {
 pub fn mirror_payload_json(base: &str) -> String {
     serde_json::to_string(&JobPayload {
         items: Vec::new(),
+        recursive: false,
         mirror: Some(base.to_owned()),
         repo: None,
         hold: None,
@@ -468,6 +473,7 @@ pub fn mirror_payload_json(base: &str) -> String {
 pub fn repo_payload_json(verb: &str, value: &str) -> String {
     serde_json::to_string(&JobPayload {
         items: Vec::new(),
+        recursive: false,
         mirror: None,
         repo: Some(RepoRequest {
             verb: verb.to_owned(),
@@ -483,6 +489,7 @@ pub fn repo_payload_json(verb: &str, value: &str) -> String {
 pub fn hold_payload_json(name: &str, held: bool) -> String {
     serde_json::to_string(&JobPayload {
         items: Vec::new(),
+        recursive: false,
         mirror: None,
         repo: None,
         hold: Some(HoldRequest {
@@ -498,6 +505,7 @@ pub fn hold_payload_json(name: &str, held: bool) -> String {
 pub fn sync_payload_json() -> String {
     serde_json::to_string(&JobPayload {
         items: Vec::new(),
+        recursive: false,
         mirror: None,
         repo: None,
         hold: None,
@@ -1558,6 +1566,7 @@ mod tests {
     fn jobs_commands(items: Vec<PlanItem>) -> Vec<Vec<String>> {
         JobBackendRust::new(&JobPayload {
             items,
+            recursive: false,
             mirror: None,
             repo: None,
             hold: None,
@@ -1565,6 +1574,43 @@ mod tests {
         })
         .commands()
         .to_vec()
+    }
+
+    /// `-R` lands before `-y`; an old payload stays non-recursive.
+    #[test]
+    fn a_recursive_payload_removes_with_r() {
+        let items = vec![item("tzdata", PlanAction::Remove, Some("2025.1_1"), None)];
+        let recursive = JobBackendRust::new(&JobPayload {
+            items: items.clone(),
+            recursive: true,
+            mirror: None,
+            repo: None,
+            hold: None,
+            sync: false,
+        });
+        assert_eq!(
+            recursive.commands(),
+            [vec![
+                String::from("pkexec"),
+                String::from("/usr/bin/xbps-remove"),
+                String::from("-R"),
+                String::from("-y"),
+                String::from("tzdata-2025.1_1"),
+            ]]
+        );
+        let plain = JobBackendRust::new(&JobPayload {
+            items,
+            recursive: false,
+            mirror: None,
+            repo: None,
+            hold: None,
+            sync: false,
+        });
+        assert!(
+            !plain.commands()[0].iter().any(|arg| arg == "-R"),
+            "the default stays non-recursive: {:?}",
+            plain.commands()
+        );
     }
 
     #[test]
@@ -1615,7 +1661,7 @@ mod tests {
                 .is_empty()
         );
         assert_eq!(
-            TransactionPlan::for_items(&JobPayload::default().items),
+            TransactionPlan::for_items(&JobPayload::default().items, false),
             None
         );
     }
@@ -1624,6 +1670,7 @@ mod tests {
     fn a_mirror_payload_is_one_pkexec_helper_command() {
         let payload = JobPayload {
             items: Vec::new(),
+            recursive: false,
             mirror: Some(String::from("https://repo-default.voidlinux.org/")),
             repo: None,
             hold: None,
@@ -1690,6 +1737,7 @@ mod tests {
     fn neither_items_nor_a_mirror_means_no_command() {
         let payload = JobPayload {
             items: Vec::new(),
+            recursive: false,
             mirror: Some(String::new()),
             repo: None,
             hold: None,
@@ -1703,6 +1751,7 @@ mod tests {
         );
         let both = JobPayload {
             items: vec![item("vim", PlanAction::Install, None, Some("1_1"))],
+            recursive: false,
             mirror: Some(String::from("https://a/")),
             repo: None,
             hold: None,
@@ -1721,6 +1770,7 @@ mod tests {
         for base in ["http://repo-default.voidlinux.org/", "not a url"] {
             let payload = JobPayload {
                 items: Vec::new(),
+                recursive: false,
                 mirror: Some(String::from(base)),
                 repo: None,
                 hold: None,

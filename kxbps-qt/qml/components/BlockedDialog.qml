@@ -55,7 +55,7 @@ Kirigami.Dialog {
             return
         }
         const names = plan.names
-        const next = installedBackend.openRemoveNames(names, true)
+        const next = installedBackend.openRemoveNames(names, true, plan.recursive)
         dialog.releasePlan()
         close()
         if (next !== null) {

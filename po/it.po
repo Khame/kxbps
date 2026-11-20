@@ -1588,3 +1588,17 @@ msgstr "xbps legge la sua configurazione da /etc/xbps.d."
 
 #~ msgid "Probe all"
 #~ msgstr "Verifica tutti"
+
+#: kxbps-qt/qml/components/PlanDialog.qml:385
+msgid "%1 unneeded dependency goes too"
+msgid_plural "%1 unneeded dependencies go too"
+msgstr[0] "Viene rimossa anche %1 dipendenza non necessaria"
+msgstr[1] "Vengono rimosse anche %1 dipendenze non necessarie"
+
+#: kxbps-qt/qml/components/PlanDialog.qml:377
+msgid "Also remove unneeded dependencies"
+msgstr "Rimuovi anche le dipendenze non necessarie"
+
+#: kxbps-qt/qml/components/PlanDialog.qml:100
+msgid "Reading the plan…"
+msgstr "Lettura del piano…"

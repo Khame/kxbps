@@ -21,6 +21,9 @@
 // not a string). Used to read the plan a dialog was built from.
 QString kxbps_object_string_property(QObject *object, const QString &name);
 
+// Dynamic property `name` of `object` as a bool (false when missing).
+bool kxbps_object_bool_property(QObject *object, const QString &name);
+
 // Replaces the package model's installed set and queue map. Emits
 // `dataChanged` for the rows that moved, or a full reset when the visible set
 // changes (for example the `installed` filter gaining a row).

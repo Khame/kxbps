@@ -30,6 +30,14 @@ QString kxbps_object_string_property(QObject *object, const QString &name)
     return object->property(name.toUtf8().constData()).toString();
 }
 
+bool kxbps_object_bool_property(QObject *object, const QString &name)
+{
+    if (!object) {
+        return false;
+    }
+    return object->property(name.toUtf8().constData()).toBool();
+}
+
 void kxbps_package_model_set_state(QObject *model,
                                      const QString &installedJson,
                                      const QString &queueJson)

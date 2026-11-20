@@ -29,6 +29,8 @@ Kirigami.Dialog {
 
     signal jobStarted(var startedJob)
     signal blockedRequested(var blockedPlan)
+    // The user changed the removal flag; the window runs a new dry run.
+    signal replanRequested(var names, bool cascade, bool recursive, bool queue)
 
     readonly property bool hasRows: plan !== null && !plan.isBlocked
                                     && plan.noticeKey.length === 0
@@ -36,7 +38,25 @@ Kirigami.Dialog {
                                     && plan.count > 0
     // A plan with steps is what turns Apply on; while a dry run is in flight
     // there is nothing to apply and nothing to say yet.
-    readonly property bool waiting: plan === null && loading
+    readonly property bool waiting: dialog.loading
+    // A plan with a removal row is where `-R` matters; an install-only plan
+    // has nothing to ask.
+    readonly property bool isRemoval: plan !== null && !plan.isBlocked
+                                      && (plan.titleKey === "planRemove"
+                                          || plan.titleKey === "planCascade"
+                                          || planHasRemoval(plan))
+
+    function planHasRemoval(value) {
+        if (value === null) {
+            return false
+        }
+        for (let i = 0; i < value.items.length; ++i) {
+            if (value.items[i].action === "remove") {
+                return true
+            }
+        }
+        return false
+    }
 
     function clearLoading() {
         loading = false
@@ -47,7 +67,7 @@ Kirigami.Dialog {
     readonly property bool canApply: hasRows
     readonly property bool showApplyFooter: hasRows || (plan !== null && plan.isBlocked)
 
-    title: dialog.plan === null && dialog.loading ? dialog.loadingText : dialog.titleText()
+    title: dialog.loading ? dialog.loadingText : dialog.titleText()
     preferredWidth: Kirigami.Units.gridUnit * 46
     // The list is the only thing that may scroll; the dialog never grows past
     // 70 % of the window.
@@ -65,7 +85,35 @@ Kirigami.Dialog {
             dialog.releasePlan()
         }
         plan = value
+        if (recursiveBox) {
+            recursiveBox.checked = value.recursive
+        }
         open()
+    }
+
+    function orphanCount() {
+        if (plan === null) {
+            return 0
+        }
+        let count = 0
+        for (let i = 0; i < plan.items.length; ++i) {
+            if (plan.items[i].reason === "orphan") {
+                count += 1
+            }
+        }
+        return count
+    }
+
+    // `-R` changes what xbps plans, so the flag cannot be applied to the old
+    // list: ask for a fresh dry run with the new value.
+    function replan(recursive) {
+        if (plan === null || !isRemoval) {
+            return
+        }
+        loading = true
+        loadingText = i18nd("kxbps", "Reading the plan…")
+        replanRequested(plan.names, plan.titleKey === "planCascade", recursive,
+                        plan.titleKey === "planQueue")
     }
 
     function releasePlan() {
@@ -335,6 +383,24 @@ Kirigami.Dialog {
                 font.bold: true
                 color: Kirigami.Theme.disabledTextColor
             }
+        }
+
+        // `-R` is a choice, so it sits above the list it changes.
+        QQC2.CheckBox {
+            id: recursiveBox
+            visible: dialog.isRemoval
+            text: i18nd("kxbps", "Also remove unneeded dependencies")
+            Layout.topMargin: Kirigami.Units.smallSpacing
+            onToggled: dialog.replan(checked)
+        }
+
+        QQC2.Label {
+            visible: dialog.isRemoval && dialog.orphanCount() > 0
+            Layout.fillWidth: true
+            text: i18ndp("kxbps", "%1 unneeded dependency goes too",
+                         "%1 unneeded dependencies go too", dialog.orphanCount())
+            font: Kirigami.Theme.smallFont
+            color: Kirigami.Theme.disabledTextColor
         }
 
         Repeater {

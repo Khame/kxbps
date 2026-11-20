@@ -88,9 +88,13 @@ fn dry_run_timeout(command: &[String]) -> u32 {
     }
 }
 
-/// `xbps-remove -n <names>`: remove exactly the named packages.
-pub fn remove_argv(names: &[String]) -> Vec<String> {
-    let mut args = vec!["-n"];
+/// `xbps-remove -n <names>`, with `-R` when recursive.
+pub fn remove_argv(names: &[String], recursive: bool) -> Vec<String> {
+    let mut args = Vec::with_capacity(names.len() + 2);
+    if recursive {
+        args.push("-R");
+    }
+    args.push("-n");
     args.extend(names.iter().map(String::as_str));
     argv(XPBS_REMOVE, &args)
 }
@@ -156,7 +160,7 @@ pub fn dry_run(
     let command = match mode {
         DryRun::Install => install_argv(&request.names),
         DryRun::System => system_argv(),
-        DryRun::Remove => remove_argv(&request.names),
+        DryRun::Remove => remove_argv(&request.names, request.recursive),
     };
     let program = command.first().cloned().unwrap_or_default();
     let output =
@@ -289,6 +293,7 @@ fn parse_table(program: String, stdout: &str) -> Result<Vec<kxbps_core::UpdateEn
 pub fn queue_payload(
     installed: &InstalledMap,
     queue: &[QueueItem],
+    recursive: bool,
     invoke: &Invoke,
 ) -> PlanPayload {
     if queue.is_empty() {
@@ -310,6 +315,7 @@ pub fn queue_payload(
         }
     }
     if !remove.names.is_empty() {
+        let remove = PlanRequest::remove_with(remove.names, recursive);
         match dry_run(&remove, installed, invoke) {
             Ok(outcome) if !outcome.blocked.is_empty() => {
                 return PlanPayload::from_plan(
@@ -317,6 +323,7 @@ pub fn queue_payload(
                     plan_keys::PLAN_QUEUE,
                     Vec::new(),
                     remove.names,
+                    recursive,
                 );
             }
             Ok(outcome) => items.extend(outcome.items),
@@ -336,6 +343,7 @@ pub fn queue_payload(
         plan_keys::PLAN_QUEUE,
         Vec::new(),
         Vec::new(),
+        recursive,
     );
     payload.satisfied = satisfied;
     payload
@@ -350,6 +358,7 @@ pub fn system_payload(installed: &InstalledMap, invoke: &Invoke) -> PlanPayload 
             plan_keys::PLAN_SYSTEM,
             Vec::new(),
             Vec::new(),
+            false,
         ),
         Err(err) => PlanPayload::from_error(&err),
     }
@@ -366,7 +375,7 @@ pub fn named_payload(
     match dry_run(&request, installed, invoke) {
         Ok(outcome) if outcome.empty => PlanPayload::notice(plan_keys::NOTICE_EMPTY_INSTALL),
         Ok(outcome) => {
-            PlanPayload::from_plan(outcome.plan(), title_key, Vec::new(), names.to_vec())
+            PlanPayload::from_plan(outcome.plan(), title_key, Vec::new(), names.to_vec(), false)
         }
         Err(err) => PlanPayload::from_error(&err),
     }
@@ -380,6 +389,7 @@ pub fn remove_payload(
     installed: &InstalledMap,
     names: &[String],
     cascade: bool,
+    recursive: bool,
     invoke: &Invoke,
 ) -> PlanPayload {
     let title_key = if cascade {
@@ -388,14 +398,26 @@ pub fn remove_payload(
         plan_keys::PLAN_REMOVE
     };
     let title_args = vec![names.join(" ")];
-    match dry_run(&PlanRequest::remove(names.to_vec()), installed, invoke) {
-        Ok(outcome) if !outcome.blocked.is_empty() => {
-            PlanPayload::from_plan(outcome.plan(), title_key, title_args, names.to_vec())
-        }
+    match dry_run(
+        &PlanRequest::remove_with(names.to_vec(), recursive),
+        installed,
+        invoke,
+    ) {
+        Ok(outcome) if !outcome.blocked.is_empty() => PlanPayload::from_plan(
+            outcome.plan(),
+            title_key,
+            title_args,
+            names.to_vec(),
+            recursive,
+        ),
         Ok(outcome) if outcome.empty => PlanPayload::notice(plan_keys::NOTICE_EMPTY_REMOVE),
-        Ok(outcome) => {
-            PlanPayload::from_plan(outcome.plan(), title_key, title_args, names.to_vec())
-        }
+        Ok(outcome) => PlanPayload::from_plan(
+            outcome.plan(),
+            title_key,
+            title_args,
+            names.to_vec(),
+            recursive,
+        ),
         Err(err) => PlanPayload::from_error(&err),
     }
 }
@@ -471,7 +493,21 @@ mod tests {
             ["xbps-install", "-M", "-n", "hello", "vim"]
         );
         assert_eq!(system_argv(), ["xbps-install", "-M", "-n", "-Su"]);
-        assert_eq!(remove_argv(&names), ["xbps-remove", "-n", "hello", "vim"]);
+        assert_eq!(
+            remove_argv(&names, false),
+            ["xbps-remove", "-n", "hello", "vim"]
+        );
+    }
+
+    /// `-R` goes before `-n`.
+    #[test]
+    fn a_recursive_removal_asks_xbps_for_the_orphans_too() {
+        let names = vec!["hello".to_owned()];
+        assert_eq!(
+            remove_argv(&names, true),
+            ["xbps-remove", "-R", "-n", "hello"]
+        );
+        assert_eq!(remove_argv(&names, false), ["xbps-remove", "-n", "hello"]);
     }
 
     /// A dry run that fetches the indexes is a network read, so it gets the
@@ -506,8 +542,15 @@ mod tests {
             ["xbps-install", "-M", "-n", "hello", "vim"]
         );
         assert_eq!(system_argv(), ["xbps-install", "-M", "-n", "-Su"]);
-        assert_eq!(remove_argv(&names), ["xbps-remove", "-n", "hello", "vim"]);
-        for argv in [install_argv(&names), system_argv(), remove_argv(&names)] {
+        assert_eq!(
+            remove_argv(&names, false),
+            ["xbps-remove", "-n", "hello", "vim"]
+        );
+        for argv in [
+            install_argv(&names),
+            system_argv(),
+            remove_argv(&names, false),
+        ] {
             assert!(
                 !argv
                     .iter()
@@ -634,6 +677,7 @@ mod tests {
         let payload = queue_payload(
             &installed(&[("vim", "9.2.1000_1"), ("bash", "5.2.037_1")]),
             &queue,
+            true,
             &*invoke,
         );
         assert_eq!(payload.items.len(), 1);
@@ -744,6 +788,33 @@ mod tests {
         let (install, remove) = queue_requests(&queue);
         assert_eq!(install.names, ["vim", "git"]);
         assert_eq!(remove.names, ["zramen"]);
+    }
+
+    /// A queued removal carries the same flag the dialog shows.
+    #[test]
+    fn a_queued_removal_asks_with_r_only_when_recursive() {
+        let queue = vec![QueueItem {
+            name: "zramen".into(),
+            action: QueueAction::Remove,
+        }];
+        let installed = installed(&[("zramen", "0.2_1")]);
+        let line = "zramen-0.2_1 remove x86_64 https://r/current 0 1024\n";
+
+        let (invoke, seen) = one_answer(&reply(0, line, ""));
+        let payload = queue_payload(&installed, &queue, true, &*invoke);
+        assert!(payload.recursive);
+        assert_eq!(
+            seen.lock().map(|seen| seen[0].clone()).unwrap(),
+            ["xbps-remove", "-R", "-n", "zramen"]
+        );
+
+        let (invoke, seen) = one_answer(&reply(0, line, ""));
+        let payload = queue_payload(&installed, &queue, false, &*invoke);
+        assert!(!payload.recursive);
+        assert_eq!(
+            seen.lock().map(|seen| seen[0].clone()).unwrap(),
+            ["xbps-remove", "-n", "zramen"]
+        );
     }
 
     #[test]

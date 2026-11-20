@@ -54,8 +54,8 @@ pub const HOLD_ACTION_ID: &str = "io.github.khame.kxbps.hold";
 pub enum Transaction {
     /// `xbps-install -y`: install, update or reinstall.
     Install,
-    /// `xbps-remove -y`: remove.
-    Remove,
+    /// `xbps-remove -y`: remove. `-R` also takes unneeded dependencies.
+    Remove { recursive: bool },
 }
 
 impl Transaction {
@@ -65,13 +65,13 @@ impl Transaction {
     /// transaction; only an all-remove plan is a removal, and an empty plan has
     /// nothing to run. [`TransactionPlan`] uses this per group of items, so a
     /// mixed plan becomes one install command and one remove command.
-    pub fn for_items(items: &[PlanItem]) -> Option<Self> {
+    pub fn for_items(items: &[PlanItem], recursive: bool) -> Option<Self> {
         if items.iter().any(|item| item.action != PlanAction::Remove) {
             Some(Self::Install)
         } else if items.is_empty() {
             None
         } else {
-            Some(Self::Remove)
+            Some(Self::Remove { recursive })
         }
     }
 
@@ -79,7 +79,7 @@ impl Transaction {
     pub fn program(self) -> &'static str {
         match self {
             Self::Install => XPBS_INSTALL_PATH,
-            Self::Remove => XPBS_REMOVE_PATH,
+            Self::Remove { .. } => XPBS_REMOVE_PATH,
         }
     }
 
@@ -87,7 +87,7 @@ impl Transaction {
     pub fn action_id(self) -> &'static str {
         match self {
             Self::Install => "io.github.khame.kxbps.install",
-            Self::Remove => "io.github.khame.kxbps.remove",
+            Self::Remove { .. } => "io.github.khame.kxbps.remove",
         }
     }
 
@@ -102,10 +102,13 @@ impl Transaction {
     /// the sync xbps answers "not found in repository pool" for a package the
     /// window just showed. A removal has no index to sync.
     pub fn xbps_argv(self, pkgvers: &[String]) -> Vec<String> {
-        let mut list = Vec::with_capacity(pkgvers.len() + 3);
+        let mut list = Vec::with_capacity(pkgvers.len() + 4);
         list.push(self.program().to_owned());
         if self == Self::Install {
             list.push(String::from("-S"));
+        }
+        if let Self::Remove { recursive: true } = self {
+            list.push(String::from("-R"));
         }
         list.push(String::from("-y"));
         list.extend(pkgvers.iter().cloned());
@@ -271,7 +274,7 @@ pub struct TransactionPlan {
 
 impl TransactionPlan {
     /// `None` for an empty plan, which has nothing to run.
-    pub fn for_items(items: &[PlanItem]) -> Option<Self> {
+    pub fn for_items(items: &[PlanItem], recursive: bool) -> Option<Self> {
         let installs: Vec<&PlanItem> = items
             .iter()
             .filter(|item| item.action != PlanAction::Remove)
@@ -285,7 +288,7 @@ impl TransactionPlan {
             commands.push(Transaction::Install.argv(&pkgvers_of(&installs)));
         }
         if !removes.is_empty() {
-            commands.push(Transaction::Remove.argv(&pkgvers_of(&removes)));
+            commands.push(Transaction::Remove { recursive }.argv(&pkgvers_of(&removes)));
         }
         if commands.is_empty() {
             None
@@ -412,7 +415,7 @@ mod tests {
         let install = Transaction::Install.argv(&v(&["vim-9.2.1031_1"]));
         assert_eq!(install[1], "/usr/bin/xbps-install");
         assert_eq!(install[2], "-S");
-        let remove = Transaction::Remove.argv(&v(&["tzdata-2025.1_1"]));
+        let remove = Transaction::Remove { recursive: false }.argv(&v(&["tzdata-2025.1_1"]));
         assert_eq!(
             remove,
             ["pkexec", "/usr/bin/xbps-remove", "-y", "tzdata-2025.1_1"]
@@ -436,8 +439,23 @@ mod tests {
     }
 
     #[test]
+    fn a_recursive_removal_puts_r_before_yes() {
+        let argv = Transaction::Remove { recursive: true }.argv(&v(&["tzdata-2025.1_1"]));
+        assert_eq!(
+            argv,
+            [
+                "pkexec",
+                "/usr/bin/xbps-remove",
+                "-R",
+                "-y",
+                "tzdata-2025.1_1"
+            ]
+        );
+    }
+
+    #[test]
     fn remove_runs_xbps_remove_through_pkexec_after_yes() {
-        let argv = Transaction::Remove.argv(&v(&["tzdata-2025.1_1"]));
+        let argv = Transaction::Remove { recursive: false }.argv(&v(&["tzdata-2025.1_1"]));
         assert_eq!(
             argv,
             ["pkexec", "/usr/bin/xbps-remove", "-y", "tzdata-2025.1_1"]
@@ -446,7 +464,10 @@ mod tests {
 
     #[test]
     fn no_argv_ever_mentions_sudo() {
-        for transaction in [Transaction::Install, Transaction::Remove] {
+        for transaction in [
+            Transaction::Install,
+            Transaction::Remove { recursive: false },
+        ] {
             let argv = transaction.argv(&v(&["a-1_1", "b-2_1"]));
             assert_eq!(argv.first().map(String::as_str), Some("pkexec"));
             assert!(
@@ -470,13 +491,16 @@ mod tests {
     #[test]
     fn the_tool_paths_are_the_ones_the_policy_annotates() {
         assert_eq!(Transaction::Install.program(), "/usr/bin/xbps-install");
-        assert_eq!(Transaction::Remove.program(), "/usr/bin/xbps-remove");
+        assert_eq!(
+            Transaction::Remove { recursive: false }.program(),
+            "/usr/bin/xbps-remove"
+        );
         assert_eq!(
             Transaction::Install.action_id(),
             "io.github.khame.kxbps.install"
         );
         assert_eq!(
-            Transaction::Remove.action_id(),
+            Transaction::Remove { recursive: false }.action_id(),
             "io.github.khame.kxbps.remove"
         );
     }
@@ -488,15 +512,21 @@ mod tests {
             item("tzdata", PlanAction::Remove, Some("2_1"), None),
         ];
         assert_eq!(
-            Transaction::for_items(&mixed),
+            Transaction::for_items(&mixed, false),
             Some(Transaction::Install),
             "installs and updates go through xbps-install"
         );
         let updates = [item("linux", PlanAction::Update, Some("1_1"), Some("2_1"))];
-        assert_eq!(Transaction::for_items(&updates), Some(Transaction::Install));
+        assert_eq!(
+            Transaction::for_items(&updates, false),
+            Some(Transaction::Install)
+        );
         let removes = [item("tzdata", PlanAction::Remove, Some("2_1"), None)];
-        assert_eq!(Transaction::for_items(&removes), Some(Transaction::Remove));
-        assert_eq!(Transaction::for_items(&[]), None);
+        assert_eq!(
+            Transaction::for_items(&removes, false),
+            Some(Transaction::Remove { recursive: false })
+        );
+        assert_eq!(Transaction::for_items(&[], false), None);
     }
 
     #[test]
@@ -534,7 +564,7 @@ mod tests {
     #[test]
     fn a_transaction_plan_is_the_argv_qml_would_read() {
         let items = [item("vim", PlanAction::Install, None, Some("9.2.1031_1"))];
-        let plan = TransactionPlan::for_items(&items).expect("a plan has a transaction");
+        let plan = TransactionPlan::for_items(&items, false).expect("a plan has a transaction");
         assert_eq!(
             plan.commands(),
             [v(&[
@@ -549,7 +579,7 @@ mod tests {
             Transaction::Install.command_line(&v(&["vim-9.2.1031_1"])),
             "pkexec /usr/bin/xbps-install -S -y vim-9.2.1031_1"
         );
-        assert_eq!(TransactionPlan::for_items(&[]), None);
+        assert_eq!(TransactionPlan::for_items(&[], false), None);
     }
 
     #[test]
@@ -564,7 +594,7 @@ mod tests {
                 Some("2.51.0_1"),
             ),
         ];
-        let plan = TransactionPlan::for_items(&items).expect("a mixed plan has commands");
+        let plan = TransactionPlan::for_items(&items, false).expect("a mixed plan has commands");
         assert_eq!(
             plan.commands(),
             [
@@ -593,7 +623,7 @@ mod tests {
             item("tzdata", PlanAction::Remove, Some("2025.1_1"), None),
             item("nano", PlanAction::Remove, Some("8.0_1"), None),
         ];
-        let plan = TransactionPlan::for_items(&items).expect("a removal plan has commands");
+        let plan = TransactionPlan::for_items(&items, false).expect("a removal plan has commands");
         assert_eq!(
             plan.commands(),
             [v(&[
@@ -603,6 +633,52 @@ mod tests {
                 "tzdata-2025.1_1",
                 "nano-8.0_1"
             ])]
+        );
+    }
+
+    #[test]
+    fn a_recursive_removal_plan_removes_with_r() {
+        let items = [
+            item("tzdata", PlanAction::Remove, Some("2025.1_1"), None),
+            item("nano", PlanAction::Remove, Some("8.0_1"), None),
+        ];
+        let plan = TransactionPlan::for_items(&items, true).expect("a removal plan has commands");
+        assert_eq!(
+            plan.commands(),
+            [v(&[
+                "pkexec",
+                "/usr/bin/xbps-remove",
+                "-R",
+                "-y",
+                "tzdata-2025.1_1",
+                "nano-8.0_1"
+            ])]
+        );
+    }
+
+    /// `-R` is a removal flag; xbps-install must never get it.
+    #[test]
+    fn a_recursive_mixed_plan_keeps_r_out_of_the_install_command() {
+        let items = [
+            item("vim", PlanAction::Install, None, Some("9.2.1031_1")),
+            item("tzdata", PlanAction::Remove, Some("2025.1_1"), None),
+        ];
+        let plan = TransactionPlan::for_items(&items, true).expect("a mixed plan has commands");
+        let commands = plan.commands();
+        assert!(
+            !commands[0].iter().any(|arg| arg == "-R"),
+            "the install command stays as it was: {:?}",
+            commands[0]
+        );
+        assert_eq!(
+            commands[1],
+            v(&[
+                "pkexec",
+                "/usr/bin/xbps-remove",
+                "-R",
+                "-y",
+                "tzdata-2025.1_1"
+            ])
         );
     }
 
@@ -617,7 +693,7 @@ mod tests {
                 Some("2.51.0_1"),
             ),
         ];
-        let plan = TransactionPlan::for_items(&items).expect("a plan has commands");
+        let plan = TransactionPlan::for_items(&items, false).expect("a plan has commands");
         assert_eq!(
             plan.commands(),
             [v(&[
@@ -633,7 +709,7 @@ mod tests {
 
     #[test]
     fn an_empty_plan_has_no_commands() {
-        assert_eq!(TransactionPlan::for_items(&[]), None);
+        assert_eq!(TransactionPlan::for_items(&[], false), None);
         assert!(TransactionPlan::default().commands().is_empty());
     }
 
