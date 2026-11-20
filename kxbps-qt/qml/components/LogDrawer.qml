@@ -260,7 +260,18 @@ Item {
             visible: drawer.hasLines
             clip: true
             model: drawer.hasJob ? drawer.job.lines : drawer.checkLines
-            onCountChanged: positionViewAtEnd()
+
+            // The list follows the last line until the user scrolls up to read
+            // something; from then on it stays where they put it. Scrolling
+            // back to the end turns following on again.
+            property bool follow: true
+
+            // The row is inserted before the view has laid it out, so an
+            // immediate scroll stops one line short and stays behind for the
+            // rest of the run. Waiting one event-loop turn lands on the end.
+            onCountChanged: Qt.callLater(logList.positionViewAtEnd)
+            onContentHeightChanged: if (logList.follow) Qt.callLater(logList.positionViewAtEnd)
+            onMovementEnded: logList.follow = logList.atYEnd
 
             delegate: QQC2.Label {
                 width: logList.width
