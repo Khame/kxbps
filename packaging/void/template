@@ -22,8 +22,8 @@ depends="kf6-kirigami kf6-kstatusnotifieritem kf6-qqc2-desktop-style kf6-sonnet
 short_desc="Native KDE Plasma front end for the xbps package manager"
 maintainer="Khame <khame.dev@protonmail.com>"
 license="GPL-3.0-or-later"
-homepage="https://github.com/Khame/kxbps"
-distfiles="${homepage}/archive/refs/tags/v${version}.tar.gz"
+homepage="https://kxbps.khame.dev/"
+distfiles="https://github.com/Khame/kxbps/archive/refs/tags/v${version}.tar.gz"
 checksum=0f69b9c6f9011e02264ca9c3d15fa54f1532e8dd1eced80a33c706ceb8de274e
 
 # The default do_install would `cargo install` every binary in the workspace
