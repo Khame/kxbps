@@ -3,6 +3,43 @@
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 the project uses semantic versioning.
 
+## [0.13.0] - 2026-11-21
+
+### Added
+
+- The details pane shows the homepage as a link, the maintainer, the
+  architecture and the install date.
+- A row checkbox queues that row's own action, so one package can be queued
+  without opening it.
+- The Orphaned page counts the packages and marks them all for removal.
+- A busy indicator shows while the package list loads.
+- Remove asks xbps for the unneeded dependencies too (`-R`).
+- About links the project website.
+
+### Fixed
+
+- New dependencies of an update no longer appear in the update list. xbps
+  prints them as `install` lines, and queueing one asked xbps to update a
+  package the system does not hold.
+- A debug build notices when the QML on disk is newer than the binary instead
+  of showing the previous layout.
+- The log keeps following new lines.
+- A local search stays inside the active filter.
+
+### Changed
+
+- Catalogs for the new strings. The non-Polish catalogs had been missing
+  strings and got them back.
+
+### Notes
+
+- The Void template cross-builds for aarch64. The qmake6 helper points
+  cxx-qt-build at the target sysroot, and the host QML tools run on the build
+  host. `build.rs` reads the Qt and KF6 include directories from
+  `qmake -query QT_INSTALL_HEADERS`, so the template no longer patches the
+  source.
+- The package homepage points at the project site.
+
 ## [0.12.3] - 2026-11-18
 
 ### Removed

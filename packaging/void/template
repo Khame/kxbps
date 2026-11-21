@@ -1,6 +1,6 @@
 # Template file for 'kxbps'
 pkgname=kxbps
-version=0.12.3
+version=0.13.0
 revision=1
 build_style=cargo
 # Cross builds: the helper writes a qmake6 wrapper whose qtconf points at the
