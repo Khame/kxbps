@@ -163,6 +163,29 @@ It writes `hostdir/binpkgs/kxbps-<version>_<revision>.x86_64-musl.xbps`. Plain
 `./xbps-src pkg kxbps` is the glibc build; `-Q` runs the tests the same way for
 either architecture.
 
+### aarch64 (cross build)
+
+`build_helper="qmake6"` and the `pre_build` hook serve cross builds only; a
+native x86_64 build uses neither. `cxx-qt-build` locates Qt by running `qmake`,
+and `.cargo/config.toml` pins `QMAKE` to `/usr/lib/qt6/bin/qmake6`, which reports
+the host's paths. The helper writes a wrapper whose `qtconf` points at the target
+sysroot, and `pre_build` exports that wrapper. `qt6-declarative-host-tools` is
+in `hostmakedepends` because `moc` and `qmlcachegen` run on the build host; the
+target copies in `qt6-declarative-tools` cannot execute there.
+
+`kxbps-qt/build.rs` still names the KF6 and Qt integration include directories
+under `/usr/include`, so the cross branch rewrites that path to
+`${XBPS_CROSS_BASE}`. The rewrite disappears once `build.rs` reads the directory
+from `qmake -query QT_INSTALL_HEADERS`.
+
+```sh
+./xbps-src -a aarch64 pkg kxbps
+```
+
+The build needs no emulator; `-Q` does. Install `qemu-user-aarch64` first if
+you want `./xbps-src -Q -a aarch64 pkg kxbps`. The package lands in
+`hostdir/binpkgs/kxbps-<version>_<revision>.aarch64.xbps`.
+
 When the tarball changes but the version does not, run `./xbps-src clean kxbps`
 first: `masterdir/builddir/kxbps-<version>` is reused when it exists, and with an
 unchanged version number it is indistinguishable from a fresh one.
