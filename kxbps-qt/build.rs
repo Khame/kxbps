@@ -7,8 +7,8 @@ include!("src/qml_stamp.rs");
 // Shared with the binary's tests: where KF6 keeps its headers next to Qt's.
 include!("src/qt_headers.rs");
 
-/// Every QML file the module carries. A file missing here is never embedded,
-/// so the build fails on it instead of the window at runtime.
+/// Every QML file the module carries. A missing entry fails the build instead
+/// of the window.
 const QML_FILES: &[&str] = &[
     "qml/Main.qml",
     "qml/views/PackagesView.qml",
@@ -36,9 +36,8 @@ const QML_FILES: &[&str] = &[
     "qml/components/Notifier.qml",
 ];
 
-/// The Qt header directory as the build sees it: `/usr/include/qt6` natively,
-/// and `<sysroot>/usr/include/qt6` in a cross build, where `QMAKE` points at
-/// the wrapper carrying the target qtconf. `None` when qmake cannot answer.
+/// Qt's header directory as this build sees it: `/usr/include/qt6` natively,
+/// `<sysroot>/usr/include/qt6` when `QMAKE` points at a cross wrapper.
 fn qt_headers() -> Option<std::path::PathBuf> {
     let qmake = std::env::var("QMAKE").unwrap_or_else(|_| "/usr/lib/qt6/bin/qmake6".to_owned());
     let output = std::process::Command::new(qmake)
@@ -68,9 +67,8 @@ fn main() {
         panic!("QML files missing from build.rs: {}", unlisted.join(", "));
     }
 
-    // The binary compares this with the tree on disk at startup: `cargo clippy`
-    // and `cargo test` re-run this script without linking, so the executable
-    // can stay older than the QML it appears to run.
+    // clippy and test re-run this script without relinking, so the binary can
+    // carry QML older than the tree it appears to run.
     if let Some((hash, _)) = qml_tree_hash(&qml_dir) {
         println!("cargo:rustc-env=KXBPS_QML_DIR={}", qml_dir.display());
         println!("cargo:rustc-env=KXBPS_QML_HASH={hash}");
@@ -81,32 +79,27 @@ fn main() {
     println!("cargo:rerun-if-changed=../packaging/icons/app/kxbps.svg");
     println!("cargo:rerun-if-changed=../packaging/icons/app/kxbps-updates.svg");
     println!("cargo:rerun-if-changed=../packaging/icons/actions");
-    // The QML files are compiled into the binary by this script. Cargo watches
-    // only the paths named here once any `rerun-if-changed` is emitted, so
-    // without the directory a QML edit left the old file in the executable and
-    // the change looked like it did nothing.
+    // Cargo watches only the paths named below once any rerun-if-changed is
+    // emitted; without the directory a QML edit changed nothing in the binary.
     println!("cargo:rerun-if-changed=qml");
     println!("cargo:rerun-if-changed=build.rs");
 
-    // Hand-written C++ shim that installs KI18n's `KLocalizedContext` on the QML
-    // engine's root context, which is what makes `i18nd()` callable in QML.
+    // Installs KI18n's `KLocalizedContext` on the engine root context, which is
+    // what makes `i18nd()` callable in QML.
     let builder = cxx_qt_build::CxxQtBuilder::new_qml_module(
         cxx_qt_build::QmlModule::new("org.kde.kxbps").qml_files(QML_FILES),
     )
     .qt_module("Network")
-    // The notification goes straight to `org.freedesktop.Notifications`; the
-    // KNotification module dropped the event without telling anyone.
+    // Notifications go straight to `org.freedesktop.Notifications`; the
+    // KNotification module dropped the event silently.
     .qt_module("DBus")
-    // The tray's menu is a `QMenu` owned by KStatusNotifierItem, which exports
-    // it over D-Bus and never shows it; the headers come from Qt Widgets.
+    // KStatusNotifierItem owns a `QMenu` it exports over D-Bus and never shows.
     .qt_module("Widgets")
-    // The application icon, kept in `packaging/` as the single source. The
-    // `.qrc` alias puts it under the QML module's own import path, so QML reads
-    // it as `qrc:/qt/qml/org/kde/kxbps/icons/kxbps.svg`.
+    // The icon's single source is `packaging/`; the alias puts it under the QML
+    // module path, `qrc:/qt/qml/org/kde/kxbps/icons/kxbps.svg`.
     .qrc("resources.qrc")
-    // Every file with a `#[cxx_qt::bridge]` module: the app backend, the
-    // package/queue/log models, the plan/job dialogs and the installed backend.
-    // All of them must live flat in `src/` (cxx-qt-build 0.10 panics otherwise).
+    // Every file with a `#[cxx_qt::bridge]` module. They must stay flat in
+    // `src/` (cxx-qt-build 0.10 panics otherwise).
     .files([
         "src/lib.rs",
         "src/package_model.rs",
@@ -122,52 +115,44 @@ fn main() {
         "src/xbps_bridge.rs",
         "src/network.rs",
     ])
-    // `QFile` access to the protected `QAbstractItemModel` members the Rust
-    // model cannot reach.
+    // `QFile` access to the protected `QAbstractItemModel` members.
     .cpp_file("src/k18n_shim.cpp")
-    // The About page's Qt/KDE Frameworks versions and platform name.
+    // The About page's Qt/KDE versions and platform name.
     .cpp_file("src/about_shim.cpp")
-    // The style proxy that keeps the desktop style from underlining button
-    // mnemonics.
+    // Keeps the desktop style from underlining button mnemonics.
     .cpp_file("src/style_shim.cpp")
     .cpp_file("src/model_shim.cpp")
-    // The mirror model's factory and the `QNetworkAccessManager` probe
-    // transport, which `cxx-qt-lib` 0.10 has no binding for.
+    // The mirror model's factory and its `QNetworkAccessManager` transport,
+    // which cxx-qt-lib 0.10 does not bind.
     .cpp_file("src/mirror_shim.cpp")
-    // Child-object factories and the forwarders that let Rust reach a generated
-    // method on a `QObject*` it only holds as a pointer.
+    // Child-object factories and the forwarders Rust needs to call a generated
+    // method through a `QObject*`.
     .cpp_file("src/backend_shim.cpp")
-    // The read-only xbps runner: one `QProcess` per call with an explicit argv
-    // list and a hard timeout, driven from a worker thread.
+    // The read-only xbps runner: one `QProcess` per call, explicit argv, hard
+    // timeout, driven from a worker thread.
     .cpp_file("src/xbps_shim.cpp")
-    // Network reachability for the update check: `QNetworkInformation` has no
-    // `cxx-qt-lib` binding, and xbps cannot tell a DNS failure from an empty
-    // answer.
+    // `QNetworkInformation` has no cxx-qt-lib binding, and xbps cannot tell a
+    // DNS failure from an empty answer.
     .cpp_file("src/network_shim.cpp")
-    // The notification click slot. A header so `cxx-qt-build` runs moc over it;
-    // the slot cannot live in Rust, where CXX-Qt 0.10 has no slot support.
+    // The notification click slot; CXX-Qt 0.10 cannot declare one in Rust.
     .cpp_file("src/notification_watcher.h")
-    // The tray: a StatusNotifierItem with a D-Bus menu. The header carries the
-    // Q_OBJECT class, so moc runs over it; `Qt.labs.platform` is no longer used,
-    // so no widget popup is created and Wayland has nothing to grab.
+    // The tray: StatusNotifierItem with a D-Bus menu, no widget popup, so
+    // Wayland has nothing to grab.
     .cpp_file("src/tray_item.h")
     .cpp_file("src/tray_shim.cpp");
 
-    // `cxx-qt-build` has no `include_path` helper, so add the KI18n header
-    // directory through the underlying `cc::Build`. The crate's own `src` dir is
-    // needed as well: `lib.rs` includes `k18n_shim.h` from there and the
-    // generated C++ lives in the build directory, so the relative lookup fails.
+    // cxx-qt-build has no include helper, so the paths go through `cc::Build`.
+    // `src/` is needed too: `lib.rs` includes `k18n_shim.h` and the generated
+    // C++ sits in the build directory.
     let src_dir = format!("{manifest_dir}/src");
     let qt_include = qt_headers().unwrap_or_else(|| std::path::PathBuf::from("/usr/include/qt6"));
     let kf6_root = include_root(&qt_include);
     let builder = unsafe {
         builder.cc_builder(move |cc| {
-            // The shims include the KF6 headers by their bare names.
             cc.include(kf6_root.join("KF6/KI18n"));
             cc.include(kf6_root.join("KF6/KStatusNotifierItem"));
-            // `KLocalizedQmlContext` includes `qqmlintegration.h`, which lives in
-            // Qt's integration module: `pkg-config Qt6Qml` adds this path, the
-            // include list CXX-Qt assembles does not.
+            // `qqmlintegration.h` lives in Qt's integration module; the include
+            // list CXX-Qt assembles does not carry it.
             cc.include(qt_include.join("QtQmlIntegration"));
             cc.include(&src_dir);
         })
@@ -175,17 +160,12 @@ fn main() {
 
     builder.build();
 
-    // `KLocalizedContext` lives in libKF6I18nQml, `KLocalizedString` in
-    // libKF6I18n; neither is pulled in by the Qt module list.
+    // Neither library comes in through the Qt module list.
     println!("cargo:rustc-link-lib=KF6I18nQml");
     println!("cargo:rustc-link-lib=KF6I18n");
-    // The tray item: KStatusNotifierItem, whose menu is exported over D-Bus.
     println!("cargo:rustc-link-lib=KF6StatusNotifierItem");
 
-    // The C++ archive generated for this crate carries the QML module registration
-    // (`cxx_qt_init_qml_module_org_kde_kxbps`) and the `AppBackend` QObject code.
-    // Cargo applies the `rustc-link-lib` directive cxx-qt-build emits to the library
-    // unit only, so the binary would link without it and fail on the initializer
-    // symbol; passing it as a link arg makes sure it reaches the final link too.
+    // Cargo applies cxx-qt-build's `rustc-link-lib` to the library unit only, so
+    // the binary would miss the module initializer without this link arg.
     println!("cargo:rustc-link-arg=-lkxbps-qt-cxxqt-generated");
 }

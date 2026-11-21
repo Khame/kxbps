@@ -603,15 +603,13 @@ Kirigami.ApplicationWindow {
         }
     }
 
-    // The orphans have no notify signal of their own, so the count is read
-    // against `stateRevision`: every store refresh bumps it.
+    // No notify signal on the orphan count; read it against `stateRevision`.
     readonly property int orphansCount: {
         installedBackend.stateRevision
         return installedBackend.orphansCount()
     }
 
-    // How many orphans are still unmarked; the bulk button turns off when the
-    // queue already holds them all.
+    // Orphans not queued yet; the bulk button turns off at zero.
     readonly property int orphansToQueue: {
         installedBackend.stateRevision
         installedBackend.queueCount
@@ -779,8 +777,8 @@ Kirigami.ApplicationWindow {
             return
         }
         root.stripMessage = ""
-        // A removal is destructive and its plan carries the `-R` choice, so it
-        // goes through the dialog; everything else applies from the queue.
+        // A removal carries the `-R` choice, so it goes through the dialog;
+        // everything else applies from the queue.
         root.applyDirectly = installedBackend.queueRemoveCount() === 0
         root.planPending = installedBackend.openQueuePlan(true)
     }
@@ -1108,8 +1106,8 @@ Kirigami.ApplicationWindow {
                             // icons and drop the words, so the toolbar stays one
                             // row without losing an action.
                             DenseButton {
-                                // Orphans get their own bulk gesture: marking
-                                // them queues a removal, not an update.
+                                // Marking orphans queues a removal, not an
+                                // update.
                                 visible: installedBackend.packages !== null
                                          && installedBackend.packages.filter === "orphans"
                                 text: i18nd("kxbps", "Mark all for removal")
@@ -1122,8 +1120,8 @@ Kirigami.ApplicationWindow {
                             }
 
                             DenseButton {
-                                // Updates is the page this gesture belongs to;
-                                // the other filters get their own bulk action.
+                                // This gesture belongs to Updates; the other
+                                // filters have their own.
                                 visible: installedBackend.packages !== null
                                          && installedBackend.packages.filter === "updates"
                                 text: i18nd("kxbps", "Mark all upgrades")

@@ -1,13 +1,10 @@
 // SPDX-FileCopyrightText: 2026 Łukasz "Khame" Linhard <khame.dev@protonmail.com>
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-// Fingerprint of the QML tree, shared by `build.rs` and the binary.
+// QML tree fingerprint, shared by `build.rs` and the binary.
 //
-// `build.rs` compiles the QML into the executable through `rcc`, and Cargo
-// re-runs it only when the script runs. `cargo clippy` and `cargo test` do run
-// the script but never link the binary, so `./target/debug/kxbps` can stay
-// older than the files on disk and quietly show the previous layout. The build
-// bakes this hash in; a debug binary compares it at startup and says so.
+// clippy and test run build.rs but do not relink, so a debug binary can carry
+// QML older than the tree. The hash lets it notice at startup.
 
 use std::path::{Path, PathBuf};
 
@@ -22,10 +19,8 @@ fn mix(mut hash: u64, bytes: &[u8]) -> u64 {
     hash
 }
 
-/// Every `.qml` file under `root` as a path relative to it, sorted, so the
-/// result does not depend on the order the filesystem hands out entries.
-///
-/// Only `build.rs` needs the list; the binary only needs the hash below.
+/// Every `.qml` file under `root`, relative and sorted. Only `build.rs` needs
+/// the list; the binary needs the hash.
 #[allow(dead_code)]
 pub fn qml_files(root: &Path) -> Option<Vec<PathBuf>> {
     let mut files = Vec::new();
@@ -34,9 +29,8 @@ pub fn qml_files(root: &Path) -> Option<Vec<PathBuf>> {
     Some(files)
 }
 
-/// FNV-1a over the relative path and the contents of every `.qml` file under
-/// `root`, plus the number of files. `None` when the tree cannot be read, which
-/// is the normal case for an installed binary: the source tree is gone.
+/// FNV-1a over each relative path and file contents. `None` when the tree
+/// cannot be read, which is normal for an installed binary.
 pub fn qml_tree_hash(root: &Path) -> Option<(u64, usize)> {
     let files = qml_files(root)?;
     let mut hash = FNV_OFFSET;

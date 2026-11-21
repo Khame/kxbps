@@ -1131,9 +1131,8 @@ impl PackageModelRust {
 
     /// Answers `pattern` from the listing in memory, under the current filter.
     ///
-    /// Returns `false` when no listing was read, the pattern carries regex
-    /// syntax, or every hit is one the filter would hide. The caller then asks
-    /// the repositories, whose answer is filtered by the same rule.
+    /// `false` means the caller should ask the repositories: no listing was
+    /// read, the pattern is regex syntax, or every hit is filtered out.
     fn apply_local_search(&mut self, pattern: &str) -> bool {
         if !is_plain_pattern(pattern) {
             return false;
@@ -1147,9 +1146,8 @@ impl PackageModelRust {
             .filter(|hit| self.hit_visible(hit))
             .collect();
         if hits.is_empty() {
-            // Nothing the filter shows, but the repositories may still answer:
-            // the read is the only thing that knows what a wildcard or a
-            // description match would find.
+            // Nothing visible, but a wildcard or description match may still
+            // find something in the repositories.
             return false;
         }
         self.active_search = Some(ActiveSearch {
@@ -2985,9 +2983,8 @@ mod tests {
 
     #[test]
     fn a_local_search_answer_respects_the_filter() {
-        // The listing read on Available is in memory, and answering from it is
-        // the same question as a repository read: the filter still applies.
-        // Without that, typing on Installed surfaced repository-only packages.
+        // The filter applies to the local listing too; without that, typing on
+        // Installed showed repository-only packages.
         let mut model = model();
         set_filter(&mut model, "installed");
         model.listing = Some(vec![

@@ -39,8 +39,7 @@ Kirigami.Dialog {
     // A plan with steps is what turns Apply on; while a dry run is in flight
     // there is nothing to apply and nothing to say yet.
     readonly property bool waiting: dialog.loading
-    // A plan with a removal row is where `-R` matters; an install-only plan
-    // has nothing to ask.
+    // `-R` only matters when a removal row is in the plan.
     readonly property bool isRemoval: plan !== null && !plan.isBlocked
                                       && (plan.titleKey === "planRemove"
                                           || plan.titleKey === "planCascade"
@@ -104,8 +103,7 @@ Kirigami.Dialog {
         return count
     }
 
-    // `-R` changes what xbps plans, so the flag cannot be applied to the old
-    // list: ask for a fresh dry run with the new value.
+    // `-R` changes the plan, so the old list is stale: run the dry run again.
     function replan(recursive) {
         if (plan === null || !isRemoval) {
             return

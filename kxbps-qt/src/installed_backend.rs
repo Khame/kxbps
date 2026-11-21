@@ -196,8 +196,7 @@ pub mod qobject {
         #[qinvokable]
         fn queue_all_updates(self: Pin<&mut InstalledBackend>);
 
-        /// Marks every orphaned package for removal, leaving the rest of the
-        /// queue alone; the marking is idempotent.
+        /// Marks every orphan for removal; the rest of the queue stays.
         #[qinvokable]
         fn queue_all_orphans(self: Pin<&mut InstalledBackend>);
 
@@ -228,19 +227,17 @@ pub mod qobject {
         #[qinvokable]
         fn open_queue_plan(self: Pin<&mut InstalledBackend>, recursive: bool) -> u64;
 
-        /// How many queued entries remove a package; the strip shows the
-        /// removal choice only when there is one.
+        /// How many queued entries remove a package; the strip offers removal
+        /// only then.
         #[qinvokable]
         fn queue_remove_count(&self) -> i32;
 
-        /// How many packages the last snapshot called orphaned. QML reads it
-        /// with `stateRevision` as its dependency, the pattern for values that
-        /// have no notify signal of their own.
+        /// Orphans in the last snapshot. QML reads it with `stateRevision`,
+        /// which is how values without a notify signal are tracked.
         #[qinvokable]
         fn orphans_count(&self) -> i32;
 
-        /// How many orphans the queue does not hold yet; the bulk button turns
-        /// off once there is nothing left to mark.
+        /// Orphans not queued yet; the bulk button turns off at zero.
         #[qinvokable]
         fn orphans_to_queue(&self) -> i32;
 
@@ -256,8 +253,8 @@ pub mod qobject {
             title_key: &QString,
         ) -> u64;
 
-        /// Plans removing `name`. `cascade` only changes the title; `recursive`
-        /// adds `-R`.
+        /// Plans removing `name`. `cascade` only changes the title;
+        /// `recursive` adds `-R`.
         #[qinvokable]
         fn open_remove(
             self: Pin<&mut InstalledBackend>,
@@ -579,9 +576,8 @@ impl InstalledBackendRust {
     /// Idempotent: a second call over the same pending updates adds nothing, and
     /// a package that is already queued keeps its entry instead of being queued
     /// twice.
-    /// Queues every orphaned package for removal. A name the queue already
-    /// holds keeps its action, so a queued install is not turned into a
-    /// removal.
+    /// Queues every orphan for removal; a name already queued keeps its
+    /// action.
     fn mark_orphans(&mut self) {
         let orphans: Vec<String> = self
             .snapshot
@@ -819,8 +815,7 @@ impl qobject::InstalledBackend {
         refresh_store(self.as_mut());
     }
 
-    /// Marks every orphaned package for removal, leaving the rest of the queue
-    /// alone; the marking is idempotent.
+    /// Marks every orphan for removal; the rest of the queue stays.
     fn queue_all_orphans(mut self: Pin<&mut Self>) {
         {
             let data = Pin::get_mut(self.as_mut().rust_mut());
@@ -1600,8 +1595,7 @@ pub enum PlanTask {
         names: Vec<String>,
         title_key: String,
     },
-    /// `xbps-remove -n <names>`; `cascade` only changes the title,
-    /// `recursive` adds `-R`.
+    /// `xbps-remove -n <names>`; `recursive` adds `-R`.
     Remove {
         names: Vec<String>,
         cascade: bool,

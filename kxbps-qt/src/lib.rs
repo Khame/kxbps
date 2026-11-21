@@ -43,14 +43,10 @@ pub mod xbps_snapshot;
 /// pins the files that cannot read it at build time.
 pub const VERSION: &str = env!("CARGO_PKG_VERSION");
 
-/// A one-line warning when this binary embeds a QML tree older than the files
-/// on disk.
+/// A one-line warning when this binary embeds QML older than the tree.
 ///
-/// `cargo clippy` and `cargo test` re-run `build.rs`, which re-runs `rcc`, but
-/// they never link the binary: `./target/debug/kxbps` then keeps the previous
-/// QML while the tree shows the new one, and a fixed error comes back with the
-/// old line number. Release builds skip the check — the source tree is not on
-/// the machine and the QML is fixed at package time.
+/// clippy and test re-run `rcc` but never relink, so the debug binary keeps the
+/// old QML and errors point at old line numbers. Release builds skip the check.
 pub fn stale_qml_hint() -> Option<String> {
     if !cfg!(debug_assertions) {
         return None;

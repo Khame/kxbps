@@ -59,8 +59,8 @@ Item {
     readonly property bool queueMode: view.packages !== null
                                       && view.packages.filter === "queued"
                                       && view.packages.search.length === 0
-    // A read is in flight and the table has nothing to show yet. Without this
-    // the list says "nothing here" for the moment before the answer lands.
+    // A read is in flight with nothing to show yet; without this the list says
+    // "nothing here" before the answer lands.
     readonly property bool listLoading: view.packages !== null
                                         && view.packages.count === 0
                                         && (installedBackend.loading
@@ -897,9 +897,8 @@ Item {
                     }
 
                     // The empty state stays centred in the list's own area, under the
-                    // header: a sentence, not an illustration. While a read is in
-                    // flight the indicator turns instead, so the list does not claim
-                    // there is nothing before it knows.
+                    // A sentence, not an illustration: while a read is in flight
+                    // the indicator turns, so the list never claims to be empty.
                     ColumnLayout {
                         anchors.centerIn: parent
                         width: parent.width - Kirigami.Units.largeSpacing * 2

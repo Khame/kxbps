@@ -73,10 +73,9 @@ QQC2.ItemDelegate {
     readonly property bool installed: model.installedVersion !== ""
     readonly property bool isUpdate: model.isUpdate === true
     readonly property bool queued: model.queuedAction !== ""
-    // What the checkbox sends when it is checked: the row's own action. An
-    // update outranks "installed" (queueing an update as an install would pin
-    // the old version); an installed package with no update is a removal; a
-    // package the machine does not hold is an install.
+    // The row's own action: an update outranks "installed", which would pin the
+    // old version; installed with no update is a removal; not installed is an
+    // install.
     readonly property string actionToken: delegate.isUpdate ? "update"
                                           : (delegate.installed ? "remove" : "install")
     readonly property bool canQueue: delegate.actionToken.length > 0

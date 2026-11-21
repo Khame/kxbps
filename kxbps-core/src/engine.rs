@@ -82,13 +82,11 @@ pub fn effective_updates(pending: &[UpdateEntry], installed: &InstalledMap) -> V
         .collect()
 }
 
-/// The entries the window counts and shows as updates.
+/// Only the `update` lines of a transaction.
 ///
-/// `xbps-install -un` prints the whole transaction, including the new
-/// dependencies the update will pull in as `install` lines. Those are not
-/// updates: the transaction installs them on its own, and a queue entry for one
-/// asks xbps to update a package the system does not hold. The dry run keeps
-/// them, because the plan shows every step.
+/// `xbps-install -un` also prints the dependencies it will install. Queueing
+/// one of those asks xbps to update a package the system does not hold. The
+/// dry-run plan keeps them, because it shows every step.
 pub fn pending_updates(entries: Vec<UpdateEntry>) -> Vec<UpdateEntry> {
     entries
         .into_iter()

@@ -863,9 +863,8 @@ mod tests {
         assert_eq!(remote[0].version, "9.2.2000_1");
     }
 
-    /// The same command prints the new dependencies the transaction installs
-    /// as `install` lines. They are not updates, and a row for one would ask
-    /// xbps to update a package the system does not hold.
+    /// The command also prints the dependencies it will install; a row for one
+    /// would ask xbps to update a package the system does not hold.
     #[test]
     fn a_fresh_check_drops_the_new_dependencies_of_the_update() {
         let reply = ok_reply(

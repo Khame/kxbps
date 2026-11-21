@@ -3,15 +3,14 @@
 
 // Where the KF6 headers sit, shared by `build.rs` and its tests.
 //
-// The shims include the KF6 headers by their bare names, so the compiler needs
-// `<prefix>/include/KF6/KI18n` and `<prefix>/include/KF6/KStatusNotifierItem`
-// on the include path. Qt names its own directory through `qmake -query
-// QT_INSTALL_HEADERS`, and in a cross build the qtconf in front of qmake makes
-// that answer with the target sysroot. KF6 installs next to Qt under the same
-// `include` root, and no qmake query names it.
+// The shims include them by bare name, so the compiler needs
+// `<prefix>/include/KF6/KI18n` and `.../KStatusNotifierItem`. Qt names its own
+// directory through `qmake -query QT_INSTALL_HEADERS`, which in a cross build
+// answers with the target sysroot; KF6 installs beside it, and no query names
+// it.
 
-/// The directory that holds both `qt6/` and `KF6/`, derived from the Qt header
-/// directory. A layout without KF6 next to Qt falls back to `/usr/include`.
+/// The directory holding both `qt6/` and `KF6/`. Falls back to `/usr/include`
+/// when KF6 is not next to Qt.
 pub fn include_root(qt_headers: &std::path::Path) -> std::path::PathBuf {
     match qt_headers.parent() {
         Some(root) if root.join("KF6").is_dir() => root.to_path_buf(),
