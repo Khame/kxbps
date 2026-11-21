@@ -74,6 +74,20 @@ def template_values(path: Path) -> dict[str, str]:
     return values
 
 
+def template_depends(path: Path) -> list[str]:
+    """depends from the template; INSTALL.md repeats it and can drift."""
+    text = path.read_text(encoding="utf-8")
+    match = re.search(r'^depends="([^"]+)"', text, re.MULTILINE | re.DOTALL)
+    if not match:
+        fail(f"{path} has no depends")
+    return match.group(1).split()
+
+
+def undocumented(depends: list[str]) -> list[str]:
+    text = (ROOT / "INSTALL.md").read_text(encoding="utf-8")
+    return [name for name in depends if name not in text]
+
+
 def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("--void-packages", help="a void-packages checkout with srcpkgs/kxbps")
@@ -91,6 +105,12 @@ def main() -> int:
     template = ROOT / "packaging/void/template"
     values = template_values(template)
     check("template version", values["version"], version)
+
+    depends = template_depends(template)
+    missing = undocumented(depends)
+    if missing:
+        fail(f"INSTALL.md does not name: {', '.join(missing)}")
+    print(f"ok   INSTALL.md names every template dependency: {len(depends)} packages")
 
     if args.tarball:
         tarball = Path(args.tarball)
