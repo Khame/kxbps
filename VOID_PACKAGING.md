@@ -45,7 +45,7 @@ files of the release and nothing from a working tree. The digest comes from the
 URL, never from a local copy:
 
 ```sh
-curl -fsSL https://github.com/Khame/kxbps/archive/refs/tags/v0.12.3.tar.gz |
+curl -fsSL https://github.com/Khame/kxbps/archive/refs/tags/v0.13.0.tar.gz |
     sha256sum
 ```
 
