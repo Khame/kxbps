@@ -23,7 +23,7 @@
 use kxbps_core::{
     InstalledPackage, SearchHit, SizeEntry, UpdateEntry, XbpsError, parse_depends, parse_installed,
     parse_pkgver_list, parse_properties, parse_search, parse_size_list, parse_updates,
-    split_pkgver,
+    pending_updates, split_pkgver,
 };
 
 use crate::xbps_runner::{
@@ -381,17 +381,19 @@ fn judge_remote(
         // report without turning it into a sentence.
         eprintln!("kxbps: {program} -M: {}", output.stderr.trim());
     }
-    parse_updates(&output.stdout).map_err(|err| match err {
-        XbpsError::MalformedLine { line, text, .. } => {
-            eprintln!("kxbps: {program} -M line {line} was not understood: {text}");
-            SnapshotError::Output {
-                program,
-                line,
-                text,
+    parse_updates(&output.stdout)
+        .map(pending_updates)
+        .map_err(|err| match err {
+            XbpsError::MalformedLine { line, text, .. } => {
+                eprintln!("kxbps: {program} -M line {line} was not understood: {text}");
+                SnapshotError::Output {
+                    program,
+                    line,
+                    text,
+                }
             }
-        }
-        XbpsError::Empty => SnapshotError::Empty { program },
-    })
+            XbpsError::Empty => SnapshotError::Empty { program },
+        })
 }
 
 /// Reads the whole system snapshot through `invoke`:
@@ -408,7 +410,7 @@ fn judge_remote(
 /// it.
 pub fn read_snapshot(invoke: &Invoke) -> Result<Snapshot, SnapshotError> {
     let mut installed = run_parsed(&installed_argv(), parse_installed, invoke)?;
-    let mut updates = run_parsed(&updates_argv(), parse_updates, invoke)?;
+    let mut updates = pending_updates(run_parsed(&updates_argv(), parse_updates, invoke)?);
     let explicit = run_parsed(&manual_argv(), parse_pkgver_list, invoke)?;
     let held = run_parsed(&held_argv(), parse_pkgver_list, invoke)?;
     let orphans = run_parsed(&orphans_argv(), parse_pkgver_list, invoke)?;
@@ -861,6 +863,25 @@ mod tests {
         assert_eq!(remote[0].version, "9.2.2000_1");
     }
 
+    /// The same command prints the new dependencies the transaction installs
+    /// as `install` lines. They are not updates, and a row for one would ask
+    /// xbps to update a package the system does not hold.
+    #[test]
+    fn a_fresh_check_drops_the_new_dependencies_of_the_update() {
+        let reply = ok_reply(
+            "vim-9.2.2000_1 update x86_64 https://r/current 10 20\n\
+             libquickjs-ng-0.18.0_1 install x86_64 https://r/current 1101084 502056\n",
+        );
+        let remote = read_remote_updates(&fixed(reply), 2).expect("a clean answer lands");
+        assert_eq!(
+            remote
+                .iter()
+                .map(|entry| entry.name.as_str())
+                .collect::<Vec<_>>(),
+            ["vim"]
+        );
+    }
+
     #[test]
     fn a_fresh_check_with_nothing_pending_is_an_empty_list() {
         let remote = read_remote_updates(&fixed(ok_reply("")), 2).expect("lands");
@@ -1104,6 +1125,31 @@ mod tests {
         assert!(snapshot.orphans.is_empty(), "nothing is orphaned");
         assert_eq!(snapshot.update_of("vim"), Some("9.2.2000_1"));
         assert_eq!(snapshot.update_of("ark"), None);
+    }
+
+    #[test]
+    fn read_snapshot_drops_the_new_dependencies_of_the_update() {
+        let mut modes = healthy_modes();
+        for (flag, reply) in &mut modes {
+            if *flag == "-un" {
+                *reply = ok_reply(
+                    "vim-9.2.2000_1 update x86_64 https://r/current 10 20\n\
+                     libquickjs-ng-0.18.0_1 install x86_64 https://r/current 1101084 502056\n",
+                );
+            }
+        }
+
+        let snapshot = read_snapshot(&transport_by_mode(modes)).expect("a healthy system");
+
+        assert_eq!(
+            snapshot
+                .updates
+                .iter()
+                .map(|entry| entry.name.as_str())
+                .collect::<Vec<_>>(),
+            ["vim"],
+            "the new dependency is the plan's business, not the update list's"
+        );
     }
 
     #[test]

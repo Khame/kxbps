@@ -82,6 +82,20 @@ pub fn effective_updates(pending: &[UpdateEntry], installed: &InstalledMap) -> V
         .collect()
 }
 
+/// The entries the window counts and shows as updates.
+///
+/// `xbps-install -un` prints the whole transaction, including the new
+/// dependencies the update will pull in as `install` lines. Those are not
+/// updates: the transaction installs them on its own, and a queue entry for one
+/// asks xbps to update a package the system does not hold. The dry run keeps
+/// them, because the plan shows every step.
+pub fn pending_updates(entries: Vec<UpdateEntry>) -> Vec<UpdateEntry> {
+    entries
+        .into_iter()
+        .filter(|entry| entry.action == crate::xbps::XbpsAction::Update)
+        .collect()
+}
+
 /// Drops the update entries a finished plan applied.
 ///
 /// [`effective_updates`] hides them from the window, but the store must not
@@ -378,6 +392,28 @@ mod tests {
                 .map(|entry| entry.name.as_str())
                 .collect::<Vec<_>>(),
             ["git"]
+        );
+    }
+
+    /// `xbps-install -un` prints the new dependencies the transaction will
+    /// install as `install` lines. They are not updates, and a queue entry for
+    /// one asks xbps to update a package the system does not hold.
+    #[test]
+    fn pending_updates_keeps_only_the_updates() {
+        let mut install = update("libquickjs-ng", "0.18.0_1");
+        install.action = crate::xbps::XbpsAction::Install;
+        let mut remove = update("obsolete", "1.0_1");
+        remove.action = crate::xbps::XbpsAction::Remove;
+        let entries = vec![update("vim", "9.2_1"), install, remove];
+
+        let updates = pending_updates(entries);
+
+        assert_eq!(
+            updates
+                .iter()
+                .map(|entry| entry.name.as_str())
+                .collect::<Vec<_>>(),
+            ["vim"]
         );
     }
 

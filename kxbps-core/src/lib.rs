@@ -24,7 +24,7 @@ pub mod xbps;
 
 pub use engine::{
     Plan, PlanTotals, apply_installed, drop_applied_updates, effective_updates, held_updates_in,
-    plan_totals, repos_from_installed, update_signature_of,
+    pending_updates, plan_totals, repos_from_installed, update_signature_of,
 };
 pub use format::{ByteUnit, action_key, byte_decimals, format_bytes, reason_key};
 pub use mirror_apply::{
