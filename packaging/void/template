@@ -4,8 +4,8 @@ version=0.12.3
 revision=1
 build_style=cargo
 # Cross builds: the helper writes a qmake6 wrapper whose qtconf points at the
-# target sysroot. cxx-qt-build finds Qt through QMAKE, and pre_build exports
-# the wrapper there.
+# target sysroot. cxx-qt-build finds Qt through qmake, and build.rs takes the
+# KF6 include root from the same answer.
 build_helper="qmake6"
 # lld: cxx-qt-build emits -fuse-ld=lld once it finds lld on the host; GNU ld
 # drops the initializers the generated C++ needs and the link fails.
@@ -32,14 +32,11 @@ homepage="https://kxbps.khame.dev/"
 distfiles="https://github.com/Khame/kxbps/archive/refs/tags/v${version}.tar.gz"
 checksum=0f69b9c6f9011e02264ca9c3d15fa54f1532e8dd1eced80a33c706ceb8de274e
 
-# A cross build compiles against the headers under ${XBPS_CROSS_BASE}/usr/include,
-# but build.rs names the KF6 and Qt integration directories under /usr/include
-# by hand. The patch goes away once build.rs asks qmake for QT_INSTALL_HEADERS.
+# The export stays inside CROSS_BUILD so a native build keeps the qmake path
+# from .cargo/config.toml.
 pre_build() {
 	if [ "$CROSS_BUILD" ]; then
 		export QMAKE="${XBPS_WRAPPERDIR}/qmake6"
-		vsed -i -e "s|/usr/include/|${XBPS_CROSS_BASE}/usr/include/|g" \
-			kxbps-qt/build.rs
 	fi
 }
 

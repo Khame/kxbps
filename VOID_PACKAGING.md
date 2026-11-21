@@ -173,10 +173,10 @@ sysroot, and `pre_build` exports that wrapper. `qt6-declarative-host-tools` is
 in `hostmakedepends` because `moc` and `qmlcachegen` run on the build host; the
 target copies in `qt6-declarative-tools` cannot execute there.
 
-`kxbps-qt/build.rs` still names the KF6 and Qt integration include directories
-under `/usr/include`, so the cross branch rewrites that path to
-`${XBPS_CROSS_BASE}`. The rewrite disappears once `build.rs` reads the directory
-from `qmake -query QT_INSTALL_HEADERS`.
+`kxbps-qt/build.rs` adds the KF6 and Qt integration include directories itself.
+It asks `qmake -query QT_INSTALL_HEADERS` for Qt's directory and takes the KF6
+root from its parent, so the wrapper above is all a cross build needs and
+nothing patches the source.
 
 ```sh
 ./xbps-src -a aarch64 pkg kxbps

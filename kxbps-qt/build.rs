@@ -4,6 +4,8 @@
 // Shared with the binary, which uses the same hash to tell when it is older
 // than the QML on disk.
 include!("src/qml_stamp.rs");
+// Shared with the binary's tests: where KF6 keeps its headers next to Qt's.
+include!("src/qt_headers.rs");
 
 /// Every QML file the module carries. A file missing here is never embedded,
 /// so the build fails on it instead of the window at runtime.
@@ -33,6 +35,22 @@ const QML_FILES: &[&str] = &[
     // feature, not the window.
     "qml/components/Notifier.qml",
 ];
+
+/// The Qt header directory as the build sees it: `/usr/include/qt6` natively,
+/// and `<sysroot>/usr/include/qt6` in a cross build, where `QMAKE` points at
+/// the wrapper carrying the target qtconf. `None` when qmake cannot answer.
+fn qt_headers() -> Option<std::path::PathBuf> {
+    let qmake = std::env::var("QMAKE").unwrap_or_else(|_| "/usr/lib/qt6/bin/qmake6".to_owned());
+    let output = std::process::Command::new(qmake)
+        .args(["-query", "QT_INSTALL_HEADERS"])
+        .output()
+        .ok()?;
+    if !output.status.success() {
+        return None;
+    }
+    let path = String::from_utf8(output.stdout).ok()?;
+    Some(std::path::PathBuf::from(path.trim()))
+}
 
 fn main() {
     let manifest_dir = std::env::var("CARGO_MANIFEST_DIR").expect("CARGO_MANIFEST_DIR is set");
@@ -140,14 +158,17 @@ fn main() {
     // needed as well: `lib.rs` includes `k18n_shim.h` from there and the
     // generated C++ lives in the build directory, so the relative lookup fails.
     let src_dir = format!("{manifest_dir}/src");
+    let qt_include = qt_headers().unwrap_or_else(|| std::path::PathBuf::from("/usr/include/qt6"));
+    let kf6_root = include_root(&qt_include);
     let builder = unsafe {
         builder.cc_builder(move |cc| {
-            cc.include("/usr/include/KF6/KI18n");
-            cc.include("/usr/include/KF6/KStatusNotifierItem");
+            // The shims include the KF6 headers by their bare names.
+            cc.include(kf6_root.join("KF6/KI18n"));
+            cc.include(kf6_root.join("KF6/KStatusNotifierItem"));
             // `KLocalizedQmlContext` includes `qqmlintegration.h`, which lives in
             // Qt's integration module: `pkg-config Qt6Qml` adds this path, the
             // include list CXX-Qt assembles does not.
-            cc.include("/usr/include/qt6/QtQmlIntegration");
+            cc.include(qt_include.join("QtQmlIntegration"));
             cc.include(&src_dir);
         })
     };
