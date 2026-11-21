@@ -1697,7 +1697,7 @@ mod tests {
             (
                 "-p",
                 ok_reply(
-                    "asusctl-1_1\nDaemon\nhttps://example.org\nMPL-2.0\n44MB\n/home/khame/hostdir/binpkgs\ninstalled\n14MB\nVoid Team <team@example.org>\nx86_64\n2026-01-02 03:04 UTC\n",
+                    "asusctl-1_1\nDaemon\nhttps://example.org\nMPL-2.0\n44MB\n/srv/xbps/binpkgs\ninstalled\n14MB\nVoid Team <team@example.org>\nx86_64\n2026-01-02 03:04 UTC\n",
                 ),
             ),
             (
