@@ -100,9 +100,10 @@ starts them; there is nothing to run by hand.
 
 ## Requirements
 
-Runtime: Qt 6 base and declarative, KF6 Kirigami, KI18n, Sonnet and the desktop
-style for Qt Quick Controls, the StatusNotifierItem module for the tray, polkit,
-xbps.
+Runtime: Qt 6 base and declarative, the `qt6-svg` imageformat plugin, the
+`qt6-plugin-tls-openssl` TLS backend, KF6 Kirigami, KI18n, Sonnet and the
+desktop style for Qt Quick Controls, the StatusNotifierItem module for the
+tray, polkit, xbps.
 
 Build: Rust 1.99 or newer, and `lld`. cxx-qt asks the linker to use lld, and GNU
 ld drops the initializers the generated C++ needs, so without lld the link fails
