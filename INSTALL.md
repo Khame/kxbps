@@ -91,9 +91,10 @@ install.
 `qt6-base`, `qt6-declarative`, `kf6-kirigami`, `kf6-ki18n`,
 `kf6-qqc2-desktop-style` (the style Kirigami asks for), `kf6-sonnet` (the
 spell-check module the text fields load), `kf6-kstatusnotifieritem` (the tray),
-`qt6-svg` (the imageformat plugin that draws the icons), `polkit` (for
-`pkexec`), `xbps` (for the tools the window runs). Build dependencies: the
-`xbps-install` line above.
+`qt6-svg` (the imageformat plugin that draws the icons),
+`qt6-plugin-tls-openssl` (the TLS backend `QNetworkAccessManager` loads for
+HTTPS), `polkit` (for `pkexec`), `xbps` (for the tools the window runs). Build
+dependencies: the `xbps-install` line above.
 
 ## Checking the install
 

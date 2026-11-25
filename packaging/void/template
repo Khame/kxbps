@@ -1,7 +1,7 @@
 # Template file for 'kxbps'
 pkgname=kxbps
 version=0.13.0
-revision=1
+revision=2
 build_style=cargo
 # Cross builds: the helper writes a qmake6 wrapper whose qtconf points at the
 # target sysroot. cxx-qt-build finds Qt through qmake, and build.rs takes the
@@ -20,11 +20,12 @@ makedepends="qt6-base-devel qt6-declarative-devel kf6-kirigami-devel
 #  kf6-kirigami, kf6-qqc2-desktop-style  QML modules loaded by import, never linked
 #  kf6-sonnet   loaded by the desktop style's text fields, not imported here
 #  qt6-svg      the imageformat plugin that draws the SVG icons
+#  qt6-plugin-tls-openssl  the TLS backend QNetworkAccessManager loads for HTTPS
 #  polkit       pkexec, started by absolute path
 #  xbps         xbps-query/xbps-install, started by absolute path
 #  kf6-kstatusnotifieritem  linked; listed for clarity
 depends="kf6-kirigami kf6-kstatusnotifieritem kf6-qqc2-desktop-style kf6-sonnet
- polkit qt6-svg xbps"
+ polkit qt6-plugin-tls-openssl qt6-svg xbps"
 short_desc="Native KDE Plasma front end for the xbps package manager"
 maintainer="Khame <khame.dev@protonmail.com>"
 license="GPL-3.0-or-later"

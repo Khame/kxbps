@@ -100,7 +100,10 @@ last one is easy to miss: the icons are SVG, the shlib scan sees no dependency,
 and `QT_DEBUG_PLUGINS=1` is what shows the window loading `libqsvgicon.so`.
 Without the package every icon the window draws comes out blank. The two KF6
 QML modules fail the same quiet way: the window starts and a binding logs a
-missing import instead of the package being reported.
+missing import instead of the package being reported. `qt6-plugin-tls-openssl`
+is the same kind of miss: Qt loads the TLS backend at runtime, and without it
+the mirror probe fails with `qt.network.ssl: No functional TLS backend was
+found`.
 
 There is no `vlicense`: the Manual requires the license file in the package for
 AGPL, MIT, BSD, ISC, X11 and custom licenses, and this one is
