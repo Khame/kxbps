@@ -77,7 +77,8 @@ tar tzf kxbps-<version>.tar.gz | grep -v '/$' | sed 's|^kxbps-<version>/||' |
 
 An empty answer is what a clean release looks like.
 
-The template does not use `FILESDIR`.
+`files/` carries the i686 QVariant patch; `pre_patch` applies it only when
+`XBPS_TARGET_MACHINE` is `i686`.
 
 ## About the template
 
@@ -109,8 +110,8 @@ There is no `vlicense`: the Manual requires the license file in the package for
 AGPL, MIT, BSD, ISC, X11 and custom licenses, and this one is
 `GPL-3.0-or-later`.
 
-No runit service: the window is a session program, not a daemon. The package
-carries no patches.
+No runit service: the window is a session program, not a daemon. The one
+patch is the i686 QVariant fix; `pre_patch` applies it only on i686.
 
 ## Building locally
 
