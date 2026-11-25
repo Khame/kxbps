@@ -5,7 +5,7 @@ the project uses semantic versioning.
 
 ## [0.13.0_3] - 2026-11-25
 
-Packaging revision: the source is the `v0.13.0` tag plus a backport patch.
+Packaging revision: the `v0.13.0` tag plus a backport patch.
 
 ### Fixed
 
@@ -18,27 +18,22 @@ Packaging revision: the source is the `v0.13.0` tag plus a backport patch.
 
 ### Added
 
-- The details pane shows the homepage as a link, the maintainer, the
-  architecture and the install date.
-- A row checkbox queues that row's own action, so one package can be queued
-  without opening it.
-- The Orphaned page counts the packages and marks them all for removal.
-- A busy indicator shows while the package list loads.
-- Remove asks xbps for the unneeded dependencies too (`-R`).
+- Details pane: homepage link, maintainer, architecture and install date.
+- A row checkbox queues that row's action without opening it.
+- The Orphaned page counts the packages and can mark them all for removal.
+- Busy indicator while the package list loads.
+- Removal also drops unneeded dependencies (`-R`).
 - About links the project website.
 
 ### Fixed
 
-- New dependencies of an update no longer appear in the update list. xbps
-  prints them as `install` lines, and queueing one asked xbps to update a
-  package the system does not hold.
+- New dependencies of an update no longer appear in the update list.
 - The log keeps following new lines.
 - A local search stays inside the active filter.
 
 ### Changed
 
-- Catalogs for the new strings. The non-Polish catalogs had been missing
-  strings and got them back.
+- Translations for the new strings; the non-Polish catalogs had lost some.
 
 ### Notes
 
@@ -48,180 +43,110 @@ Packaging revision: the source is the `v0.13.0` tag plus a backport patch.
 
 ### Removed
 
-- The `Minimize to the tray` switch. KWin on Wayland does not notify the client
-  of a compositor minimize, so the switch had no effect there. Closing the
-  window still hands it to the tray, and the icon brings it back.
+- The "Minimize to the tray" switch. KWin on Wayland does not report a
+  compositor minimize, so it did nothing there. Closing the window still hides
+  it to the tray.
 
 ### Notes
 
-- A `prefs.json` written by 0.12.2 still loads. The retired `minimizeToTray` key
-  is ignored and dropped the next time the file is saved.
+- A `prefs.json` from 0.12.2 still loads; the retired `minimizeToTray` key is
+  dropped on the next save.
 
 ## [0.12.2] - 2026-11-17
 
 ### Added
 
-- The Mirrors page names the repository xbps resolves, tail included, in one
-  line under the table: `xbps reads https://repo-default.voidlinux.org/current/musl`.
-  The Address column can only show the mirror base, and two systems on the same
-  mirror read a different repository when the tail differs.
-- Settings has a `Minimize to the tray` switch, off by default. With it on, the
-  minimize button hides the window and the tray icon brings it back, maximized
-  if it was maximized. Closing the window already went to the tray whenever a
-  status notifier host exists, so the switch covers the minimize button alone,
-  and without a host the window stays in the task bar rather than disappearing
-  with no way back.
+- The Mirrors page names the repository xbps reads, tail included:
+  `xbps reads https://repo-default.voidlinux.org/current/musl`.
+- Settings has a "Minimize to the tray" switch, off by default.
 
 ### Fixed
 
-- Switching mirrors on a musl system wrote a glibc repository. The path after
-  `/current` names the architecture and the repository set (`musl`,
-  `multilib/nonfree`), and the helper rebuilt the URL from the mirror alone, so
-  a musl host was pointed at the glibc tree. The helper now keeps that tail from
-  the file it replaces, and reads it from
-  `/usr/share/xbps.d/00-repository-main.conf` when there is no local file yet. A
-  tail that is not a plain path is refused before anything is written.
-- The Mirrors page reported a missing `/etc/xbps.d/00-repository-main.conf` on a
-  fresh install. xbps merges `/etc/xbps.d` over `/usr/share/xbps.d`, so a system
-  that never had its mirror switched runs on the packaged file. The page reads
-  that file when the local one does not exist, and still reports a file that
-  exists but cannot be read.
+- Switching mirrors on musl wrote a glibc repository. The helper now keeps the
+  path tail (`musl`, `multilib/nonfree`) from the file it replaces.
+- The Mirrors page reported a missing `/etc/xbps.d/00-repository-main.conf` on
+  a fresh install, where xbps runs on the packaged file in `/usr/share/xbps.d`.
 
 ## [0.12.1] - 2026-11-17
 
 ### Fixed
 
-- Apply needed a second click on a queue of updates. xbps names a package it
-  has already taken as a dependency of an earlier argument with
-  ``Package `x' already installed.``, and prints the same package as an
-  `update` row at the same time. The plan read that sentence as "nothing to do"
-  and dropped the entry, so a queue of twenty updates came back as eleven after
-  the first Apply while nothing had been installed. The satisfied list is now
-  the names the plan does not carry, and an aborted transaction is reported
-  instead of being read as an empty plan. The count that the drop moved also
-  cancelled the request the dialog was waiting for, so the answer the plan had
-  just computed was thrown away; the plan marks that change as its own
-  bookkeeping now, and one click runs the transaction.
-- The details pane kept describing a package the list no longer showed. The
-  selection survived a row that left the list, and a filter or search change
-  kept the row number, so the pane followed that number onto whatever package
-  now sat there. The selection clears with the row, and a filter or search
-  change resets the current row and closes the pane.
-- The log drawer set an explicit height inside a column layout, so in a short
-  window the layout could not shrink it: the bar was pushed past the bottom
-  edge and the copy button was cut in half. The drawer reports its height
-  through `implicitHeight` and the bar is as tall as its button plus one
-  padding step above and below.
-- The polkit password dialog showed English in a Polish session. A `.policy`
-  file has no gettext, so each action now carries the seven languages `po/`
-  ships next to the English element that stays the default.
-- `build.rs` watches `qml/`. Cargo stopped running the build script after the
-  first pass, so a QML edit stayed out of the binary and a change could look
-  like it did nothing.
+- Apply needed a second click on a queue of updates. xbps prints "already
+  installed" for a package it took as a dependency and lists the same package
+  as an update; the plan read that as "nothing to do" and dropped the entry.
+- The details pane kept describing a package the list no longer showed after a
+  filter or search change.
+- The log drawer set a fixed height inside a column, so a short window pushed
+  the bar past the bottom edge.
+- The polkit dialog showed English in a Polish session. Each action now carries
+  the seven languages `po/` ships.
+- `build.rs` watches `qml/`, so a QML edit reaches the binary.
 
 ### Changed
 
-- The sidebar entry for the updates page is called "Aktualizacje", the same
-  word the page title uses; the pill in the rows keeps "Do aktualizacji",
-  which names the state of a row.
-- The help page reads as a centred column with a rule between sections and the
-  filter term in bold.
+- The sidebar entry reads "Aktualizacje", the same word as the page title.
+- The help page is a centred column with rules between sections.
 
 ## [0.12.0] - 2026-11-15
 
 ### Added
 
-- The Updates page has the real sync: `xbps-install -S` through polkit, which
-  writes the repository indexes to disk and asks for the password. The toolbar
-  Refresh is not shown on that page, because it only re-reads what is already
-  there.
+- The Updates page syncs: `xbps-install -S` through polkit, writing the indexes
+  to disk.
 
 ### Fixed
 
-- The Available list read the repository index from disk, which nothing in the
-  window moved: a package added to a repository stayed invisible until an
-  install or a terminal `xbps-install -S`. The listing is now refreshed against
-  the repositories on the same clock as the update check, and the footer says
-  so while it runs.
-- Typing a name on that page asked xbps again, so the fresh listing and the
-  search could disagree. A typed word now filters the listing in memory, exact
-  name first; only a pattern with regex syntax, or a local match that finds
-  nothing, goes to `xbps-query -Rs`.
-- The details pane stayed empty for any package whose facts were already
-  cached: the pointer that says which package the pane is showing moved only
-  when a read started. It now follows every selection, and the change is
-  announced so the pane redraws.
-- The pane asked for the download size only in the repository take, so a
-  package the index does not know at that version showed `—` while the
-  installed record had the number. The row now reads download first, then the
-  size on disk.
+- The Available list read the index from disk, so a new package stayed
+  invisible until a sync. It now refreshes against the repositories on the same
+  clock as the update check.
+- A typed name filters the listing in memory, so the fresh listing and the
+  search no longer disagree.
+- The details pane stayed empty for packages whose facts were cached; it now
+  follows every selection.
+- Download size is read from the repository first, then from the installed
+  record.
 
 ## [0.11.0] - 2026-11-15
 
 ### Added
 
-- The mirror table carries the address xbps is pointed at and the tier
-  `xmirror` prints, `T1`/`T2`: two mirrors in the same city are no longer two
-  rows that read the same, and a community mirror is not mistaken for an
-  upstream one.
-- The log drawer copies its lines with one button, the way the About page
-  copies the library list. A report about a failed transaction usually starts
-  by pasting the output somewhere else.
+- The mirror table shows the address xbps uses and the tier `xmirror` prints.
+- One button copies the log lines.
 
 ### Changed
 
-- The mirror page uses the window's chrome: the region filter sits on the
-  toolbar, the count in the page footer, and the rows are one line with a
-  hairline between them.
-- The sort heading is `Ping`, in the last column and muted like every other
-  heading: the number is what the sweep produces, and the row's own facts come
-  first.
-- The sidebar and the log draw the KXbps symbolic icon set, and every icon name
-  lives in one registry.
-- The About page is rebuilt around the real build, and the Help page describes
-  the workflow the tool actually has.
-- Polish says "pakiet" everywhere; the package column still said "Paczka".
+- The mirror page uses the window chrome: region filter on the toolbar, count
+  in the footer, one line per row.
+- The sort heading is `Ping`, muted like the others.
+- The sidebar and the log use the KXbps icon set from one registry.
+- The About page describes the real build; the Help page the real workflow.
+- Polish says "pakiet" everywhere.
 
 ### Fixed
 
-- A mirror row with no country pushed that row's address, region, tier and
-  state to the left, because its server cell could not grow.
-- The sort direction reached the list but never the heading: the arrow and the
-  accessible name kept saying "ascending".
-- Hold runs `xbps-pkgdb` instead of flipping a local flag, so the system and the
-  store agree.
-- The mirror probe covers the rows the filter leaves visible, and Apply stays
-  usable while it runs.
+- A mirror row without a country no longer pushes its cells left.
+- The sort arrow and the accessible name follow the sort direction.
+- Hold runs `xbps-pkgdb`, so the system and the store agree.
+- The probe covers the rows the filter leaves visible; Apply stays usable.
 - The log button and the mirror badge stay readable on the dark strip.
 
 ## [0.10.1] - 2026-11-15
 
 ### Changed
 
-- The details pane is a header, a fact grid and one row of actions: the queue
-  action on the left, Files and Hold on the right. Dependencies and "required
-  by" are one name per token in two aligned columns, so a version constraint
-  stays next to the package it belongs to instead of running into a paragraph.
-- The file list lives in a dialog behind Files, and the Query page is gone: the
-  page repeated what the rest of the window already shows, and the one
-  diagnostic it still owned (`-f`) now sits next to the package it describes.
-- Buttons hug their label at 85% of the theme font, and the application font is
-  capped at 10 pt, so a toolbar row no longer carries a tall empty box around
-  every label.
-- Buttons are flat. Only Apply and Apply to system keep a frame: the two
-  controls that change the machine should not read like the rest.
-- A button no longer underlines the letter of its mnemonic; Alt+letter still
-  activates it.
-- Polish says "pakiet", not "paczka" — the old word means a parcel.
+- The details pane is a header, a fact grid and one row of actions.
+- Dependencies and "required by" are one name per token in two aligned columns.
+- The file list is a dialog behind Files; the Query page is gone.
+- Buttons hug their label, and the font is capped at 10 pt.
+- Buttons are flat except Apply and Apply to system.
+- A button no longer underlines its mnemonic letter.
+- Polish says "pakiet", not "paczka".
 
 ### Fixed
 
 - The details pane asks the repository index for the file list of a package
-  that is not installed, instead of answering with exit code 2 and an empty
-  detail.
-- The Available page answers every repository-listing request. The backend used
-  to skip a pattern it had already delivered, so every visit after the first
-  waited for an answer that never came.
+  that is not installed.
+- The Available page answers every repository-listing request.
 
 ## [0.10.0] - 2026-11-14
 
@@ -231,67 +156,42 @@ line can still change.
 ### Added
 
 - Package table with filters for installed, upgradable, available, queued,
-  explicit, orphaned and held packages, each read from xbps on demand.
-- Queue that shows the dry-run plan and applies it through `pkexec` and polkit,
-  with the exact commands in the Log drawer.
-- Details pane for one package: installed and repository versions, sizes,
-  dependencies and what requires it.
-- Mirrors page that lists the mirror catalogue, shows the system mirror and
-  switches it, keeping a backup of the previous configuration file.
-- Repositories page that lists the files under `/etc/xbps.d` and adds or removes
-  the `20-kxbps-*.conf` files KXbps owns.
-- Search across the configured repositories, separate from the installed set.
-- Update-check interval in Settings: 30 minutes, 1, 3, 6, 12 or 24 hours,
-  default 6 hours. The tray re-check follows the same preference.
-- Fresh update checks through `xbps-install -M -un`, which fetches the
-  repository indexes into memory without root and writes nothing. The
-  Upgradable page has a Check for updates button, and the status bar names a
-  failed check and the age of the last good list instead of claiming the system
-  is current.
-- Desktop notification when updates are available: one per set of updates, one
-  reminder after three hours, then only the tray icon. Clicking the popup opens
-  the window on the Upgradable list, and two Settings switches decide what is
-  announced.
-- Tray icon in two states: the plain stack and the stack with an arrow while
-  updates wait. The icon is a theme name, so the panel recolours it, and the
-  tooltip carries the count.
-- The dock icon carries the number of available updates. The app publishes the
-  Unity `LauncherEntry` badge through stock Qt, and Plasma's task manager draws
-  it on the task button; zero clears it. A windowless `--tray` instance has no
-  task button, so the tray icon stays the indicator there.
-- Help page in the window: the queue, the update checks, authorisation and
-  where the state lives, translated with the rest of the interface.
-- `--help` and `--version` on the command line, answered before Qt starts, so
-  they work without a display, and a `kxbps(1)` manual page.
-- The update check's own xbps output, and the command it ran, in the Log
-  drawer. A check is not a transaction, so its lines get a model of their own.
+  explicit, orphaned and held packages, read from xbps on demand.
+- Queue with the dry-run plan, applied through `pkexec` and polkit, commands
+  shown in the log.
+- Details pane: versions, sizes, dependencies and what requires the package.
+- Mirrors page: catalogue, system mirror, switching, backup of the old file.
+- Repositories page: files under `/etc/xbps.d`, adding and removing the
+  `20-kxbps-*.conf` files.
+- Search across the configured repositories.
+- Update-check interval in Settings, from 30 minutes to 24 hours.
+- Fresh checks through `xbps-install -M -un`, which writes nothing; the status
+  bar names a failed check and the age of the last good list.
+- Desktop notification for available updates, one per set and one reminder
+  after three hours.
+- Tray icon in two states, drawn from the theme so the panel recolours it.
+- Dock badge with the update count through the Unity `LauncherEntry`.
+- Help page in the window.
+- `--help` and `--version` before Qt starts, plus a `kxbps(1)` page.
+- The update check's xbps output in the log.
 - Translations into German, Spanish, French, Italian, Dutch, Polish and
-  Brazilian Portuguese, Kirigami theme colours throughout, and a window that
-  fits the screen at any scale factor.
+  Brazilian Portuguese.
 
 ### Changed
 
-- New icon set: a stack of packages for the application, and a monochrome tray
-  icon that switches to the update variant while updates are waiting. The tray
-  icon is a theme name, so Plasma recolours it for the panel.
-- Settings has the start-time switch back: "Announce available updates on
-  startup" keeps a start silent and lets a check run from the window report,
-  while "Use desktop notifications" covers the popups as a whole.
-- The log drawer is called `Log`. It shows what xbps printed, but the old name
-  read as another program's log rather than a part of this window.
-- The Log drawer's bar sits on the bottom edge: the log grows upward from the
-  status strip, so the control that opened it belongs at that edge.
+- New icon set, including the tray icon that switches while updates wait.
+- Settings: "Announce available updates on startup" and "Use desktop
+  notifications".
+- The log drawer is called `Log`.
+- The log bar sits on the bottom edge.
 
 ### Fixed
 
 - The log drawer opens before the first transaction and says there is nothing
-  to show yet. The button used to be disabled until a transaction had run,
-  which read as a broken control.
+  to show yet.
 
 ### Notes
 
-- The catalogs other than Polish are a first pass and have not been reviewed by
-  native speakers; corrections belong in `po/<lang>.po`.
-- The mirror and repository helpers run `xbps-install -S` after writing a file,
-  because `xbps-query` skips a repository without an index without a word. A
-  failed sync leaves the configuration in place and reports a warning.
+- Catalogs other than Polish are a first pass, not reviewed by native speakers.
+- The mirror and repository helpers run `xbps-install -S` after writing a file;
+  a failed sync leaves the configuration and reports a warning.
