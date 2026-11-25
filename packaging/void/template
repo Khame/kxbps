@@ -37,7 +37,7 @@ checksum=3c237e69f67a8e3c4c054a41c9756578ae4e34da68754cdcbdfe4fcbdadc7b0a
 # 32-bit Qt builds a 16-byte QVariant, so the C++ static_assert fires with
 # (20 == 16) and the build stops. The fix is not upstream (no release after
 # 0.10.0, master still has [usize; 3]), so we carry it here.
-# Patch by zenobit <zen@osowos.org>, from oSoWoSo/oco; the file keeps his
+# Patch by zenobit <zen@osowoso.org>, from oSoWoSo/oco; the file keeps his
 # From/Source header. Verified on Void i686 with the source that reports
 # 0.13.0 (main); 0.13.1 has not been rebuilt since this change.
 # The patch lives in files/, not patches/, because it only applies after
