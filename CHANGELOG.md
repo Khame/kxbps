@@ -3,18 +3,10 @@
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 the project uses semantic versioning.
 
-## [0.13.0_3] - 2026-11-25
-
-Packaging revision: the `v0.13.0` tag plus a backport patch.
-
-### Fixed
-
-- The update list reloads when a transaction ends. Applied rows stayed on
-  screen until the next check or a restart.
-- The reload also runs when xbps exits non-zero after doing the work, as in a
-  `replaces` cleanup.
-
 ## [0.13.0] - 2026-11-21
+
+The 0.13.0_3 package revision backports two fixes; the source stays the
+`v0.13.0` tag.
 
 ### Added
 
@@ -30,6 +22,10 @@ Packaging revision: the `v0.13.0` tag plus a backport patch.
 - New dependencies of an update no longer appear in the update list.
 - The log keeps following new lines.
 - A local search stays inside the active filter.
+- The update list reloads when a transaction ends. Applied rows stayed on
+  screen until the next check or a restart.
+- The reload also runs when xbps exits non-zero after doing the work, as in a
+  `replaces` cleanup.
 
 ### Changed
 
