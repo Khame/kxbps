@@ -9,12 +9,10 @@ Packaging revision: the source is the `v0.13.0` tag plus a backport patch.
 
 ### Fixed
 
-- The update list clears itself when a transaction ends. It is built from a
-  snapshot taken at the last read, and nothing re-read it afterwards, so the
-  rows stayed on screen — with no checkbox, because the queue was already
-  applied — until a manual refresh or a restart.
-- The same read now happens when xbps exits non-zero after doing the work, as
-  it does for a `replaces` cleanup: the installed set moved either way.
+- The update list reloads when a transaction ends. Applied rows stayed on
+  screen until the next check or a restart.
+- The reload also runs when xbps exits non-zero after doing the work, as in a
+  `replaces` cleanup.
 
 ## [0.13.0] - 2026-11-21
 
@@ -34,8 +32,6 @@ Packaging revision: the source is the `v0.13.0` tag plus a backport patch.
 - New dependencies of an update no longer appear in the update list. xbps
   prints them as `install` lines, and queueing one asked xbps to update a
   package the system does not hold.
-- A debug build notices when the QML on disk is newer than the binary instead
-  of showing the previous layout.
 - The log keeps following new lines.
 - A local search stays inside the active filter.
 
@@ -46,11 +42,6 @@ Packaging revision: the source is the `v0.13.0` tag plus a backport patch.
 
 ### Notes
 
-- The Void template cross-builds for aarch64. The qmake6 helper points
-  cxx-qt-build at the target sysroot, and the host QML tools run on the build
-  host. `build.rs` reads the Qt and KF6 include directories from
-  `qmake -query QT_INSTALL_HEADERS`, so the template no longer patches the
-  source.
 - The package homepage points at the project site.
 
 ## [0.12.3] - 2026-11-18
