@@ -3,6 +3,19 @@
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 the project uses semantic versioning.
 
+## [0.13.0_3] - 2026-11-25
+
+Packaging revision: the source is the `v0.13.0` tag plus a backport patch.
+
+### Fixed
+
+- The update list clears itself when a transaction ends. It is built from a
+  snapshot taken at the last read, and nothing re-read it afterwards, so the
+  rows stayed on screen — with no checkbox, because the queue was already
+  applied — until a manual refresh or a restart.
+- The same read now happens when xbps exits non-zero after doing the work, as
+  it does for a `replaces` cleanup: the installed set moved either way.
+
 ## [0.13.0] - 2026-11-21
 
 ### Added
